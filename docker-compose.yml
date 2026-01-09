@@ -14,7 +14,7 @@ services:
       context: .
       dockerfile: admin_web/Dockerfile
     ports:
-      - "8008:8000"
+      - "8888:8000"
     env_file:
       - .env
     volumes:

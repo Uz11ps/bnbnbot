@@ -76,16 +76,9 @@ async def set_commands(bot: Bot) -> None:
 async def main() -> None:
     settings = load_settings()
 
-    # Учитываем системные переменные прокси для HTTPS
-    proxy_url = settings.proxy.as_url()
-    if proxy_url:
-        # Для requests HTTPS прокси обычно указываются как http://<host>:<port> (CONNECT)
-        proxy_http = proxy_url.replace("https://", "http://")
-        os.environ["HTTPS_PROXY"] = proxy_http
-        os.environ["https_proxy"] = proxy_http
-        os.environ["HTTP_PROXY"] = proxy_http
-        os.environ["http_proxy"] = proxy_http
-
+    # Учитываем системные переменные прокси только если они явно нужны (в данном случае для ТГ они не нужны)
+    # т.к. сервер находится в Европе. Удаляем глобальную установку прокси.
+    
     bot = Bot(
         token=settings.bot_token,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),

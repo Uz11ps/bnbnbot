@@ -19,8 +19,9 @@ DB_PATH = "data/bot.db"
 LOG_PATH = "data/bot.log"
 settings = load_settings()
 
-ADMIN_USER = "admin"
-ADMIN_PASS = "jahlYq9pMcT2Ufq6"
+# Данные для входа
+ADMIN_USER = "123"
+ADMIN_PASS = "123"
 
 def get_current_username(credentials: HTTPBasicCredentials = Depends(security)):
     correct_username = secrets.compare_digest(credentials.username, ADMIN_USER)

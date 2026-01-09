@@ -7,3 +7,4 @@ aiogram
 pydantic
 pydantic-settings
 python-dotenv
+httpx

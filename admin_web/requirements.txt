@@ -3,4 +3,4 @@ uvicorn
 jinja2
 aiosqlite
 python-multipart
-
+aiogram

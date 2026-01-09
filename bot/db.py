@@ -1,0 +1,907 @@
+import aiosqlite
+from typing import Optional
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+CREATE_USERS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY,
+    username TEXT,
+    first_name TEXT,
+    last_name TEXT,
+    accepted_terms INTEGER NOT NULL DEFAULT 0,
+    blocked INTEGER NOT NULL DEFAULT 0,
+    balance INTEGER NOT NULL DEFAULT 0,
+    referrer_id INTEGER,
+    referral_balance INTEGER NOT NULL DEFAULT 0,
+    language TEXT NOT NULL DEFAULT 'ru',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+"""
+
+CREATE_SUBSCRIPTIONS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS subscriptions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    plan_type TEXT NOT NULL,         -- '2days', '7days', 'pro', 'max', 'ultra_4k', 'ultra_business_4k', 'ultra_enterprise_4k'
+    expires_at TIMESTAMP NOT NULL,
+    daily_limit INTEGER NOT NULL,
+    daily_usage INTEGER NOT NULL DEFAULT 0,
+    last_usage_reset TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(user_id) REFERENCES users(id)
+);
+"""
+
+CREATE_GENERATION_HISTORY_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS generation_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pid TEXT UNIQUE NOT NULL,         -- PID000000000
+    user_id INTEGER NOT NULL,
+    category TEXT,
+    params TEXT,                     -- JSON с параметрами
+    input_photos TEXT,               -- JSON с file_id входящих фото
+    result_photo_id TEXT,            -- file_id результата
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(user_id) REFERENCES users(id)
+);
+"""
+
+UPDATE_TRIGGER_SQL = """
+CREATE TRIGGER IF NOT EXISTS users_updated_at
+AFTER UPDATE ON users
+FOR EACH ROW
+BEGIN
+  UPDATE users SET updated_at = CURRENT_TIMESTAMP WHERE id = OLD.id;
+END;
+"""
+
+CREATE_PROMPTS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS prompts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    text TEXT NOT NULL
+);
+"""
+
+CREATE_MODELS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS models (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    category TEXT NOT NULL,
+    cloth TEXT NOT NULL,
+    name TEXT NOT NULL,
+    prompt_id INTEGER NOT NULL,
+    position INTEGER NOT NULL DEFAULT 0,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    photo_file_id TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(prompt_id) REFERENCES prompts(id)
+);
+"""
+
+CREATE_API_KEYS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS api_keys (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    token TEXT NOT NULL,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    priority INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+"""
+
+CREATE_OWN_VARIANT_API_KEYS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS own_variant_api_keys (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    token TEXT NOT NULL,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    priority INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+"""
+
+CREATE_OWN_VARIANT_RATE_LIMIT_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS own_variant_rate_limit (
+    key_id INTEGER NOT NULL,
+    date DATE NOT NULL,
+    minute_start INTEGER NOT NULL,
+    requests_count INTEGER NOT NULL DEFAULT 0,
+    tokens_used INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (key_id, date, minute_start),
+    FOREIGN KEY(key_id) REFERENCES own_variant_api_keys(id)
+);
+"""
+
+CREATE_OWN_VARIANT_RATE_LIMIT_INDEX_SQL = """
+CREATE INDEX IF NOT EXISTS idx_own_variant_rate_limit_date ON own_variant_rate_limit(key_id, date);
+"""
+
+CREATE_APP_SETTINGS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS app_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+"""
+
+CREATE_TRANSACTIONS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS transactions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    amount INTEGER NOT NULL,
+    type TEXT NOT NULL,           -- 'topup' | 'spend' | 'adjust'
+    reason TEXT,                  -- 'generation' | 'edit_generation' | 'admin_add' | 'admin_remove' | ...
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+"""
+
+
+class Database:
+    def __init__(self, db_path: str = "bot.db") -> None:
+        self._db_path = db_path
+
+    async def init(self) -> None:
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute("PRAGMA journal_mode=WAL;")
+            await db.execute(CREATE_USERS_TABLE_SQL)
+            await db.execute(UPDATE_TRIGGER_SQL)
+            await db.execute(CREATE_PROMPTS_TABLE_SQL)
+            await db.execute(CREATE_MODELS_TABLE_SQL)
+            await db.execute(CREATE_API_KEYS_TABLE_SQL)
+            await db.execute(CREATE_OWN_VARIANT_API_KEYS_TABLE_SQL)
+            await db.execute(CREATE_OWN_VARIANT_RATE_LIMIT_TABLE_SQL)
+            await db.execute(CREATE_OWN_VARIANT_RATE_LIMIT_INDEX_SQL)
+            await db.execute(CREATE_APP_SETTINGS_TABLE_SQL)
+            await db.execute(CREATE_TRANSACTIONS_TABLE_SQL)
+            await db.execute(CREATE_SUBSCRIPTIONS_TABLE_SQL)
+            await db.execute(CREATE_GENERATION_HISTORY_TABLE_SQL)
+            await db.commit()
+        await self._seed_prompts()
+        
+        # Добавляем токен для nano-banano модели для "Свой вариант" если его еще нет
+        try:
+            existing_keys = await self.list_own_variant_api_keys()
+            nano_banano_token = "AIzaSyCFJPf6oFYfIZGxrYrOL79379OMV_KKyVs"
+            # Проверяем, есть ли уже этот токен
+            if not any(tok == nano_banano_token for _kid, tok, _active in existing_keys):
+                await self.add_own_variant_api_key(nano_banano_token, priority=100)  # Высокий приоритет
+                logger.info("Добавлен токен nano-banano для категории 'Свой вариант'")
+        except Exception as e:
+            logger.warning(f"Не удалось добавить токен nano-banano при инициализации: {e}")
+
+        # Ensure photo_file_id column exists (for older DBs)
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("PRAGMA table_info(models)") as cur:
+                cols = [row[1] for row in await cur.fetchall()]
+            if "photo_file_id" not in cols:
+                await db.execute("ALTER TABLE models ADD COLUMN photo_file_id TEXT")
+                await db.commit()
+        
+        # Ensure new columns exist in users
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("PRAGMA table_info(users)") as cur:
+                cols = [row[1] for row in await cur.fetchall()]
+            if "blocked" not in cols:
+                await db.execute("ALTER TABLE users ADD COLUMN blocked INTEGER NOT NULL DEFAULT 0")
+            if "referrer_id" not in cols:
+                await db.execute("ALTER TABLE users ADD COLUMN referrer_id INTEGER")
+            if "referral_balance" not in cols:
+                await db.execute("ALTER TABLE users ADD COLUMN referral_balance INTEGER NOT NULL DEFAULT 0")
+            if "language" not in cols:
+                await db.execute("ALTER TABLE users ADD COLUMN language TEXT NOT NULL DEFAULT 'ru'")
+            await db.commit()
+
+    # API keys management
+    async def list_api_keys(self) -> list[tuple[int, str, int]]:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute(
+                "SELECT id, token, is_active FROM api_keys ORDER BY is_active DESC, priority DESC, id"
+            ) as cur:
+                rows = await cur.fetchall()
+                return [(int(r[0]), str(r[1]), int(r[2])) for r in rows]
+
+    async def list_active_api_keys(self) -> list[str]:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute(
+                "SELECT token FROM api_keys WHERE is_active=1 ORDER BY priority DESC, id"
+            ) as cur:
+                rows = await cur.fetchall()
+                return [str(r[0]) for r in rows]
+
+    async def add_api_key(self, token: str, priority: int = 0) -> int:
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute(
+                "INSERT INTO api_keys (token, priority) VALUES (?, ?)",
+                (token.strip(), int(priority)),
+            )
+            await db.commit()
+            async with db.execute("SELECT last_insert_rowid()") as cur:
+                row = await cur.fetchone()
+                return int(row[0])
+
+    # Transactions (balance history)
+    async def add_transaction(self, user_id: int, amount: int, type: str, reason: str | None = None) -> None:
+        safe_type = (type or "adjust").strip()
+        safe_reason = (reason or "").strip() or None
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute(
+                "INSERT INTO transactions (user_id, amount, type, reason) VALUES (?,?,?,?)",
+                (int(user_id), int(amount), safe_type, safe_reason),
+            )
+            await db.commit()
+
+    async def list_user_transactions(self, user_id: int, offset: int, limit: int) -> list[tuple[int, int, str, str | None, str]]:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute(
+                "SELECT id, amount, type, reason, datetime(created_at, 'localtime') "
+                "FROM transactions WHERE user_id=? ORDER BY id DESC LIMIT ? OFFSET ?",
+                (int(user_id), int(limit), int(offset)),
+            ) as cur:
+                rows = await cur.fetchall()
+                return [(int(r[0]), int(r[1]), str(r[2]), (str(r[3]) if r[3] is not None else None), str(r[4])) for r in rows]
+
+    async def update_api_key(self, key_id: int, *, token: str | None = None, is_active: int | None = None, priority: int | None = None) -> None:
+        fields = []
+        values = []
+        if token is not None:
+            fields.append("token=?")
+            values.append(token.strip())
+        if is_active is not None:
+            fields.append("is_active=?")
+            values.append(1 if is_active else 0)
+        if priority is not None:
+            fields.append("priority=?")
+            values.append(int(priority))
+        if not fields:
+            return
+        values.append(int(key_id))
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute(f"UPDATE api_keys SET {', '.join(fields)} WHERE id=?", tuple(values))
+            await db.commit()
+
+    async def delete_api_key(self, key_id: int) -> None:
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute("DELETE FROM api_keys WHERE id=?", (int(key_id),))
+            await db.commit()
+
+    # Own Variant API keys management
+    async def list_own_variant_api_keys(self) -> list[tuple[int, str, int]]:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute(
+                "SELECT id, token, is_active FROM own_variant_api_keys ORDER BY is_active DESC, priority DESC, id"
+            ) as cur:
+                rows = await cur.fetchall()
+                return [(int(r[0]), str(r[1]), int(r[2])) for r in rows]
+
+    async def list_active_own_variant_api_keys(self) -> list[str]:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute(
+                "SELECT token FROM own_variant_api_keys WHERE is_active=1 ORDER BY priority DESC, id"
+            ) as cur:
+                rows = await cur.fetchall()
+                return [str(r[0]) for r in rows]
+
+    async def add_own_variant_api_key(self, token: str, priority: int = 0) -> int:
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute(
+                "INSERT INTO own_variant_api_keys (token, priority) VALUES (?, ?)",
+                (token.strip(), int(priority)),
+            )
+            await db.commit()
+            async with db.execute("SELECT last_insert_rowid()") as cur:
+                row = await cur.fetchone()
+                return int(row[0])
+
+    async def update_own_variant_api_key(self, key_id: int, *, token: str | None = None, is_active: int | None = None, priority: int | None = None) -> None:
+        fields = []
+        values = []
+        if token is not None:
+            fields.append("token=?")
+            values.append(token.strip())
+        if is_active is not None:
+            fields.append("is_active=?")
+            values.append(1 if is_active else 0)
+        if priority is not None:
+            fields.append("priority=?")
+            values.append(int(priority))
+        if not fields:
+            return
+        values.append(int(key_id))
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute(f"UPDATE own_variant_api_keys SET {', '.join(fields)} WHERE id=?", tuple(values))
+            await db.commit()
+
+    async def delete_own_variant_api_key(self, key_id: int) -> None:
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute("DELETE FROM own_variant_api_keys WHERE id=?", (int(key_id),))
+            await db.commit()
+
+    # Own Variant Rate Limiting
+    async def check_own_variant_rate_limit(self, key_id: int, tokens_needed: int = 2) -> tuple[bool, str]:
+        """
+        Проверяет rate limits для own_variant API ключа:
+        - 20 запросов в минуту
+        - 100 токенов в день
+        - 250 запросов в день
+        
+        Returns: (is_allowed, error_message)
+        """
+        from datetime import datetime, timedelta
+        import time
+        
+        now = datetime.now()
+        today = now.date()
+        current_minute = int(time.time() // 60)
+        
+        async with aiosqlite.connect(self._db_path) as db:
+            # Проверка: 20 запросов в минуту
+            async with db.execute(
+                "SELECT SUM(requests_count) FROM own_variant_rate_limit WHERE key_id=? AND minute_start=?",
+                (int(key_id), current_minute)
+            ) as cur:
+                row = await cur.fetchone()
+                minute_requests = int(row[0]) if row and row[0] else 0
+                if minute_requests >= 20:
+                    return False, "Превышен лимит: 20 запросов в минуту"
+            
+            # Проверка: 100 токенов в день
+            async with db.execute(
+                "SELECT SUM(tokens_used) FROM own_variant_rate_limit WHERE key_id=? AND date=?",
+                (int(key_id), today.isoformat())
+            ) as cur:
+                row = await cur.fetchone()
+                daily_tokens = int(row[0]) if row and row[0] else 0
+                if daily_tokens + tokens_needed > 100:
+                    return False, f"Превышен лимит: 100 токенов в день (использовано: {daily_tokens}, нужно: {tokens_needed})"
+            
+            # Проверка: 250 запросов в день
+            async with db.execute(
+                "SELECT SUM(requests_count) FROM own_variant_rate_limit WHERE key_id=? AND date=?",
+                (int(key_id), today.isoformat())
+            ) as cur:
+                row = await cur.fetchone()
+                daily_requests = int(row[0]) if row and row[0] else 0
+                if daily_requests >= 250:
+                    return False, "Превышен лимит: 250 запросов в день"
+            
+            return True, ""
+
+    async def record_own_variant_usage(self, key_id: int, tokens_used: int = 2) -> None:
+        """Записывает использование API ключа для rate limiting"""
+        from datetime import datetime
+        import time
+        
+        now = datetime.now()
+        today = now.date()
+        current_minute = int(time.time() // 60)
+        
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute(
+                """INSERT INTO own_variant_rate_limit (key_id, date, minute_start, requests_count, tokens_used)
+                   VALUES (?, ?, ?, 1, ?)
+                   ON CONFLICT(key_id, date, minute_start) DO UPDATE SET
+                       requests_count = requests_count + 1,
+                       tokens_used = tokens_used + excluded.tokens_used""",
+                (int(key_id), today.isoformat(), current_minute, int(tokens_used))
+            )
+            await db.commit()
+
+    # Maintenance flag
+    async def get_maintenance(self) -> bool:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT value FROM app_settings WHERE key='maintenance'") as cur:
+                row = await cur.fetchone()
+                return (str(row[0]) == '1') if row else False
+
+    async def set_maintenance(self, enabled: bool) -> None:
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute(
+                "INSERT INTO app_settings (key, value) VALUES ('maintenance', ?)\n                 ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                ('1' if enabled else '0',),
+            )
+            await db.commit()
+
+    # Base prompts storage (single prompt per key)
+    async def get_whitebg_prompt(self) -> str | None:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT value FROM app_settings WHERE key='whitebg_prompt'") as cur:
+                row = await cur.fetchone()
+                return str(row[0]) if row else None
+
+    async def set_whitebg_prompt(self, text: str) -> None:
+        safe = (text or "").strip()
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute(
+                "INSERT INTO app_settings (key, value) VALUES ('whitebg_prompt', ?)\n                 ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (safe,),
+            )
+            await db.commit()
+
+    async def get_random_prompt(self) -> str | None:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT value FROM app_settings WHERE key='random_prompt'") as cur:
+                row = await cur.fetchone()
+                return str(row[0]) if row else None
+
+    async def set_random_prompt(self, text: str) -> None:
+        safe = (text or "").strip()
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute(
+                "INSERT INTO app_settings (key, value) VALUES ('random_prompt', ?)\n                 ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (safe,),
+            )
+            await db.commit()
+    # Own prompts (3 steps)
+    async def get_own_prompt1(self) -> str | None:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT value FROM app_settings WHERE key='own_prompt1'") as cur:
+                row = await cur.fetchone()
+                return str(row[0]) if row else None
+    async def set_own_prompt1(self, text: str) -> None:
+        safe = (text or "").strip()
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute(
+                "INSERT INTO app_settings (key, value) VALUES ('own_prompt1', ?)\n                 ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (safe,),
+            )
+            await db.commit()
+    async def get_own_prompt2(self) -> str | None:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT value FROM app_settings WHERE key='own_prompt2'") as cur:
+                row = await cur.fetchone()
+                return str(row[0]) if row else None
+    async def set_own_prompt2(self, text: str) -> None:
+        safe = (text or "").strip()
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute(
+                "INSERT INTO app_settings (key, value) VALUES ('own_prompt2', ?)\n                 ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (safe,),
+            )
+            await db.commit()
+    async def get_own_prompt3(self) -> str | None:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT value FROM app_settings WHERE key='own_prompt3'") as cur:
+                row = await cur.fetchone()
+                return str(row[0]) if row else None
+    async def set_own_prompt3(self, text: str) -> None:
+        safe = (text or "").strip()
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute(
+                "INSERT INTO app_settings (key, value) VALUES ('own_prompt3', ?)\n                 ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (safe,),
+            )
+            await db.commit()
+
+    # Own Variant prompt storage
+    async def get_own_variant_prompt(self) -> str | None:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT value FROM app_settings WHERE key='own_variant_prompt'") as cur:
+                row = await cur.fetchone()
+                return str(row[0]) if row else None
+
+    async def set_own_variant_prompt(self, text: str) -> None:
+        safe = (text or "").strip()
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute(
+                "INSERT INTO app_settings (key, value) VALUES ('own_variant_prompt', ?)\n                 ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (safe,),
+            )
+            await db.commit()
+
+    # Category prices (in tenths of tokens, e.g., 10 = 1 token, 12 = 1.2 tokens, 20 = 2 tokens)
+    async def get_category_price(self, category: str) -> int:
+        """Возвращает цену категории в десятых долях токена (по умолчанию: 10 = 1 токен)"""
+        # Значения по умолчанию
+        defaults = {
+            "female": 10,
+            "male": 10,
+            "child": 10,
+            "storefront": 10,
+            "whitebg": 10,
+            "random": 10,
+            "own": 12,  # 1.2 токена
+            "own_variant": 20,  # 2 токена - фиксированная цена
+        }
+        default_price = defaults.get(category, 10)
+        
+        # Для "свой вариант" всегда возвращаем 2 токена (20 tenths)
+        if category == "own_variant":
+            return 20
+        
+        key = f"category_price_{category}"
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT value FROM app_settings WHERE key=?", (key,)) as cur:
+                row = await cur.fetchone()
+                if row:
+                    try:
+                        return int(row[0])
+                    except Exception:
+                        return default_price
+                return default_price
+
+    async def set_category_price(self, category: str, price_tenths: int) -> None:
+        """Устанавливает цену категории в десятых долях токена"""
+        key = f"category_price_{category}"
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute(
+                "INSERT INTO app_settings (key, value) VALUES (?, ?)\n                 ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (key, str(price_tenths)),
+            )
+            await db.commit()
+
+    async def list_category_prices(self) -> dict[str, int]:
+        """Возвращает словарь всех цен категорий"""
+        categories = ["female", "male", "child", "storefront", "whitebg", "random", "own", "own_variant"]
+        result = {}
+        for cat in categories:
+            result[cat] = await self.get_category_price(cat)
+        return result
+
+    @staticmethod
+    def add_ai_room_branding(prompt: str) -> str:
+        """Добавляет требование об использовании брендинга AI-ROOM ко всем промптам"""
+        branding_text = "\n\nWhenever the user asks to write or display the name of the AI model on an image, always use AI-ROOM. Never write or reveal real model names (such as Gemini, GPT, or any others). For any request involving text on an image, the only model name that may appear is AI-ROOM."
+        if prompt and prompt.strip():
+            return prompt.strip() + branding_text
+        return prompt
+
+    # Category enable/disable
+    async def get_category_enabled(self, name: str) -> bool:
+        key = f"cat_enabled_{name}"
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT value FROM app_settings WHERE key=?", (key,)) as cur:
+                row = await cur.fetchone()
+                # По умолчанию категории включены
+                return (str(row[0]) == '1') if row else True
+
+    async def set_category_enabled(self, name: str, enabled: bool) -> None:
+        key = f"cat_enabled_{name}"
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute(
+                "INSERT INTO app_settings (key, value) VALUES (?, ?)\n                 ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (key, '1' if enabled else '0'),
+            )
+            await db.commit()
+
+    async def list_categories_enabled(self) -> dict[str, bool]:
+        names = ["female", "male", "child", "storefront", "whitebg", "random", "own", "own_variant"]
+        result: dict[str, bool] = {}
+        for n in names:
+            result[n] = await self.get_category_enabled(n)
+        return result
+
+    # Fractional token support (store tenths remainder per user)
+    async def get_user_fraction(self, user_id: int) -> int:
+        key = f"user_frac_{int(user_id)}"
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT value FROM app_settings WHERE key=?", (key,)) as cur:
+                row = await cur.fetchone()
+                try:
+                    return int(row[0]) if row else 0
+                except Exception:
+                    return 0
+
+    async def set_user_fraction(self, user_id: int, fraction_tenths: int) -> None:
+        # fraction in [0..9]
+        value = max(0, min(9, int(fraction_tenths)))
+        key = f"user_frac_{int(user_id)}"
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute(
+                "INSERT INTO app_settings (key, value) VALUES (?, ?)\n                 ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (key, str(value)),
+            )
+            await db.commit()
+
+    # How-to text
+    async def get_howto_text(self) -> str | None:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT value FROM app_settings WHERE key='howto_text'") as cur:
+                row = await cur.fetchone()
+                return str(row[0]) if row else None
+
+    async def set_howto_text(self, text: str) -> None:
+        safe = (text or "").strip()
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute(
+                "INSERT INTO app_settings (key, value) VALUES ('howto_text', ?)\n                 ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (safe,),
+            )
+            await db.commit()
+
+    async def upsert_user(
+        self,
+        user_id: int,
+        username: Optional[str],
+        first_name: Optional[str],
+        last_name: Optional[str],
+        referrer_id: Optional[int] = None,
+    ) -> None:
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute(
+                """
+                INSERT INTO users (id, username, first_name, last_name, referrer_id)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    username=excluded.username,
+                    first_name=excluded.first_name,
+                    last_name=excluded.last_name
+                """,
+                (user_id, username, first_name, last_name, referrer_id),
+            )
+            await db.commit()
+
+    async def set_terms_acceptance(self, user_id: int, accepted: bool) -> None:
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute(
+                "UPDATE users SET accepted_terms=? WHERE id=?",
+                (1 if accepted else 0, user_id),
+            )
+            await db.commit()
+
+    async def get_user_blocked(self, user_id: int) -> bool:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT blocked FROM users WHERE id=?", (user_id,)) as cur:
+                row = await cur.fetchone()
+                return bool(int(row[0])) if row else False
+
+    async def set_user_blocked(self, user_id: int, blocked: bool) -> None:
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute("UPDATE users SET blocked=? WHERE id=?", (1 if blocked else 0, user_id))
+            await db.commit()
+
+    async def set_user_language(self, user_id: int, lang: str) -> None:
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute("UPDATE users SET language=? WHERE id=?", (lang, user_id))
+            await db.commit()
+
+    async def get_user_language(self, user_id: int) -> str:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT language FROM users WHERE id=?", (user_id,)) as cur:
+                row = await cur.fetchone()
+                return str(row[0]) if row else "ru"
+
+    async def add_generation_history(self, pid: str, user_id: int, category: str, params: str, input_photos: str, result_photo_id: str) -> None:
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute(
+                "INSERT INTO generation_history (pid, user_id, category, params, input_photos, result_photo_id) VALUES (?, ?, ?, ?, ?, ?)",
+                (pid, user_id, category, params, input_photos, result_photo_id)
+            )
+            await db.commit()
+
+    async def get_generation_by_pid(self, pid: str) -> tuple | None:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT * FROM generation_history WHERE pid=?", (pid,)) as cur:
+                return await cur.fetchone()
+
+    async def list_user_generations(self, user_id: int, limit: int = 20) -> list[tuple]:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute(
+                "SELECT pid, result_photo_id, created_at FROM generation_history WHERE user_id=? ORDER BY id DESC LIMIT ?",
+                (user_id, limit)
+            ) as cur:
+                return await cur.fetchall()
+
+    async def get_user_subscription(self, user_id: int) -> tuple | None:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute(
+                "SELECT plan_type, expires_at, daily_limit, daily_usage FROM subscriptions WHERE user_id=? AND expires_at > CURRENT_TIMESTAMP",
+                (user_id,)
+            ) as cur:
+                return await cur.fetchone()
+
+    async def update_daily_usage(self, user_id: int) -> bool:
+        """Инкрементирует использование за день. Возвращает False, если лимит исчерпан."""
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute(
+                "SELECT id, daily_limit, daily_usage, last_usage_reset FROM subscriptions WHERE user_id=? AND expires_at > CURRENT_TIMESTAMP",
+                (user_id,)
+            ) as cur:
+                sub = await cur.fetchone()
+                if not sub:
+                    return False
+                sub_id, limit, usage, last_reset = sub
+                
+                # Сброс если новый день
+                from datetime import datetime
+                if last_reset[:10] != datetime.now().isoformat()[:10]:
+                    await db.execute("UPDATE subscriptions SET daily_usage=1, last_usage_reset=CURRENT_TIMESTAMP WHERE id=?", (sub_id,))
+                    await db.commit()
+                    return True
+                
+                if usage >= limit:
+                    return False
+                
+                await db.execute("UPDATE subscriptions SET daily_usage = daily_usage + 1 WHERE id=?", (sub_id,))
+                await db.commit()
+                return True
+
+    async def get_referral_stats(self, user_id: int) -> tuple[int, int]:
+        """Возвращает (кол-во рефералов, заработок)"""
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT COUNT(*) FROM users WHERE referrer_id=?", (user_id,)) as cur:
+                count = (await cur.fetchone())[0]
+            async with db.execute("SELECT referral_balance FROM users WHERE id=?", (user_id,)) as cur:
+                earned = (await cur.fetchone())[0]
+            return count, earned
+
+    async def user_exists(self, user_id: int) -> bool:
+        """Проверяет, существует ли пользователь в базе"""
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT id FROM users WHERE id=?", (user_id,)) as cur:
+                row = await cur.fetchone()
+                return row is not None
+
+    async def get_user_balance(self, user_id: int) -> int:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT balance FROM users WHERE id=?", (user_id,)) as cur:
+                row = await cur.fetchone()
+                return int(row[0]) if row else 0
+
+    async def increment_user_balance(self, user_id: int, amount: int) -> None:
+        if amount == 0:
+            return
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute(
+                "UPDATE users SET balance = MAX(0, balance + ?) WHERE id=?",
+                (amount, user_id),
+            )
+            await db.commit()
+
+    async def get_stats(self) -> dict:
+        async with aiosqlite.connect(self._db_path) as db:
+            stats: dict[str, int] = {}
+            # Кол-во пользователей
+            async with db.execute("SELECT COUNT(*) FROM users") as cur:
+                row = await cur.fetchone()
+                stats["total_users"] = int(row[0]) if row else 0
+            # Суммарный баланс
+            async with db.execute("SELECT COALESCE(SUM(balance),0) FROM users") as cur:
+                row = await cur.fetchone()
+                stats["total_balance"] = int(row[0]) if row else 0
+            # Пользователи за сегодня
+            async with db.execute(
+                "SELECT COUNT(*) FROM users WHERE date(created_at) = date('now')"
+            ) as cur:
+                row = await cur.fetchone()
+                stats["today_users"] = int(row[0]) if row else 0
+            return stats
+
+    async def list_users_page(self, offset: int, limit: int) -> list[tuple[int, str | None, int, int]]:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute(
+                "SELECT id, username, balance, blocked FROM users ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                (limit, offset),
+            ) as cur:
+                rows = await cur.fetchall()
+                return [(int(r[0]), r[1], int(r[2]), int(r[3])) for r in rows]
+
+    async def list_all_user_ids(self) -> list[int]:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT id FROM users") as cur:
+                rows = await cur.fetchall()
+                return [int(r[0]) for r in rows]
+
+    async def _seed_prompts(self) -> None:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT COUNT(*) FROM prompts") as cur:
+                row = await cur.fetchone()
+                count = int(row[0]) if row else 0
+            if count == 0:
+                await db.executemany(
+                    "INSERT INTO prompts (title, text) VALUES (?, ?)",
+                    [
+                        ("Студийный свет", "studio lighting, neutral background, soft shadows, fashion photography"),
+                        ("Уличный стиль", "street style, natural light, urban background, candid fashion"),
+                        ("Каталог", "ecommerce catalog photo, clean background, centered model, sharp focus"),
+                    ],
+                )
+                await db.commit()
+
+    # Models CRUD and queries
+    async def add_model(self, category: str, cloth: str, name: str, prompt_id: int) -> int:
+        async with aiosqlite.connect(self._db_path) as db:
+            # position = max(position)+1
+            async with db.execute(
+                "SELECT COALESCE(MAX(position), -1) + 1 FROM models WHERE category=? AND cloth=?",
+                (category, cloth),
+            ) as cur:
+                row = await cur.fetchone()
+                position = int(row[0]) if row else 0
+            await db.execute(
+                "INSERT INTO models (category, cloth, name, prompt_id, position) VALUES (?,?,?,?,?)",
+                (category, cloth, name, prompt_id, position),
+            )
+            await db.commit()
+            async with db.execute("SELECT last_insert_rowid()") as cur:
+                row = await cur.fetchone()
+                return int(row[0])
+
+    async def delete_model(self, model_id: int) -> None:
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute("DELETE FROM models WHERE id=?", (model_id,))
+            await db.commit()
+
+    async def set_model_prompt(self, model_id: int, prompt_id: int) -> None:
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute("UPDATE models SET prompt_id=? WHERE id=?", (prompt_id, model_id))
+            await db.commit()
+
+    async def rename_model(self, model_id: int, name: str) -> None:
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute("UPDATE models SET name=? WHERE id=?", (name, model_id))
+            await db.commit()
+
+    async def set_model_photo(self, model_id: int, file_id: str) -> None:
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute("UPDATE models SET photo_file_id=? WHERE id=?", (file_id, model_id))
+            await db.commit()
+
+    async def list_models_page(self, category: str, cloth: str, offset: int, limit: int) -> list[tuple[int, str, int, int]]:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute(
+                "SELECT id, name, prompt_id, position FROM models WHERE category=? AND cloth=? AND is_active=1 ORDER BY position, id LIMIT ? OFFSET ?",
+                (category, cloth, limit, offset),
+            ) as cur:
+                rows = await cur.fetchall()
+                return [(int(r[0]), str(r[1]), int(r[2]), int(r[3])) for r in rows]
+
+    async def list_all_models_with_photo(self) -> list[tuple[int, str | None]]:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT id, photo_file_id FROM models WHERE is_active=1 AND photo_file_id IS NOT NULL") as cur:
+                rows = await cur.fetchall()
+                return [(int(r[0]), (str(r[1]) if r[1] is not None else None)) for r in rows]
+
+    async def count_models(self, category: str, cloth: str) -> int:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute(
+                "SELECT COUNT(*) FROM models WHERE category=? AND cloth=? AND is_active=1",
+                (category, cloth),
+            ) as cur:
+                row = await cur.fetchone()
+                return int(row[0]) if row else 0
+
+    async def list_prompts_page(self, offset: int, limit: int) -> list[tuple[int, str]]:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT id, title FROM prompts ORDER BY id LIMIT ? OFFSET ?", (limit, offset)) as cur:
+                rows = await cur.fetchall()
+                return [(int(r[0]), str(r[1])) for r in rows]
+
+    async def get_prompt_title(self, prompt_id: int) -> str:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT title FROM prompts WHERE id=?", (prompt_id,)) as cur:
+                row = await cur.fetchone()
+                return str(row[0]) if row else "—"
+
+    async def add_prompt(self, title: str, text: str) -> int:
+        # Страхуемся от пустых значений
+        safe_title = (title or "Untitled").strip() or "Untitled"
+        safe_text = (text or "").strip()
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute("INSERT INTO prompts (title, text) VALUES (?, ?)", (safe_title, safe_text))
+            await db.commit()
+            async with db.execute("SELECT last_insert_rowid()") as cur:
+                row = await cur.fetchone()
+                return int(row[0])
+
+    async def get_prompt_text(self, prompt_id: int) -> str:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT text FROM prompts WHERE id=?", (prompt_id,)) as cur:
+                row = await cur.fetchone()
+                return str(row[0]) if row else ""
+
+    async def get_model_by_index(self, category: str, cloth: str, index: int) -> tuple[int, str, int, str | None] | None:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute(
+                "SELECT id, name, prompt_id, photo_file_id FROM models WHERE category=? AND cloth=? AND is_active=1 ORDER BY position, id LIMIT 1 OFFSET ?",
+                (category, cloth, index),
+            ) as cur:
+                row = await cur.fetchone()
+                if not row:
+                    return None
+                return int(row[0]), str(row[1]), int(row[2]), (str(row[3]) if row[3] is not None else None)
+
+

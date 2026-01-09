@@ -1,0 +1,17 @@
+# Секреты
+.env
+
+# База данных и логи
+data/
+*.db
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+
+# Docker
+.dockerignore

@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  bot:
+    build: .
+    volumes:
+      - ./data:/app/data
+    env_file:
+      - .env
+    restart: always
+
+  admin_web:
+    build:
+      context: .
+      dockerfile: admin_web/Dockerfile
+    ports:
+      - "80:8000"
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - bot
+    restart: always
+
+volumes:
+  data:

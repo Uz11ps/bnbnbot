@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block content %}
+<ul class="nav nav-pills mb-3" id="promptTab" role="tablist">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link active" id="db-tab" data-bs-toggle="tab" data-bs-target="#db-prompts" type="button">База моделей</button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="settings-tab" data-bs-toggle="tab" data-bs-target="#settings-prompts" type="button">Настройки приложения</button>
+    </li>
+</ul>
+
+<div class="tab-content" id="promptTabContent">
+    <div class="tab-pane fade show active" id="db-prompts">
+        {% for p in prompts %}
+        <div class="card p-3 mb-3">
+            <label class="form-label fw-bold">{{ p.title }} (#{{ p.id }})</label>
+            <form action="/prompts/edit_db" method="post">
+                <input type="hidden" name="prompt_id" value="{{ p.id }}">
+                <textarea name="text" class="form-control mb-2" rows="4">{{ p.text }}</textarea>
+                <button type="submit" class="btn btn-sm btn-primary">Сохранить</button>
+            </form>
+        </div>
+        {% endfor %}
+    </div>
+    
+    <div class="tab-pane fade" id="settings-prompts">
+        {% for s in settings_prompts %}
+        <div class="card p-3 mb-3 border-start border-warning border-4">
+            <label class="form-label fw-bold">{{ s.key }}</label>
+            <form action="/prompts/edit_settings" method="post">
+                <input type="hidden" name="key" value="{{ s.key }}">
+                <textarea name="value" class="form-control mb-2" rows="4">{{ s.value }}</textarea>
+                <button type="submit" class="btn btn-sm btn-warning">Обновить настройку</button>
+            </form>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}
+

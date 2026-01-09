@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block content %}
+<h4 class="mb-4">Управление моделями</h4>
+<div class="table-responsive bg-white rounded shadow-sm">
+    <table class="table table-hover align-middle mb-0">
+        <thead class="table-light">
+            <tr>
+                <th>Категория</th>
+                <th>Тип</th>
+                <th>Название</th>
+                <th>Промпт</th>
+                <th>Действия</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for m in models %}
+            <tr>
+                <td>{{ m.category }}</td>
+                <td>{{ m.cloth }}</td>
+                <td>{{ m.name }}</td>
+                <td><small>{{ m.prompt_title }}</small></td>
+                <td>
+                    <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
+

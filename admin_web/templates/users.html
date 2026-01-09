@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card p-3 mb-4">
+    <form class="d-flex gap-2">
+        <input type="text" name="q" class="form-control" placeholder="Поиск по ID или username..." value="{{ q }}">
+        <button type="submit" class="btn btn-primary"><i class="bi bi-search"></i></button>
+    </form>
+</div>
+
+<div class="row g-3">
+    {% for user in users %}
+    <div class="col-12 col-md-6">
+        <div class="card p-3 h-100">
+            <div class="d-flex justify-content-between align-items-start">
+                <div>
+                    <h5 class="mb-0">ID: {{ user.id }}</h5>
+                    <div class="text-muted">@{{ user.username or "нет" }}</div>
+                </div>
+                <div class="badge bg-primary rounded-pill">{{ user.balance }} токенов</div>
+            </div>
+            <hr class="my-2">
+            <form action="/users/edit_balance" method="post" class="input-group input-group-sm">
+                <input type="hidden" name="user_id" value="{{ user.id }}">
+                <input type="number" name="amount" class="form-control" placeholder="+/- сумма">
+                <button class="btn btn-outline-success" type="submit">Изменить</button>
+            </form>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}
+

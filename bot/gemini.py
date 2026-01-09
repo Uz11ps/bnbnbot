@@ -1,0 +1,251 @@
+from __future__ import annotations
+
+import asyncio
+import base64
+import logging
+import os
+from typing import Optional
+
+import requests
+
+
+logger = logging.getLogger(__name__)
+
+
+def _valid_proxy(url: str) -> bool:
+    try:
+        from urllib.parse import urlparse
+        p = urlparse(url)
+        return p.scheme in ("http", "https", "socks5", "socks5h") and bool(p.hostname) and bool(p.port)
+    except Exception:
+        return False
+
+
+def _build_proxies_from_env() -> dict:
+    http_proxy = os.getenv("GEMINI_HTTP_PROXY") or os.getenv("HTTP_PROXY") or os.getenv("http_proxy")
+    https_proxy = os.getenv("GEMINI_HTTPS_PROXY") or os.getenv("HTTPS_PROXY") or os.getenv("https_proxy")
+    proxies = {}
+    if http_proxy and _valid_proxy(http_proxy):
+        proxies["http"] = http_proxy
+    if https_proxy and _valid_proxy(https_proxy):
+        proxies["https"] = https_proxy
+    return proxies
+
+
+def _generate_sync(
+    api_key: str,
+    prompt: str,
+    user_image_bytes: bytes,
+    ref_image_bytes: bytes | None = None,
+    model_name: str | None = None,
+) -> Optional[bytes]:
+    # Используем gemini-3-pro-image-preview для всех категорий
+    if model_name == "gemini-3-pro-preview" or model_name == "gemini-3-pro-image-preview":
+        # Используем gemini-3-pro-image-preview для генерации изображений
+        endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent?key={api_key}"
+    else:
+        # Fallback на стандартный endpoint (не должно использоваться, так как model_name всегда установлен)
+        endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key={api_key}"
+    headers = {"Content-Type": "application/json"}
+
+    # Определяем части сообщения: текст + фото пользователя, опционально фото модели
+    parts = [
+        {"text": prompt},
+        {
+            "inlineData": {
+                "mimeType": "image/jpeg",
+                "data": base64.b64encode(user_image_bytes).decode("utf-8"),
+            }
+        },
+    ]
+    if ref_image_bytes:
+        parts.append(
+            {
+                "inlineData": {
+                    "mimeType": "image/jpeg",
+                    "data": base64.b64encode(ref_image_bytes).decode("utf-8"),
+                }
+            }
+        )
+
+    # Для Gemini 3 Pro Image используем стандартную конфигурацию
+    # Примечание: thinking_level не поддерживается для gemini-3-pro-image-preview
+    # Модель сама использует глубокое рассуждение для генерации изображений
+    generation_config = {
+        "temperature": 0.4,
+        "topK": 32,
+        "topP": 1,
+        "maxOutputTokens": 4096,
+    }
+    
+    payload = {
+        "contents": [{"parts": parts}],
+        "generationConfig": generation_config,
+        # safetySettings можно добавить при необходимости
+    }
+
+    proxies = _build_proxies_from_env()
+    session = requests.Session()
+    session.trust_env = False
+
+    logger.info(
+        "[Gemini] v1beta generateContent start: prompt_len=%d, user_img=%d, ref_img=%s, proxy=%s, model=%s",
+        len(prompt or ""),
+        len(user_image_bytes or b""),
+        bool(ref_image_bytes),
+        proxies or "none",
+        model_name or "default",
+    )
+    # Логируем промт для отладки (первые и последние 500 символов)
+    if prompt:
+        logger.info(f"[Gemini] Промт (первые 500 символов): {prompt[:500]}")
+        if len(prompt) > 1000:
+            logger.info(f"[Gemini] Промт (последние 500 символов): {prompt[-500:]}")
+
+    resp = None
+    last_text = None
+    for attempt in range(1, 4):
+        try:
+            resp = session.post(endpoint, headers=headers, json=payload, timeout=90, proxies=proxies or None)
+            if resp.status_code >= 500:
+                last_text = resp.text
+                logger.warning("[Gemini] 5xx on attempt %d: %s", attempt, (resp.text or '')[:200])
+                import time as _t
+                _t.sleep(2 * attempt)
+                continue
+            break
+        except requests.RequestException as e:
+            last_text = str(e)
+            logger.warning("[Gemini] network error on attempt %d: %s", attempt, e)
+            import time as _t
+            _t.sleep(2 * attempt)
+    if resp is None or resp.status_code != 200:
+        # Detailed diagnostics for non-200 responses
+        body_text = (getattr(resp, 'text', None) or last_text or '')
+        snippet = (body_text or '')[:1000]
+        headers = {}
+        try:
+            # Log useful rate-limit headers when present
+            h = getattr(resp, 'headers', {}) or {}
+            for k in h.keys():
+                lk = str(k).lower()
+                if lk.startswith('x-ratelimit') or lk in ('retry-after', 'www-authenticate'):
+                    headers[k] = h.get(k)
+        except Exception:
+            pass
+        logger.error(
+            "[Gemini] error status=%s headers=%s body=%s",
+            getattr(resp, 'status_code', 'n/a'), headers, snippet,
+        )
+        raise RuntimeError(f"Gemini API error {getattr(resp,'status_code', 'n/a')}: {snippet}")
+
+    data = resp.json()
+    # Извлечение inlineData из ответа
+    for cand in data.get("candidates", []) or []:
+        content = cand.get("content") or {}
+        for part in content.get("parts", []) or []:
+            inline = part.get("inlineData") or part.get("inline_data")
+            if inline and inline.get("data"):
+                return base64.b64decode(inline["data"])  
+
+    # Если вернулся текст вместо картинки — пробуем взять любой текст для диагностики
+    text_parts = []
+    for cand in data.get("candidates", []) or []:
+        for part in (cand.get("content") or {}).get("parts", []) or []:
+            if part.get("text"):
+                text_parts.append(part.get("text"))
+    if text_parts:
+        logger.warning("[Gemini] returned text instead of image: %s", (text_parts[0] or '')[:500])
+        raise RuntimeError("Gemini returned text instead of image: " + text_parts[0][:200])
+
+    return None
+
+
+async def generate_image(
+    api_key: str,
+    prompt: str,
+    user_image_bytes: bytes,
+    ref_image_bytes: bytes | None = None,
+    model_name: str | None = None,
+) -> Optional[bytes]:
+    return await asyncio.to_thread(_generate_sync, api_key, prompt, user_image_bytes, ref_image_bytes, model_name)
+
+
+def _generate_text_sync(
+    api_key: str,
+    prompt: str,
+    image_bytes: bytes,
+) -> Optional[str]:
+    """Получает текстовый ответ от Gemini на основе изображения и промта"""
+    # Используем ту же модель, что и для генерации изображений (gemini-2.5-flash-image)
+    # Эта модель поддерживает мультимодальность и может возвращать текстовые ответы
+    endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key={api_key}"
+    headers = {"Content-Type": "application/json"}
+
+    parts = [
+        {"text": prompt},
+        {
+            "inlineData": {
+                "mimeType": "image/jpeg",
+                "data": base64.b64encode(image_bytes).decode("utf-8"),
+            }
+        },
+    ]
+
+    payload = {
+        "contents": [{"parts": parts}],
+        "generationConfig": {"temperature": 0.1, "topK": 32, "topP": 1, "maxOutputTokens": 8192},
+    }
+
+    proxies = _build_proxies_from_env()
+    session = requests.Session()
+    session.trust_env = False
+
+    logger.info(
+        "[Gemini] text generation start: prompt_len=%d, img=%d, proxy=%s",
+        len(prompt or ""),
+        len(image_bytes or b""),
+        proxies or "none",
+    )
+
+    resp = None
+    last_text = None
+    for attempt in range(1, 4):
+        try:
+            resp = session.post(endpoint, headers=headers, json=payload, timeout=90, proxies=proxies or None)
+            if resp.status_code >= 500:
+                last_text = resp.text
+                logger.warning("[Gemini] 5xx on attempt %d: %s", attempt, (resp.text or '')[:200])
+                import time as _t
+                _t.sleep(2 * attempt)
+                continue
+            break
+        except requests.RequestException as e:
+            last_text = str(e)
+            logger.warning("[Gemini] network error on attempt %d: %s", attempt, e)
+            import time as _t
+            _t.sleep(2 * attempt)
+    if resp is None or resp.status_code != 200:
+        body_text = (getattr(resp, 'text', None) or last_text or '')
+        snippet = (body_text or '')[:1000]
+        logger.error("[Gemini] text error status=%s body=%s", getattr(resp, 'status_code', 'n/a'), snippet)
+        raise RuntimeError(f"Gemini API error {getattr(resp,'status_code', 'n/a')}: {snippet}")
+
+    data = resp.json()
+    text_parts = []
+    for cand in data.get("candidates", []) or []:
+        for part in (cand.get("content") or {}).get("parts", []) or []:
+            if part.get("text"):
+                text_parts.append(part.get("text"))
+    if text_parts:
+        return "\n".join(text_parts)
+    return None
+
+
+async def generate_text(
+    api_key: str,
+    prompt: str,
+    image_bytes: bytes,
+) -> Optional[str]:
+    """Асинхронная обёртка для получения текстового ответа от Gemini"""
+    return await asyncio.to_thread(_generate_text_sync, api_key, prompt, image_bytes)

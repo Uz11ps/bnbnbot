@@ -14,7 +14,7 @@ services:
       context: .
       dockerfile: admin_web/Dockerfile
     ports:
-      - "8080:8000"
+      - "8181:8000"
     volumes:
       - ./data:/app/data
     depends_on:

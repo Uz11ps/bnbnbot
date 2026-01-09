@@ -14,7 +14,7 @@ templates = Jinja2Templates(directory="admin_web/templates")
 security = HTTPBasic()
 
 DB_PATH = "data/bot.db"
-LOG_PATH = "data/bot.log" # Путь к логам бота
+LOG_PATH = "data/bot.log"
 
 ADMIN_USER = "admin"
 ADMIN_PASS = "jahlYq9pMcT2Ufq6"
@@ -38,11 +38,8 @@ async def get_db():
     finally:
         await db.close()
 
-# --- Списки категорий и типов одежды ---
+# --- Списки категорий ---
 CATEGORIES = ["female", "male", "child", "storefront", "whitebg", "random", "own", "own_variant"]
-CLOTH_TYPES = ["coat", "dress", "pants", "shorts", "top", "loungewear", "suit", "overall", "skirt", "shoes", "bg"]
-
-# --- ROUTES ---
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
@@ -82,6 +79,32 @@ async def list_users(request: Request, q: str = "", db: aiosqlite.Connection = D
             users = await cur.fetchall()
     return templates.TemplateResponse("users.html", {"request": request, "users": users, "q": q})
 
+@app.post("/users/edit_balance")
+async def edit_balance(user_id: int = Form(...), amount: int = Form(...), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    await db.execute("UPDATE users SET balance = balance + ? WHERE id = ?", (amount, user_id))
+    await db.commit()
+    return RedirectResponse(url=f"/users?q={user_id}", status_code=303)
+
+@app.get("/prompts", response_class=HTMLResponse)
+async def list_prompts(request: Request, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    async with db.execute("SELECT * FROM prompts") as cur:
+        db_prompts = await cur.fetchall()
+    async with db.execute("SELECT key, value FROM app_settings WHERE key LIKE '%_prompt%'") as cur:
+        settings_prompts = await cur.fetchall()
+    return templates.TemplateResponse("prompts.html", {"request": request, "prompts": db_prompts, "settings_prompts": settings_prompts})
+
+@app.post("/prompts/edit_db")
+async def edit_prompt_db(prompt_id: int = Form(...), text: str = Form(...), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    await db.execute("UPDATE prompts SET text=? WHERE id=?", (text, prompt_id))
+    await db.commit()
+    return RedirectResponse(url="/prompts", status_code=303)
+
+@app.post("/prompts/edit_settings")
+async def edit_prompt_settings(key: str = Form(...), value: str = Form(...), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    await db.execute("UPDATE app_settings SET value=? WHERE key=?", (value, key))
+    await db.commit()
+    return RedirectResponse(url="/prompts", status_code=303)
+
 @app.get("/prices", response_class=HTMLResponse)
 async def list_prices(request: Request, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
     prices_data = []
@@ -89,9 +112,15 @@ async def list_prices(request: Request, db: aiosqlite.Connection = Depends(get_d
         key = f"category_price_{cat}"
         async with db.execute("SELECT value FROM app_settings WHERE key=?", (key,)) as cur:
             row = await cur.fetchone()
-            val = row[0] if row else "10" # Дефолт 10
+            val = row[0] if row else "10"
             prices_data.append({"key": key, "cat": cat, "value": val})
     return templates.TemplateResponse("prices.html", {"request": request, "prices": prices_data})
+
+@app.post("/prices/edit")
+async def edit_price(key: str = Form(...), value: str = Form(...), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    await db.execute("INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, value))
+    await db.commit()
+    return RedirectResponse(url="/prices", status_code=303)
 
 @app.get("/categories", response_class=HTMLResponse)
 async def list_categories(request: Request, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
@@ -117,15 +146,37 @@ async def toggle_category(name: str, db: aiosqlite.Connection = Depends(get_db),
 
 @app.get("/models", response_class=HTMLResponse)
 async def list_models(request: Request, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
-    async with db.execute("SELECT m.*, p.title as prompt_title FROM models m JOIN prompts p ON m.prompt_id = p.id ORDER BY m.category, m.cloth") as cur:
+    async with db.execute("SELECT m.*, p.title as prompt_title FROM models m LEFT JOIN prompts p ON m.prompt_id = p.id ORDER BY m.category, m.cloth") as cur:
         models = await cur.fetchall()
     return templates.TemplateResponse("models.html", {"request": request, "models": models})
+
+@app.get("/api_keys", response_class=HTMLResponse)
+async def list_keys(request: Request, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    async with db.execute("SELECT * FROM api_keys") as cur:
+        gemini_keys = await cur.fetchall()
+    async with db.execute("SELECT * FROM own_variant_api_keys") as cur:
+        own_keys = await cur.fetchall()
+    return templates.TemplateResponse("api_keys.html", {"request": request, "gemini_keys": gemini_keys, "own_keys": own_keys})
+
+@app.post("/api_keys/add")
+async def add_key(token: str = Form(...), table: str = Form(...), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    table_name = "api_keys" if table == "gemini" else "own_variant_api_keys"
+    await db.execute(f"INSERT INTO {table_name} (token) VALUES (?)", (token,))
+    await db.commit()
+    return RedirectResponse(url="/api_keys", status_code=303)
+
+@app.get("/api_keys/delete/{table}/{key_id}")
+async def delete_key(table: str, key_id: int, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    table_name = "api_keys" if table == "gemini" else "own_variant_api_keys"
+    await db.execute(f"DELETE FROM {table_name} WHERE id=?", (key_id,))
+    await db.commit()
+    return RedirectResponse(url="/api_keys", status_code=303)
 
 @app.get("/logs", response_class=HTMLResponse)
 async def view_logs(request: Request, user: str = Depends(get_current_username)):
     logs = "Log file not found."
     if os.path.exists(LOG_PATH):
         with open(LOG_PATH, "r", encoding="utf-8") as f:
-            logs = f.readlines()[-200:] # Последние 200 строк
+            logs = f.readlines()[-200:]
             logs = "".join(logs)
     return templates.TemplateResponse("logs.html", {"request": request, "logs": logs})

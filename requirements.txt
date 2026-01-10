@@ -3,4 +3,5 @@ aiosqlite>=0.19
 python-dotenv>=1.0
 google-generativeai>=0.7
 requests>=2.31
+aiohttp-socks>=0.8
 

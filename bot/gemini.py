@@ -78,6 +78,11 @@ def _generate_sync(
         "maxOutputTokens": 4096,
     }
     
+    # Добавляем поддержку 4K и аспектов через промпт если модель поддерживает или через параметры
+    # В текущей версии API Gemini Image Preview мы управляем этим через промпт
+    if "4k" in (prompt or "").lower() or "ultra" in (prompt or "").lower():
+        generation_config["temperature"] = 0.2  # Меньше креативности, больше четкости
+    
     payload = {
         "contents": [{"parts": parts}],
         "generationConfig": generation_config,

@@ -12,7 +12,11 @@ from aiogram import Bot
 from bot.config import load_settings
 
 app = FastAPI(title="AI-ROOM Admin Panel")
+import json
+
+# ...
 templates = Jinja2Templates(directory="admin_web/templates")
+templates.env.filters["from_json"] = json.loads
 security = HTTPBasic()
 
 DB_PATH = "data/bot.db"
@@ -233,13 +237,42 @@ async def edit_template(key: str = Form(...), template: str = Form(...), db: aio
     await db.commit()
     return RedirectResponse(url="/templates", status_code=303)
 
-@app.get("/logs", response_class=HTMLResponse)
-async def view_logs(request: Request, user: str = Depends(get_current_username)):
-    logs = "Log file not found."
-    if os.path.exists(LOG_PATH):
-        with open(LOG_PATH, "r", encoding="utf-8") as f:
-            logs = "".join(f.readlines()[-200:])
-    return templates.TemplateResponse("logs.html", {"request": request, "logs": logs})
+@app.get("/history", response_class=HTMLResponse)
+async def list_history(request: Request, q: str = "", db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    if q:
+        query = "SELECT * FROM generation_history WHERE pid LIKE ? OR user_id LIKE ? ORDER BY created_at DESC LIMIT 50"
+        async with db.execute(query, (f"%{q}%", f"%{q}%")) as cur:
+            history = await cur.fetchall()
+    else:
+        async with db.execute("SELECT * FROM generation_history ORDER BY created_at DESC LIMIT 50") as cur:
+            history = await cur.fetchall()
+    return templates.TemplateResponse("history.html", {"request": request, "history": history, "q": q})
+
+@app.post("/users/edit_subscription")
+async def edit_subscription(user_id: int = Form(...), days: int = Form(...), limit: int = Form(...), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    from datetime import datetime, timedelta
+    expires_at = datetime.now() + timedelta(days=days)
+    await db.execute(
+        "INSERT INTO subscriptions (user_id, plan_type, expires_at, daily_limit) VALUES (?, 'custom', ?, ?) "
+        "ON CONFLICT(user_id) DO UPDATE SET expires_at=excluded.expires_at, daily_limit=excluded.daily_limit",
+        (user_id, expires_at.isoformat(), limit)
+    )
+    await db.commit()
+    return RedirectResponse(url=f"/users?q={user_id}", status_code=303)
+
+@app.get("/proxy", response_class=HTMLResponse)
+async def proxy_page(request: Request, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    async with db.execute("SELECT value FROM app_settings WHERE key='bot_proxy'") as cur:
+        row = await cur.fetchone()
+        current_proxy = row[0] if row else ""
+    status = await check_proxy()
+    return templates.TemplateResponse("proxy.html", {"request": request, "current_proxy": current_proxy, "status": status})
+
+@app.post("/proxy/edit")
+async def edit_proxy(proxy_url: str = Form(...), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    await db.execute("INSERT INTO app_settings (key, value) VALUES ('bot_proxy', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (proxy_url,))
+    await db.commit()
+    return RedirectResponse(url="/proxy", status_code=303)
 
 @app.post("/maintenance/toggle")
 async def toggle_maintenance(db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):

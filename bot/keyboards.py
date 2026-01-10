@@ -1,91 +1,115 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 
-def terms_keyboard() -> InlineKeyboardMarkup:
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from bot.strings import get_string
+
+
+def terms_keyboard(lang="ru") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Принять.", callback_data="accept_terms")]
+            [InlineKeyboardButton(text=get_string("accept_terms", lang), callback_data="accept_terms")]
         ]
     )
 
 
-def subscription_check_keyboard(channel_url: str) -> InlineKeyboardMarkup:
+def subscription_check_keyboard(channel_url: str, lang="ru") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Подписаться на канал", url=channel_url)],
-            [InlineKeyboardButton(text="Проверить подписку", callback_data="check_subscription")]
+            [InlineKeyboardButton(text=get_string("subscribe_channel", lang), url=channel_url)],
+            [InlineKeyboardButton(text=get_string("subscribed", lang), callback_data="check_subscription")]
         ]
     )
 
 
-def main_menu_keyboard() -> InlineKeyboardMarkup:
+def main_menu_keyboard(lang="ru") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Для маркетплейсов", callback_data="menu_market")],
-            [InlineKeyboardButton(text="Профиль", callback_data="menu_profile")],
-            [InlineKeyboardButton(text="Инструкция", callback_data="menu_howto")],
-            [InlineKeyboardButton(text="Настройки", callback_data="menu_settings")]
+            [InlineKeyboardButton(text=get_string("menu_market", lang), callback_data="menu_market")],
+            [InlineKeyboardButton(text=get_string("menu_profile", lang), callback_data="menu_profile")],
+            [InlineKeyboardButton(text=get_string("menu_howto", lang), callback_data="menu_howto")],
+            [InlineKeyboardButton(text=get_string("menu_settings", lang), callback_data="menu_settings")]
         ]
     )
 
 
-def profile_keyboard() -> InlineKeyboardMarkup:
+def profile_keyboard(lang="ru") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Баланс", callback_data="menu_balance")],
-            [InlineKeyboardButton(text="Подписка", callback_data="menu_subscription")],
-            [InlineKeyboardButton(text="История генерации", callback_data="menu_history")],
-            [InlineKeyboardButton(text="Заработать вместе с нами", callback_data="menu_referral")],
-            [InlineKeyboardButton(text="⬅️ Назад в меню", callback_data="back_main")]
+            [InlineKeyboardButton(text=get_string("menu_subscription", lang), callback_data="menu_subscription")],
+            [InlineKeyboardButton(text=get_string("menu_history", lang), callback_data="menu_history")],
+            [InlineKeyboardButton(text=get_string("select_lang", lang), callback_data="settings_lang")],
+            [InlineKeyboardButton(text=get_string("back_main", lang), callback_data="back_main")]
         ]
     )
 
 
-def settings_keyboard() -> InlineKeyboardMarkup:
+def settings_keyboard(lang="ru") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Выбор языка", callback_data="settings_lang")],
-            [InlineKeyboardButton(text="Выбор качества", callback_data="settings_quality")],
-            [InlineKeyboardButton(text="⬅️ Назад в меню", callback_data="back_main")]
+            [InlineKeyboardButton(text=get_string("select_lang", lang), callback_data="settings_lang")],
+            [InlineKeyboardButton(text=get_string("back_main", lang), callback_data="back_main")]
         ]
     )
 
 
-def language_keyboard() -> InlineKeyboardMarkup:
+def language_keyboard(lang="ru") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="Русский", callback_data="lang:ru")],
             [InlineKeyboardButton(text="English", callback_data="lang:en")],
-            [InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_settings")]
+            [InlineKeyboardButton(text="Tiếng Việt", callback_data="lang:vi")],
+            [InlineKeyboardButton(text=get_string("back", lang), callback_data="menu_profile")]
         ]
     )
 
 
-def marketplace_menu_keyboard() -> InlineKeyboardMarkup:
+def marketplace_menu_keyboard(lang="ru") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Пресеты для одежды", callback_data="menu_create")],
-            [InlineKeyboardButton(text="Одежда и обувь", callback_data="create_random")],
-            [InlineKeyboardButton(text="Свой вариант модели", callback_data="create_own_variant")],
-            [InlineKeyboardButton(text="Свой вариант фона", callback_data="create_own_bg")],
-            [InlineKeyboardButton(text="Генерация для всех продуктов", callback_data="create_all_products")],
-            [InlineKeyboardButton(text="Инфографика", callback_data="create_infographics")],
-            [InlineKeyboardButton(text="⬅️ Назад в меню", callback_data="back_main")]
+            [InlineKeyboardButton(text=get_string("back_main", lang), callback_data="back_main")]
         ]
     )
 
 
-def plans_keyboard() -> InlineKeyboardMarkup:
+def plans_keyboard(plans: list[tuple], lang="ru") -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    for plan in plans:
+        pid, name_ru, name_en, name_vi, price, duration, limit, _active = plan
+        name = name_ru if lang == "ru" else (name_en if lang == "en" else name_vi)
+        rows.append([InlineKeyboardButton(text=f"{name} — {price} ₽", callback_data=f"buy_plan:{pid}")])
+    rows.append([InlineKeyboardButton(text=get_string("back", lang), callback_data="menu_profile")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def history_pagination_keyboard(page: int, total_pages: int, lang="ru") -> InlineKeyboardMarkup:
+    nav_row: list[InlineKeyboardButton] = []
+    if page > 0:
+        nav_row.append(InlineKeyboardButton(text="◀️", callback_data=f"history_page:{page-1}"))
+    if page < total_pages - 1:
+        nav_row.append(InlineKeyboardButton(text="▶️", callback_data=f"history_page:{page+1}"))
+    rows: list[list[InlineKeyboardButton]] = []
+    if nav_row:
+        rows.append(nav_row)
+    rows.append([InlineKeyboardButton(text=get_string("back", lang), callback_data="menu_profile")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def aspect_ratio_keyboard(lang="ru") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="2 дня — 649 ₽", callback_data="buy_plan:2days")],
-            [InlineKeyboardButton(text="7 дней — 1990 ₽", callback_data="buy_plan:7days")],
-            [InlineKeyboardButton(text="PRO — 5490 ₽", callback_data="buy_plan:pro")],
-            [InlineKeyboardButton(text="MAX — 9990 ₽", callback_data="buy_plan:max")],
-            [InlineKeyboardButton(text="ULTRA 4K — 15990 ₽", callback_data="buy_plan:ultra_4k")],
-            [InlineKeyboardButton(text="ULTRA BUSINESS 4K — 44990 ₽", callback_data="buy_plan:ultra_business_4k")],
-            [InlineKeyboardButton(text="ULTRA ENTERPRISE 4K — 89990 ₽", callback_data="buy_plan:ultra_enterprise_4k")],
-            [InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_profile")]
+            [InlineKeyboardButton(text="4:3", callback_data="form_aspect:4x3"), InlineKeyboardButton(text="3:4", callback_data="form_aspect:3x4")],
+            [InlineKeyboardButton(text="16:9", callback_data="form_aspect:16x9"), InlineKeyboardButton(text="9:16", callback_data="form_aspect:9x16")],
+            [InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")]
+        ]
+    )
+
+
+def form_generate_keyboard(lang="ru") -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=get_string("create_photo", lang, default="Создать фото"), callback_data="form_generate")],
+            [InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")]
         ]
     )
 

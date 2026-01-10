@@ -19,10 +19,24 @@
                 <div class="badge bg-primary rounded-pill">{{ user.balance }} токенов</div>
             </div>
             <hr class="my-2">
+            <h6 class="small fw-bold">Управление подпиской:</h6>
+            <form action="/users/edit_subscription" method="post" class="row g-2">
+                <input type="hidden" name="user_id" value="{{ user.id }}">
+                <div class="col-6">
+                    <input type="number" name="days" class="form-control form-control-sm" placeholder="Дни" required>
+                </div>
+                <div class="col-6">
+                    <input type="number" name="limit" class="form-control form-control-sm" placeholder="Лимит/день" value="20" required>
+                </div>
+                <div class="col-12">
+                    <button class="btn btn-sm btn-success w-100" type="submit">Выдать подписку</button>
+                </div>
+            </form>
+            <hr class="my-2">
             <form action="/users/edit_balance" method="post" class="input-group input-group-sm">
                 <input type="hidden" name="user_id" value="{{ user.id }}">
-                <input type="number" name="amount" class="form-control" placeholder="+/- сумма">
-                <button class="btn btn-outline-success" type="submit">Изменить</button>
+                <input type="number" name="amount" class="form-control" placeholder="+/- токены">
+                <button class="btn btn-outline-success" type="submit">Баланс</button>
             </form>
         </div>
     </div>

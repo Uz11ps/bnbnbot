@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card p-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h4><i class="bi bi-clock-history me-2"></i> История генераций</h4>
+        <form class="d-flex gap-2" action="/history" method="get">
+            <input type="text" name="q" class="form-control" placeholder="PID или User ID" value="{{ q }}">
+            <button type="submit" class="btn btn-primary">Поиск</button>
+        </form>
+    </div>
+
+    <div class="table-responsive">
+        <table class="table align-middle">
+            <thead>
+                <tr>
+                    <th>PID</th>
+                    <th>User ID</th>
+                    <th>Категория</th>
+                    <th>До / После</th>
+                    <th>Параметры</th>
+                    <th>Дата</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in history %}
+                <tr>
+                    <td><code>{{ item.pid }}</code></td>
+                    <td><a href="/users?q={{ item.user_id }}">{{ item.user_id }}</a></td>
+                    <td>{{ item.category }}</td>
+                    <td>
+                        <div class="d-flex gap-1">
+                            {% set input_photos = item.input_photos | from_json if item.input_photos else [] %}
+                            {% if input_photos %}
+                                <div class="text-muted small">Input: {{ input_photos | length }} фото</div>
+                            {% endif %}
+                            {% if item.result_photo_id %}
+                                <div class="badge bg-success">Result OK</div>
+                            {% endif %}
+                        </div>
+                    </td>
+                    <td>
+                        <small class="text-muted">{{ item.params }}</small>
+                    </td>
+                    <td>{{ item.created_at }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+

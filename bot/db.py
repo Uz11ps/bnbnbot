@@ -17,8 +17,22 @@ CREATE TABLE IF NOT EXISTS users (
     referrer_id INTEGER,
     referral_balance INTEGER NOT NULL DEFAULT 0,
     language TEXT NOT NULL DEFAULT 'ru',
+    trial_used INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+"""
+
+CREATE_SUBSCRIPTION_PLANS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS subscription_plans (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name_ru TEXT NOT NULL,
+    name_en TEXT NOT NULL,
+    name_vi TEXT NOT NULL,
+    price INTEGER NOT NULL,          -- Цена в рублях
+    duration_days INTEGER NOT NULL,
+    daily_limit INTEGER NOT NULL,
+    is_active INTEGER NOT NULL DEFAULT 1
 );
 """
 
@@ -26,13 +40,15 @@ CREATE_SUBSCRIPTIONS_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS subscriptions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
-    plan_type TEXT NOT NULL,         -- '2days', '7days', 'pro', 'max', 'ultra_4k', 'ultra_business_4k', 'ultra_enterprise_4k'
+    plan_id INTEGER,                 -- Ссылка на план (может быть NULL для триала)
+    plan_type TEXT NOT NULL,         -- 'trial', 'custom', или название из плана
     expires_at TIMESTAMP NOT NULL,
     daily_limit INTEGER NOT NULL,
     daily_usage INTEGER NOT NULL DEFAULT 0,
     last_usage_reset TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY(user_id) REFERENCES users(id)
+    FOREIGN KEY(user_id) REFERENCES users(id),
+    FOREIGN KEY(plan_id) REFERENCES subscription_plans(id)
 );
 """
 
@@ -89,8 +105,20 @@ CREATE TABLE IF NOT EXISTS api_keys (
     token TEXT NOT NULL,
     is_active INTEGER NOT NULL DEFAULT 1,
     priority INTEGER NOT NULL DEFAULT 0,
+    daily_usage INTEGER NOT NULL DEFAULT 0,
+    total_usage INTEGER NOT NULL DEFAULT 0,
+    last_usage_reset TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+"""
+
+CREATE_API_USAGE_LOG_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS api_usage_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    key_id INTEGER NOT NULL,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(key_id) REFERENCES api_keys(id)
 );
 """
 
@@ -156,10 +184,12 @@ class Database:
         async with aiosqlite.connect(self._db_path) as db:
             await db.execute("PRAGMA journal_mode=WAL;")
             await db.execute(CREATE_USERS_TABLE_SQL)
+            await db.execute(CREATE_SUBSCRIPTION_PLANS_TABLE_SQL)
             await db.execute(UPDATE_TRIGGER_SQL)
             await db.execute(CREATE_PROMPTS_TABLE_SQL)
             await db.execute(CREATE_MODELS_TABLE_SQL)
             await db.execute(CREATE_API_KEYS_TABLE_SQL)
+            await db.execute(CREATE_API_USAGE_LOG_TABLE_SQL)
             await db.execute(CREATE_OWN_VARIANT_API_KEYS_TABLE_SQL)
             await db.execute(CREATE_OWN_VARIANT_RATE_LIMIT_TABLE_SQL)
             await db.execute(CREATE_OWN_VARIANT_RATE_LIMIT_INDEX_SQL)
@@ -171,6 +201,7 @@ class Database:
             await db.commit()
         await self._seed_prompts()
         await self._seed_templates()
+        await self._seed_subscription_plans()
         
         # Добавляем токен для nano-banano модели для "Свой вариант" если его еще нет
         try:
@@ -183,26 +214,27 @@ class Database:
         except Exception as e:
             logger.warning(f"Не удалось добавить токен nano-banano при инициализации: {e}")
 
-        # Ensure photo_file_id column exists (for older DBs)
-        async with aiosqlite.connect(self._db_path) as db:
-            async with db.execute("PRAGMA table_info(models)") as cur:
-                cols = [row[1] for row in await cur.fetchall()]
-            if "photo_file_id" not in cols:
-                await db.execute("ALTER TABLE models ADD COLUMN photo_file_id TEXT")
-                await db.commit()
-        
-        # Ensure new columns exist in users
+        # Ensure new columns exist
         async with aiosqlite.connect(self._db_path) as db:
             async with db.execute("PRAGMA table_info(users)") as cur:
                 cols = [row[1] for row in await cur.fetchall()]
-            if "blocked" not in cols:
-                await db.execute("ALTER TABLE users ADD COLUMN blocked INTEGER NOT NULL DEFAULT 0")
-            if "referrer_id" not in cols:
-                await db.execute("ALTER TABLE users ADD COLUMN referrer_id INTEGER")
-            if "referral_balance" not in cols:
-                await db.execute("ALTER TABLE users ADD COLUMN referral_balance INTEGER NOT NULL DEFAULT 0")
-            if "language" not in cols:
-                await db.execute("ALTER TABLE users ADD COLUMN language TEXT NOT NULL DEFAULT 'ru'")
+            if "trial_used" not in cols:
+                await db.execute("ALTER TABLE users ADD COLUMN trial_used INTEGER NOT NULL DEFAULT 0")
+            
+            async with db.execute("PRAGMA table_info(api_keys)") as cur:
+                cols = [row[1] for row in await cur.fetchall()]
+            if "daily_usage" not in cols:
+                await db.execute("ALTER TABLE api_keys ADD COLUMN daily_usage INTEGER NOT NULL DEFAULT 0")
+            if "total_usage" not in cols:
+                await db.execute("ALTER TABLE api_keys ADD COLUMN total_usage INTEGER NOT NULL DEFAULT 0")
+            if "last_usage_reset" not in cols:
+                await db.execute("ALTER TABLE api_keys ADD COLUMN last_usage_reset TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+            
+            async with db.execute("PRAGMA table_info(subscriptions)") as cur:
+                cols = [row[1] for row in await cur.fetchall()]
+            if "plan_id" not in cols:
+                await db.execute("ALTER TABLE subscriptions ADD COLUMN plan_id INTEGER")
+
             await db.commit()
 
     # API keys management
@@ -981,5 +1013,126 @@ class Database:
                 if not row:
                     return None
                 return int(row[0]), str(row[1]), int(row[2]), (str(row[3]) if row[3] is not None else None)
+
+    # Subscription Plans CRUD
+    async def _seed_subscription_plans(self) -> None:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT COUNT(*) FROM subscription_plans") as cur:
+                if (await cur.fetchone())[0] == 0:
+                    plans = [
+                        ("2 Дня", "2 Days", "2 Ngày", 199, 2, 20),
+                        ("7 Дней", "7 Days", "7 Ngày", 499, 7, 50),
+                        ("Pro", "Pro", "Pro", 999, 30, 100),
+                        ("Max", "Max", "Max", 1499, 30, 250),
+                    ]
+                    await db.executemany(
+                        "INSERT INTO subscription_plans (name_ru, name_en, name_vi, price, duration_days, daily_limit) VALUES (?, ?, ?, ?, ?, ?)",
+                        plans
+                    )
+                    await db.commit()
+
+    async def list_subscription_plans(self) -> list[tuple]:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT * FROM subscription_plans WHERE is_active=1") as cur:
+                return await cur.fetchall()
+
+    async def get_subscription_plan(self, plan_id: int) -> tuple | None:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT * FROM subscription_plans WHERE id=?", (plan_id,)) as cur:
+                return await cur.fetchone()
+
+    # Subscription Management
+    async def grant_subscription(self, user_id: int, plan_id: int | None, plan_type: str, duration_days: int, daily_limit: int) -> None:
+        from datetime import datetime, timedelta
+        expires_at = datetime.now() + timedelta(days=duration_days)
+        async with aiosqlite.connect(self._db_path) as db:
+            # Если оформляется платная подписка, триал сгорает (хотя он и так перекроется)
+            await db.execute(
+                "INSERT INTO subscriptions (user_id, plan_id, plan_type, expires_at, daily_limit) VALUES (?, ?, ?, ?, ?)",
+                (user_id, plan_id, plan_type, expires_at.isoformat(), daily_limit)
+            )
+            # Если это не триал, помечаем что триал использован
+            if plan_type != 'trial':
+                await db.execute("UPDATE users SET trial_used=1 WHERE id=?", (user_id,))
+            await db.commit()
+
+    async def get_user_trial_status(self, user_id: int) -> bool:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT trial_used FROM users WHERE id=?", (user_id,)) as cur:
+                row = await cur.fetchone()
+                return bool(row[0]) if row else True
+
+    # PID Generation
+    async def generate_pid(self) -> str:
+        import random
+        import string
+        while True:
+            pid = "PID" + "".join(random.choices(string.digits, k=8))
+            async with aiosqlite.connect(self._db_path) as db:
+                async with db.execute("SELECT 1 FROM generation_history WHERE pid=?", (pid,)) as cur:
+                    if not await cur.fetchone():
+                        return pid
+
+    # History cleanup
+    async def cleanup_old_generations(self, days: int = 7) -> int:
+        async with aiosqlite.connect(self._db_path) as db:
+            # В реальности мы тут должны еще удалять файлы из TG, если нужно,
+            # но пока просто удалим записи или пометим их
+            # Для простоты просто возвращаем кол-во старых записей
+            async with db.execute(
+                "SELECT COUNT(*) FROM generation_history WHERE created_at < datetime('now', '-' || ? || ' days')",
+                (days,)
+            ) as cur:
+                return (await cur.fetchone())[0]
+
+    # API Key usage tracking
+    async def check_api_key_limits(self, key_id: int) -> tuple[bool, str]:
+        from datetime import datetime
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT daily_usage, last_usage_reset FROM api_keys WHERE id=?", (key_id,)) as cur:
+                row = await cur.fetchone()
+                if not row: return False, "Key not found"
+                daily_usage, last_reset = row
+                
+                # Reset daily if needed
+                if last_reset[:10] != datetime.now().isoformat()[:10]:
+                    await db.execute("UPDATE api_keys SET daily_usage=0, last_usage_reset=CURRENT_TIMESTAMP WHERE id=?", (key_id,))
+                    await db.commit()
+                    daily_usage = 0
+                
+                if daily_usage >= 250:
+                    return False, "Daily limit 250 reached"
+                
+                # Minute limit (20 per minute)
+                async with db.execute(
+                    "SELECT COUNT(*) FROM api_usage_log WHERE key_id=? AND timestamp > datetime('now', '-1 minute')",
+                    (key_id,)
+                ) as cur_log:
+                    minute_usage = (await cur_log.fetchone())[0]
+                    if minute_usage >= 20:
+                        return False, "Minute limit 20 reached"
+            
+            return True, ""
+
+    async def record_api_usage(self, key_id: int) -> None:
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute("INSERT INTO api_usage_log (key_id) VALUES (?)", (key_id,))
+            await db.execute("UPDATE api_keys SET daily_usage = daily_usage + 1, total_usage = total_usage + 1 WHERE id=?", (key_id,))
+            await db.commit()
+
+    # Agreement and Instructions
+    async def get_agreement_text(self) -> str:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT value FROM app_settings WHERE key='agreement_text'") as cur:
+                row = await cur.fetchone()
+                return str(row[0]) if row else "Пользовательское соглашение не задано."
+
+    async def set_agreement_text(self, text: str) -> None:
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute(
+                "INSERT INTO app_settings (key, value) VALUES ('agreement_text', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (text,)
+            )
+            await db.commit()
 
 

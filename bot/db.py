@@ -139,6 +139,14 @@ CREATE TABLE IF NOT EXISTS transactions (
 );
 """
 
+CREATE_PROMPT_TEMPLATES_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS prompt_templates (
+    key TEXT PRIMARY KEY,
+    template TEXT NOT NULL,
+    description TEXT
+);
+"""
+
 
 class Database:
     def __init__(self, db_path: str = "bot.db") -> None:
@@ -159,8 +167,10 @@ class Database:
             await db.execute(CREATE_TRANSACTIONS_TABLE_SQL)
             await db.execute(CREATE_SUBSCRIPTIONS_TABLE_SQL)
             await db.execute(CREATE_GENERATION_HISTORY_TABLE_SQL)
+            await db.execute(CREATE_PROMPT_TEMPLATES_TABLE_SQL)
             await db.commit()
         await self._seed_prompts()
+        await self._seed_templates()
         
         # Добавляем токен для nano-banano модели для "Свой вариант" если его еще нет
         try:
@@ -399,10 +409,76 @@ class Database:
 
     async def set_maintenance(self, enabled: bool) -> None:
         async with aiosqlite.connect(self._db_path) as db:
+            # Получаем текущий статус
+            current = await self.get_maintenance()
+            if current == enabled:
+                return
+
+            from datetime import datetime
+            now_str = datetime.now().isoformat()
+            
+            if enabled:
+                # Включаем: записываем время начала
+                await db.execute(
+                    "INSERT INTO app_settings (key, value) VALUES ('maintenance_start', ?)\n                     ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    (now_str,),
+                )
+            else:
+                # Выключаем: считаем сколько длились техработы и продлеваем подписки
+                async with db.execute("SELECT value FROM app_settings WHERE key='maintenance_start'") as cur:
+                    row = await cur.fetchone()
+                    if row:
+                        start_time = datetime.fromisoformat(row[0])
+                        duration = datetime.now() - start_time
+                        duration_seconds = int(duration.total_seconds())
+                        
+                        if duration_seconds > 0:
+                            # Продлеваем все активные подписки
+                            await db.execute(
+                                "UPDATE subscriptions SET expires_at = datetime(expires_at, '+' || ? || ' seconds') WHERE expires_at > CURRENT_TIMESTAMP",
+                                (str(duration_seconds),)
+                            )
+
             await db.execute(
                 "INSERT INTO app_settings (key, value) VALUES ('maintenance', ?)\n                 ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                 ('1' if enabled else '0',),
             )
+            await db.commit()
+
+    # Prompt Templates
+    async def get_prompt_template(self, key: str) -> str | None:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT template FROM prompt_templates WHERE key=?", (key,)) as cur:
+                row = await cur.fetchone()
+                return str(row[0]) if row else None
+
+    async def set_prompt_template(self, key: str, template: str) -> None:
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute(
+                "INSERT INTO prompt_templates (key, template) VALUES (?, ?)\n                 ON CONFLICT(key) DO UPDATE SET template=excluded.template",
+                (key, template),
+            )
+            await db.commit()
+
+    async def list_prompt_templates(self) -> list[tuple[str, str, str | None]]:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT key, template, description FROM prompt_templates") as cur:
+                rows = await cur.fetchall()
+                return [(str(r[0]), str(r[1]), r[2]) for r in rows]
+
+    async def _seed_templates(self) -> None:
+        templates = [
+            ("template_female", "Манекен {Пол}, одежда {Стиль}, длина {Длина}, рукав {Рукав}, ракурс {Ракурс}", "Шаблон для женщин"),
+            ("template_male", "Манекен {Пол}, одежда {Стиль}, длина {Длина}, рукав {Рукав}, ракурс {Ракурс}", "Шаблон для мужчин"),
+            ("template_child", "Манекен {Пол}, одежда {Стиль}, возраст {Возраст}, ракурс {Ракурс}", "Шаблон для детей"),
+            ("template_own_variant", "Photo 1: model reference. Photo 2: clothing. \nReproduce Photo 2 on the model from Photo 1. \nDetails: Length {Длина}, Sleeve {Рукав}, View {Ракурс}", "Шаблон для 'Свой вариант'"),
+        ]
+        async with aiosqlite.connect(self._db_path) as db:
+            for key, tmpl, desc in templates:
+                await db.execute(
+                    "INSERT OR IGNORE INTO prompt_templates (key, template, description) VALUES (?, ?, ?)",
+                    (key, tmpl, desc)
+                )
             await db.commit()
 
     # Base prompts storage (single prompt per key)
@@ -753,21 +829,23 @@ class Database:
 
     async def get_stats(self) -> dict:
         async with aiosqlite.connect(self._db_path) as db:
-            stats: dict[str, int] = {}
-            # Кол-во пользователей
+            stats = {}
+            # Пользователи
             async with db.execute("SELECT COUNT(*) FROM users") as cur:
-                row = await cur.fetchone()
-                stats["total_users"] = int(row[0]) if row else 0
-            # Суммарный баланс
+                stats["total_users"] = (await cur.fetchone())[0]
+            async with db.execute("SELECT COUNT(*) FROM users WHERE date(created_at) = date('now')") as cur:
+                stats["today_users"] = (await cur.fetchone())[0]
+            
+            # Генерации
+            async with db.execute("SELECT COUNT(*) FROM generation_history") as cur:
+                stats["total_generations"] = (await cur.fetchone())[0]
+            async with db.execute("SELECT COUNT(*) FROM generation_history WHERE date(created_at) = date('now')") as cur:
+                stats["today_generations"] = (await cur.fetchone())[0]
+
+            # Балансы
             async with db.execute("SELECT COALESCE(SUM(balance),0) FROM users") as cur:
-                row = await cur.fetchone()
-                stats["total_balance"] = int(row[0]) if row else 0
-            # Пользователи за сегодня
-            async with db.execute(
-                "SELECT COUNT(*) FROM users WHERE date(created_at) = date('now')"
-            ) as cur:
-                row = await cur.fetchone()
-                stats["today_users"] = int(row[0]) if row else 0
+                stats["total_balance"] = (await cur.fetchone())[0]
+            
             return stats
 
     async def list_users_page(self, offset: int, limit: int) -> list[tuple[int, str | None, int, int]]:

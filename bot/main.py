@@ -68,7 +68,11 @@ async def lifespan(dp: Dispatcher, db: Database):
 async def set_commands(bot: Bot) -> None:
     await bot.set_my_commands(
         [
-            BotCommand(command="start", description="Запуск бота"),
+            BotCommand(command="start", description="🏠 Главное меню"),
+            BotCommand(command="profile", description="👤 Мой профиль"),
+            BotCommand(command="settings", description="⚙️ Настройки"),
+            BotCommand(command="reset", description="🔄 Сброс"),
+            BotCommand(command="help", description="❓ Инструкция"),
         ]
     )
 
@@ -76,13 +80,24 @@ async def set_commands(bot: Bot) -> None:
 async def main() -> None:
     settings = load_settings()
 
-    # Учитываем системные переменные прокси только если они явно нужны (в данном случае для ТГ они не нужны)
-    # т.к. сервер находится в Европе. Удаляем глобальную установку прокси.
+    # Добавляем поддержку прокси для самого бота, если указано в .env
+    # Это поможет ускорить работу кнопок, если сервер в проблемной зоне
+    proxy_url = os.getenv("BOT_HTTP_PROXY")
     
-    bot = Bot(
-        token=settings.bot_token,
-        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
-    )
+    if proxy_url:
+        from aiogram.client.session.aiohttp import AiohttpSession
+        session = AiohttpSession(proxy=proxy_url)
+        bot = Bot(
+            token=settings.bot_token,
+            session=session,
+            default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+        )
+        logger.info(f"Бот запущен через прокси: {proxy_url}")
+    else:
+        bot = Bot(
+            token=settings.bot_token,
+            default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+        )
 
     dp = Dispatcher(storage=MemoryStorage())
 

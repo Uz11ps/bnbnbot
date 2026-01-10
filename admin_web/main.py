@@ -73,14 +73,24 @@ async def run_broadcast(message_text: str):
 async def index(request: Request, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
     async with db.execute("SELECT COUNT(*) FROM users") as cur:
         total_users = (await cur.fetchone())[0]
+    async with db.execute("SELECT COUNT(*) FROM users WHERE date(created_at) = date('now')") as cur:
+        today_users = (await cur.fetchone())[0]
     async with db.execute("SELECT COUNT(*) FROM generation_history") as cur:
         total_gens = (await cur.fetchone())[0]
+    async with db.execute("SELECT COUNT(*) FROM generation_history WHERE date(created_at) = date('now')") as cur:
+        today_gens = (await cur.fetchone())[0]
+    async with db.execute("SELECT COALESCE(SUM(balance),0) FROM users") as cur:
+        total_balance = (await cur.fetchone())[0]
+
     async with db.execute("SELECT value FROM app_settings WHERE key='maintenance'") as cur:
         row = await cur.fetchone()
         maintenance = row[0] == '1' if row else False
     proxy_status = await check_proxy()
     return templates.TemplateResponse("dashboard.html", {
-        "request": request, "total_users": total_users, "total_gens": total_gens,
+        "request": request, 
+        "total_users": total_users, "today_users": today_users,
+        "total_gens": total_gens, "today_gens": today_gens,
+        "total_balance": total_balance,
         "maintenance": maintenance, "proxy_status": proxy_status
     })
 
@@ -211,6 +221,18 @@ async def delete_key(table: str, key_id: int, db: aiosqlite.Connection = Depends
     await db.commit()
     return RedirectResponse(url="/api_keys", status_code=303)
 
+@app.get("/templates", response_class=HTMLResponse)
+async def list_templates(request: Request, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    async with db.execute("SELECT * FROM prompt_templates") as cur:
+        templates_data = await cur.fetchall()
+    return templates.TemplateResponse("templates.html", {"request": request, "templates": templates_data})
+
+@app.post("/templates/edit")
+async def edit_template(key: str = Form(...), template: str = Form(...), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    await db.execute("UPDATE prompt_templates SET template=? WHERE key=?", (template, key))
+    await db.commit()
+    return RedirectResponse(url="/templates", status_code=303)
+
 @app.get("/logs", response_class=HTMLResponse)
 async def view_logs(request: Request, user: str = Depends(get_current_username)):
     logs = "Log file not found."
@@ -224,7 +246,30 @@ async def toggle_maintenance(db: aiosqlite.Connection = Depends(get_db), user: s
     async with db.execute("SELECT value FROM app_settings WHERE key='maintenance'") as cur:
         row = await cur.fetchone()
         current = row[0] == '1' if row else False
+    
     new_val = '0' if current else '1'
+    from datetime import datetime
+    now_str = datetime.now().isoformat()
+
+    if new_val == '1':
+        # Включаем: записываем время начала
+        await db.execute("INSERT INTO app_settings (key, value) VALUES ('maintenance_start', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (now_str,))
+    else:
+        # Выключаем: продлеваем все активные подписки на время, которое длились техработы
+        async with db.execute("SELECT value FROM app_settings WHERE key='maintenance_start'") as cur:
+            row = await cur.fetchone()
+            if row:
+                try:
+                    start_time = datetime.fromisoformat(row[0])
+                    duration_seconds = int((datetime.now() - start_time).total_seconds())
+                    if duration_seconds > 0:
+                        await db.execute(
+                            "UPDATE subscriptions SET expires_at = datetime(expires_at, '+' || ? || ' seconds') WHERE expires_at > CURRENT_TIMESTAMP",
+                            (str(duration_seconds),)
+                        )
+                except Exception:
+                    pass
+
     await db.execute("INSERT INTO app_settings (key, value) VALUES ('maintenance', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (new_val,))
     await db.commit()
     return RedirectResponse(url="/", status_code=303)

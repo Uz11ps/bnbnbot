@@ -2,23 +2,38 @@
 {% block content %}
 <div class="row g-3 text-center">
     <div class="col-6 col-md-4">
-        <div class="card p-3">
+        <div class="card p-3 h-100">
             <div class="text-muted small">Пользователи</div>
             <div class="h3 mb-0">{{ total_users }}</div>
+            <div class="text-success small">+{{ today_users }} сегодня</div>
         </div>
     </div>
     <div class="col-6 col-md-4">
-        <div class="card p-3">
+        <div class="card p-3 h-100">
             <div class="text-muted small">Генерации</div>
             <div class="h3 mb-0">{{ total_gens }}</div>
+            <div class="text-primary small">+{{ today_gens }} сегодня</div>
         </div>
     </div>
-    <div class="col-12 col-md-4">
-        <div class="card p-3">
-            <div class="text-muted small">Режим техработ</div>
+    <div class="col-6 col-md-4">
+        <div class="card p-3 h-100">
+            <div class="text-muted small">Общий баланс</div>
+            <div class="h3 mb-0">{{ total_balance }}</div>
+            <div class="text-muted small">токенов всего</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-4">
+        <div class="card p-3 h-100">
+            <div class="text-muted small">Прокси</div>
+            <div class="mt-1 fw-bold">{{ proxy_status }}</div>
+        </div>
+    </div>
+    <div class="col-12 col-md-8">
+        <div class="card p-3 h-100">
+            <div class="text-muted small">Режим техработ (замораживает подписки)</div>
             <form action="/maintenance/toggle" method="post" class="mt-1">
-                <button type="submit" class="btn btn-sm {% if maintenance %}btn-danger{% else %}btn-outline-secondary{% endif %} w-100">
-                    {% if maintenance %}ВКЛЮЧЕНЫ (Выключить){% else %}ВЫКЛЮЧЕНЫ (Включить){% endif %}
+                <button type="submit" class="btn {% if maintenance %}btn-danger{% else %}btn-outline-secondary{% endif %} w-100">
+                    {% if maintenance %}ВКЛЮЧЕНЫ (Остановить и продлить подписки){% else %}ВЫКЛЮЧЕНЫ (Начать){% endif %}
                 </button>
             </form>
         </div>

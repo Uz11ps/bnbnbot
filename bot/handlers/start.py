@@ -1913,6 +1913,96 @@ async def form_cancel(callback: CallbackQuery, state: FSMContext) -> None:
 
 
 @router.callback_query(F.data == "form_generate")
+async def get_final_prompt(data: dict, db: Database) -> str:
+    """Формирует финальный промпт на основе шаблонов из БД или жесткой логики (fallback)"""
+    category = data.get("category")
+    own_variant = data.get("own_variant_mode", False)
+    
+    # 1. Сначала проверяем наличие пользовательского шаблона в БД
+    # Ключи: template_female, template_male, template_child, template_whitebg, template_random, template_own, template_own_variant
+    template_key = f"template_{category}"
+    if own_variant:
+        template_key = "template_own_variant"
+    
+    template = await db.get_prompt_template(template_key)
+    
+    # Маппинг для подстановки
+    age_map = {
+        "20_26": "20-26 лет",
+        "30_38": "30-38 лет",
+        "40_48": "40-48 лет",
+        "55_60": "55-60 лет",
+    }
+    gender_map = {"male": "мужчина", "female": "женщина", "boy": "мальчик", "girl": "девочка"}
+    view_map = {"back": "сзади", "front": "спереди", "side": "сбоку"}
+    
+    # Собираем данные для подстановки
+    fill_data = {
+        "Длина": data.get("length") or data.get("own_variant_length") or data.get("own_length") or "",
+        "Возраст": age_map.get(data.get("age"), data.get("age") or ""),
+        "Пол": gender_map.get(data.get("rand_gender") or data.get("own_variant_category") or data.get("category"), ""),
+        "Стиль": data.get("own_variant_product_type") or data.get("pants_style") or "",
+        "Рукав": data.get("sleeve") or data.get("own_variant_sleeve") or data.get("own_sleeve") or "",
+        "Размер": data.get("size") or "",
+        "Рост": str(data.get("height") or ""),
+        "Описание": data.get("own_model_description") or "",
+        "Ракурс": view_map.get(data.get("view") or data.get("own_variant_view"), "спереди"),
+        "Место": data.get("rand_location") or data.get("plus_loc") or "",
+        "Вайб": data.get("rand_vibe") or data.get("plus_vibe") or "",
+        "Сезон": data.get("rand_vibe") or data.get("plus_season") or "",
+    }
+
+    if template:
+        result_prompt = template
+        for k, v in fill_data.items():
+            result_prompt = result_prompt.replace(f"{{{k}}}", str(v))
+        return Database.add_ai_room_branding(result_prompt)
+
+    # 2. Fallback: Старая жесткая логика (если шаблона нет)
+    prompt_filled = ""
+    
+    if own_variant:
+        # Для 'Свой вариант' берем из настроек
+        prompt_filled = await db.get_own_variant_prompt() or ""
+        # Тут была сложная логика замены плейсхолдеров (она теперь покрыта шаблоном выше, 
+        # но если шаблона нет, используем старые замены)
+        ph_map = {
+            "{Длина изделия}": fill_data["Длина"],
+            "{Длина рукавов}": fill_data["Рукав"],
+            "{тип изделия}": fill_data["Стиль"],
+            "{view}": fill_data["Ракурс"]
+        }
+        for ph, val in ph_map.items():
+            prompt_filled = prompt_filled.replace(ph, str(val))
+            
+    elif data.get("random_mode"):
+        base_random = await db.get_random_prompt() or ""
+        parts = [f"{fill_data['Пол']} {fill_data['Возраст']}. Рост {fill_data['Рост']} см. {fill_data['Размер']}."]
+        if fill_data['Место']: parts.append(f" Место: {fill_data['Место']}.")
+        if fill_data['Вайб']: parts.append(f" Вайб: {fill_data['Вайб']}.")
+        parts.append(f" Ракурс: {fill_data['Ракурс']}. Профессиональное фото.")
+        prompt_filled = (base_random + "\n\n" + "".join(parts)).strip()
+        
+    elif data.get("own_mode"):
+        base = await db.get_own_prompt3() or "Create a professional fashion photo..."
+        prompt_filled = base.replace("{Сюда нужно поставить полученное описание от Gemini}", fill_data["Описание"])\
+                            .replace("{Длина изделия}", fill_data["Длина"])\
+                            .replace("{Длина рукавов}", fill_data["Рукав"])
+    else:
+        # Обычные категории
+        if data.get("category") == "whitebg":
+            base = await db.get_whitebg_prompt() or ""
+            prompt_filled = base + f" Ракурс: {fill_data['Ракурс']}. Белый фон."
+        else:
+            pid = data.get('prompt_id')
+            prompt_text = await db.get_prompt_text(int(pid)) if pid else ""
+            prompt_filled = prompt_text.replace("{длина изделия}", fill_data["Длина"])\
+                                       .replace("{возраст}", fill_data["Возраст"])\
+                                       .replace("{длина рукав}", fill_data["Рукав"])\
+                                       .replace("{сзади/спереди}", fill_data["Ракурс"])
+    
+    return Database.add_ai_room_branding(prompt_filled)
+
 async def form_generate(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     user_id = callback.from_user.id
     logger.info(f"[form_generate] Начало генерации для пользователя {user_id}")
@@ -1951,386 +2041,9 @@ async def form_generate(callback: CallbackQuery, state: FSMContext, db: Database
         await _safe_answer(callback, f"Недостаточно генераций (нужно {need_str} токен(ов))", show_alert=True)
         return
 
-    # Подстановка параметров в промт
-    prompt_text = ""
-    prompt_filled = ""
-    if own_variant:
-        # Для "Своего варианта" используем специальный промпт из БД
-        base_prompt = await db.get_own_variant_prompt()
-        if not base_prompt or not base_prompt.strip():
-            logger.error("[form_generate] Промт для 'Свой вариант' не задан в БД!")
-            await _replace_with_text(callback, "Ошибка: промт для 'Свой вариант' не настроен. Обратитесь к администратору.", reply_markup=back_main_keyboard())
-            await _safe_answer(callback)
-            return
-        own_variant_length = data.get("own_variant_length") or ""
-        own_variant_sleeve = data.get("own_variant_sleeve") or ""
-        own_variant_product_type = data.get("own_variant_product_type") or ""
-        own_variant_view = data.get("own_variant_view") or ""
-        
-        # Логируем полученные значения для отладки
-        logger.info(f"[form_generate] Получены данные из состояния:")
-        logger.info(f"[form_generate] own_variant_length='{own_variant_length}' (тип: {type(own_variant_length).__name__}, пустая: {not own_variant_length})")
-        logger.info(f"[form_generate] own_variant_sleeve='{own_variant_sleeve}' (тип: {type(own_variant_sleeve).__name__}, пустая: {not own_variant_sleeve})")
-        logger.info(f"[form_generate] own_variant_product_type='{own_variant_product_type}' (тип: {type(own_variant_product_type).__name__}, пустая: {not own_variant_product_type})")
-        logger.info(f"[form_generate] own_variant_view='{own_variant_view}' (тип: {type(own_variant_view).__name__}, пустая: {not own_variant_view})")
-        
-        # Проверяем все ключи в данных для отладки
-        all_keys = [k for k in data.keys() if 'length' in k.lower() or 'длина' in k.lower()]
-        logger.info(f"[form_generate] Все ключи связанные с длиной в данных: {all_keys}")
-        
-        # Заполняем плейсхолдеры в промпте (поддерживаем разные варианты написания)
-        prompt_filled = base_prompt.strip()
-        
-        # Логируем исходный промпт (первые 500 символов)
-        logger.info(f"[form_generate] Исходный промпт (первые 500 символов): {prompt_filled[:500]}")
-        
-        # Заменяем плейсхолдеры для длины (все возможные варианты)
-        # Если длина не указана, заменяем на пустую строку (плейсхолдеры будут удалены)
-        length_placeholders = [
-            "{длина}", "{Длина}", "{ДЛИНА}",
-            "{длина изделия}", "{Длина изделия}", "{ДЛИНА ИЗДЕЛИЯ}",
-            "{length}", "{Length}", "{LENGTH}",
-            "{garment_length}", "{Garment Length}", "{GARMENT_LENGTH}",
-            "{длина одежды}", "{Длина одежды}",
-            "{длина вещи}", "{Длина вещи}",
-            "{длина изделия (см)}", "{Длина изделия (см)}",
-            "{garment length}", "{Garment length}",
-            "{Garment Length}", "{GARMENT LENGTH}",
-            "{длина_изделия}", "{ДЛИНА_ИЗДЕЛИЯ}",
-            # Плейсхолдеры в формате скобок (как в промпте: "Garment length: ()")
-            "()",  # Пустые скобки после "Garment length:"
-        ]
-        
-        # Также ищем паттерны типа "Garment length: ()" и заменяем скобки на значение
-        import re
-        # Паттерн для "Garment length: ()" или "Garment length:()" или "Garment length: (длина)"
-        garment_length_patterns = [
-            r'Garment length:\s*\(\)',
-            r'Garment length:\s*\([^)]*\)',
-            r'Длина изделия:\s*\(\)',
-            r'Длина изделия:\s*\([^)]*\)',
-            r'Garment Length:\s*\(\)',
-            r'Garment Length:\s*\([^)]*\)',
-        ]
-        
-        # Также обрабатываем формат "Garment length: ()" - заменяем пустые скобки на значение
-        import re
-        
-        # Сначала проверяем, какие плейсхолдеры есть в промпте
-        found_placeholders = [ph for ph in length_placeholders if ph in prompt_filled]
-        if found_placeholders:
-            logger.info(f"[form_generate] Найдены плейсхолдеры для длины в промпте: {found_placeholders}")
-        else:
-            logger.warning(f"[form_generate] ⚠️ НЕ НАЙДЕНЫ стандартные плейсхолдеры для длины в промпте! Проверяем другие форматы...")
-            # Проверяем формат "Garment length: ()" или "Garment length:()"
-            if re.search(r'Garment length\s*:\s*\(\)', prompt_filled, re.IGNORECASE):
-                logger.info(f"[form_generate] Найден формат 'Garment length: ()' в промпте")
-            # Проверяем, есть ли вообще какие-то плейсхолдеры в промпте
-            all_placeholders_in_prompt = re.findall(r'\{[^}]+\}', prompt_filled)
-            if all_placeholders_in_prompt:
-                logger.info(f"[form_generate] Найдены другие плейсхолдеры в промпте: {set(all_placeholders_in_prompt)}")
-        
-        replacements_count = 0
-        
-        # Обрабатываем стандартные плейсхолдеры в фигурных скобках
-        for placeholder in length_placeholders:
-            if placeholder in prompt_filled:
-                logger.info(f"[form_generate] Найден плейсхолдер для длины: '{placeholder}'")
-                if own_variant_length:
-                    old_prompt = prompt_filled
-                    prompt_filled = prompt_filled.replace(placeholder, own_variant_length)
-                    replacements_count += 1
-                    logger.info(f"[form_generate] ✅ Заменен '{placeholder}' на '{own_variant_length}'")
-                    # Проверяем, что замена произошла
-                    if placeholder in prompt_filled:
-                        logger.error(f"[form_generate] ❌ ОШИБКА: Плейсхолдер '{placeholder}' все еще присутствует после замены!")
-                else:
-                    # Если длина не указана, удаляем плейсхолдер
-                    prompt_filled = prompt_filled.replace(placeholder, "")
-                    logger.warning(f"[form_generate] Плейсхолдер '{placeholder}' найден, но длина не указана, удаляем плейсхолдер")
-        
-        # Обрабатываем формат "Garment length: ()" - заменяем пустые или любые скобки на значение
-        if own_variant_length:
-            # Ищем паттерны типа "Garment length: ()" или "Garment length: (что-то)" - заменяем содержимое скобок
-            patterns = [
-                # Паттерн для пустых скобок и скобок с любым содержимым
-                (r'Garment length\s*:\s*\([^)]*\)', f'Garment length: ({own_variant_length})'),
-                (r'garment length\s*:\s*\([^)]*\)', f'garment length: ({own_variant_length})'),
-                (r'GARMENT LENGTH\s*:\s*\([^)]*\)', f'GARMENT LENGTH: ({own_variant_length})'),
-                (r'Длина изделия\s*:\s*\([^)]*\)', f'Длина изделия: ({own_variant_length})'),
-                (r'длина изделия\s*:\s*\([^)]*\)', f'длина изделия: ({own_variant_length})'),
-                (r'ДЛИНА ИЗДЕЛИЯ\s*:\s*\([^)]*\)', f'ДЛИНА ИЗДЕЛИЯ: ({own_variant_length})'),
-            ]
-            
-            for pattern, replacement in patterns:
-                matches = list(re.finditer(pattern, prompt_filled, re.IGNORECASE))
-                if matches:
-                    logger.info(f"[form_generate] Найден формат '{pattern}' в промпте ({len(matches)} совпадений)")
-                    # Заменяем все совпадения
-                    for match in reversed(matches):  # Обрабатываем с конца, чтобы не сбить индексы
-                        matched_text = match.group(0)
-                        prompt_filled = prompt_filled[:match.start()] + replacement + prompt_filled[match.end():]
-                        replacements_count += 1
-                        logger.info(f"[form_generate] ✅ Заменен '{matched_text}' на '{replacement}'")
-        else:
-            # Если длина не указана, удаляем строки с "Garment length: ()"
-            patterns_to_remove = [
-                r'Garment length\s*:\s*\(\)[^\n]*\n?',
-                r'garment length\s*:\s*\(\)[^\n]*\n?',
-                r'Длина изделия\s*:\s*\(\)[^\n]*\n?',
-            ]
-            for pattern in patterns_to_remove:
-                if re.search(pattern, prompt_filled, re.IGNORECASE):
-                    prompt_filled = re.sub(pattern, '', prompt_filled, flags=re.IGNORECASE)
-                    logger.warning(f"[form_generate] Удалена строка с паттерном '{pattern}' (длина не указана)")
-        
-        if replacements_count == 0 and own_variant_length:
-            logger.error(f"[form_generate] ❌ КРИТИЧЕСКАЯ ОШИБКА: Длина указана ('{own_variant_length}'), но ни один плейсхолдер не найден в промпте!")
-            logger.error(f"[form_generate] Проверьте промпт в админ-панели - возможно используются другие плейсхолдеры")
-        elif replacements_count > 0:
-            logger.info(f"[form_generate] ✅ Выполнено замен длины: {replacements_count}")
-        
-        # Заменяем плейсхолдеры для длины рукавов (все возможные варианты)
-        sleeve_placeholders = [
-            "{длина рукавов}", "{Длина рукавов}", "{ДЛИНА РУКАВОВ}",
-            "{sleeve}", "{Sleeve}", "{SLEEVE}",
-            "{sleeve_length}", "{Sleeve Length}", "{SLEEVE_LENGTH}",
-            "{длина рукава}", "{Длина рукава}",
-            "{рукав}", "{Рукав}",
-            "{длина рукавов (см)}", "{Длина рукавов (см)}",
-            "{sleeve length}", "{Sleeve length}",
-        ]
-        for placeholder in sleeve_placeholders:
-            if own_variant_sleeve:
-                prompt_filled = prompt_filled.replace(placeholder, own_variant_sleeve)
-            else:
-                prompt_filled = prompt_filled.replace(placeholder, "")
-        
-        # Заменяем плейсхолдеры для типа изделия (все возможные варианты)
-        product_type_placeholders = [
-            "{Выберите тип одежды}", "{выберите тип одежды}", "{ВЫБЕРИТЕ ТИП ОДЕЖДЫ}",
-            "{Product Type}", "{product_type}", "{PRODUCT_TYPE}",
-            "{тип изделия}", "{Тип изделия}", "{ТИП ИЗДЕЛИЯ}",
-            "{тип одежды}", "{Тип одежды}", "{ТИП ОДЕЖДЫ}",
-            "{вид одежды}", "{Вид одежды}", "{ВИД ОДЕЖДЫ}",
-            "{garment_type}", "{Garment Type}", "{GARMENT_TYPE}",
-            "{item_type}", "{Item Type}", "{ITEM_TYPE}",
-            "{тип товара}", "{Тип товара}",
-            "{category}", "{Category}",
-        ]
-        for placeholder in product_type_placeholders:
-            if own_variant_product_type:
-                prompt_filled = prompt_filled.replace(placeholder, own_variant_product_type)
-            else:
-                prompt_filled = prompt_filled.replace(placeholder, "")
-        
-        # Заменяем плейсхолдеры для части товара на фото (все возможные варианты)
-        view_placeholders = [
-            "{часть товара}", "{Часть товара}", "{ЧАСТЬ ТОВАРА}",
-            "{часть товара на фото}", "{Часть товара на фото}", "{ЧАСТЬ ТОВАРА НА ФОТО}",
-            "{view}", "{View}", "{VIEW}",
-            "{product_view}", "{Product View}", "{PRODUCT_VIEW}",
-            "{сторона товара}", "{Сторона товара}", "{СТОРОНА ТОВАРА}",
-            "{вид товара}", "{Вид товара}", "{ВИД ТОВАРА}",
-            "{side}", "{Side}", "{SIDE}",
-            "{front/back/side}", "{Front/Back/Side}",
-        ]
-        
-        replacements_view_count = 0
-        for placeholder in view_placeholders:
-            if placeholder in prompt_filled:
-                logger.info(f"[form_generate] Найден плейсхолдер для части товара: '{placeholder}'")
-                if own_variant_view:
-                    prompt_filled = prompt_filled.replace(placeholder, own_variant_view)
-                    replacements_view_count += 1
-                    logger.info(f"[form_generate] ✅ Заменен '{placeholder}' на '{own_variant_view}'")
-                else:
-                    prompt_filled = prompt_filled.replace(placeholder, "")
-                    logger.warning(f"[form_generate] Плейсхолдер '{placeholder}' найден, но часть товара не указана, удаляем плейсхолдер")
-        
-        # Также обрабатываем формат "View: ()" или "Product view: ()"
-        if own_variant_view:
-            view_patterns = [
-                (r'View\s*:\s*\([^)]*\)', f'View: ({own_variant_view})'),
-                (r'view\s*:\s*\([^)]*\)', f'view: ({own_variant_view})'),
-                (r'Product view\s*:\s*\([^)]*\)', f'Product view: ({own_variant_view})'),
-                (r'Часть товара\s*:\s*\([^)]*\)', f'Часть товара: ({own_variant_view})'),
-                (r'часть товара\s*:\s*\([^)]*\)', f'часть товара: ({own_variant_view})'),
-            ]
-            
-            for pattern, replacement in view_patterns:
-                matches = list(re.finditer(pattern, prompt_filled, re.IGNORECASE))
-                if matches:
-                    logger.info(f"[form_generate] Найден паттерн для части товара: '{pattern}' ({len(matches)} совпадений)")
-                    for match in reversed(matches):
-                        matched_text = match.group(0)
-                        prompt_filled = prompt_filled[:match.start()] + replacement + prompt_filled[match.end():]
-                        replacements_view_count += 1
-                        logger.info(f"[form_generate] ✅ Заменен паттерн '{matched_text}' на '{replacement}'")
-        
-        if replacements_view_count > 0:
-            logger.info(f"[form_generate] ✅ Выполнено замен части товара: {replacements_view_count}")
-        
-        # Удаляем множественные пустые строки подряд (оставляем максимум одну пустую строку)
-        import re
-        prompt_filled = re.sub(r'\n{3,}', '\n\n', prompt_filled)
-        # Удаляем пустые строки в начале и конце
-        prompt_filled = prompt_filled.strip()
-        
-        # Проверяем, остались ли необработанные плейсхолдеры
-        all_placeholders = length_placeholders + sleeve_placeholders + product_type_placeholders
-        remaining_placeholders = [ph for ph in all_placeholders if ph in prompt_filled]
-        
-        # Логируем результат замены плейсхолдеров
-        logger.info(f"[form_generate] Промт для 'Свой вариант' после замены плейсхолдеров:")
-        logger.info(f"[form_generate] Длина изделия: '{own_variant_length}' (пустая: {not own_variant_length}, длина: {len(own_variant_length)})")
-        logger.info(f"[form_generate] Длина рукавов: '{own_variant_sleeve}' (пустая: {not own_variant_sleeve}, длина: {len(own_variant_sleeve)})")
-        logger.info(f"[form_generate] Тип изделия: '{own_variant_product_type}' (пустая: {not own_variant_product_type}, длина: {len(own_variant_product_type)})")
-        
-        if remaining_placeholders:
-            logger.warning(f"[form_generate] ⚠️ В финальном промпте остались необработанные плейсхолдеры: {remaining_placeholders}")
-        else:
-            logger.info(f"[form_generate] ✅ Все плейсхолдеры успешно обработаны")
-        
-        logger.info(f"[form_generate] Промт (первые 500 символов): {prompt_filled[:500]}")
-        if len(prompt_filled) > 500:
-            logger.info(f"[form_generate] Промт (последние 500 символов): {prompt_filled[-500:]}")
-        logger.info(f"[form_generate] Полная длина промта: {len(prompt_filled)} символов")
-    elif not own_variant and data.get("random_mode"):
-        prompt_text = ""
-    elif not own_variant:
-        if data.get("category") == "whitebg":
-            base = await db.get_whitebg_prompt()
-            prompt_text = base or ""
-        else:
-            pid = data.get('prompt_id')
-            prompt_text = await db.get_prompt_text(int(pid)) if pid else ""
-    # Приводим возраст и длину рукава к финальному виду для промта (только если не own_variant)
-    if not own_variant:
-        age_key = data.get('age')
-        age_map = {
-            "20_26": "Молодая модель возраста 20-26 лет",
-            "30_38": "Взрослая модель возраста 30-38 лет",
-            "40_48": "Зрелая модель возраста 40-48 лет",
-            "55_60": "Пожилая модель возраста 55-60 лет",
-        }
-        age_text = age_map.get(age_key, age_key or "")
-        sleeve_text = data.get('sleeve') or ""
-        # Вставляем телосложение, если это взрослые и не обувь
-        size_text = data.get('size') or ""
-    if not own_variant and data.get("own_mode"):
-        # Собираем специализированный промт для собственного референса (финальный), с админ-настройкой
-        own_length = (data.get("own_length") or "")
-        own_sleeve = (data.get("own_sleeve") or "")
-        model_description = data.get("own_model_description") or ""
-        base = await db.get_own_prompt3() or (
-            "Create a professional high-quality fashion photo. The outfit must be an exact visual copy of the clothes shown in the attached reference image. The shape, proportions, structure, texture, pattern, and material must match each other exactly. Reproduce the seams, lines, and construction without rethinking. Fabrics should look freshly ironed, realistic, with soft natural folds. Observe photorealistic lighting and natural color balance.\n\n"
-            "The color should be exactly the same as in the photo that I attached.\n\n"
-            "Model:\n\n"
-            "{Сюда нужно поставить полученное описание от Gemini}\n\n"
-            "Clothing length (parameters are given in centimeters): {Длина изделия}\n\n"
-            "Sleeve length (parameters are given in centimeters): {Длина рукавов}\n\n"
-            "If some parts of the model's body remain naked (for example, the torso, legs, or feet), automatically add suitable clothing that matches the style and season of the main garment. Additional items should be harmonious in style and slightly different in color — without sharp contrasts. Shoes are selected according to the season and the general style of the image (for example, do not use summer options for a winter look).\n\n"
-            "Photo angle / framing (choose one): Big Angle\n\n"
-            "– If Foreshortening = Close-up → focus primarily on the details of clothing (for shoes: from feet to knees).\n\n"
-            "– If Foreshortening = Full-length → vertical framing from head to toe so that the model is fully visible, not too far from the camera.\n\n"
-            "Additional rules:\n\n"
-            "* The hands should remain visible; the model can lightly touch the hair.\n\n"
-            "* Reproduce the outfit exactly as shown in the picture — the geometry, the direction of the seams, the patterns and the materials must be identical.\n\n"
-            "* Lighting: soft natural/ daytime, photorealistic, without harsh orange tones.\n\n"
-            "* Do not choose a specific type of shoe — it can be different (boots, sneakers, flip-flops, etc.).\n\n"
-            "* If item = shoes, add realistic small footprints in the snow if the area is snowy."
-        )
-        prompt_filled = base.replace("{Сюда нужно поставить полученное описание от Gemini}", model_description).replace("{Длина изделия}", own_length).replace("{Длина рукавов}", own_sleeve)
-    elif not own_variant and data.get("random_mode"):
-        # Собираем промт на основе выбранных параметров
-        gender = data.get("rand_gender")
-        gender_map = {"male":"мужчина","female":"женщина","boy":"мальчик","girl":"девочка"}
-        loc_map = {"inside_restaurant":"внутри ресторана","photo_studio":"в фотостудии","coffee_shop":"в кофейне","city":"в городе","building":"у здания","wall":"у стены","park":"в парке","coffee_shop_out":"у кофейни","forest":"в лесу","car":"у машины"}
-        vibe_map = {"summer":"летний", "winter":"зимний", "autumn":"осенний", "spring":"весенний", "newyear":"новогодний"}
-        parts: list[str] = []
-        parts.append(f"{gender_map.get(gender, 'модель')} ")
-        if age_text:
-            parts.append(f"{age_text}. ")
-        h = data.get("height")
-        if h:
-            parts.append(f"Рост {h} см. ")
-        if size_text:
-            parts.append(f"{size_text}. ")
-        loc = data.get("rand_location")
-        if loc:
-            if loc == 'custom':
-                custom = (data.get('rand_location_custom') or '').strip()
-                if custom:
-                    parts.append(f"Съёмка {custom}. ")
-            else:
-                parts.append(f"Съёмка {loc_map.get(loc, loc)}. ")
-        vibe = data.get("rand_vibe")
-        if vibe:
-            parts.append(f"Вайб: {vibe_map.get(vibe, vibe)}. ")
-        shot = data.get("rand_shot")
-        if shot:
-            shot_map = {"full":"в полный рост", "close":"близкий ракурс"}
-            parts.append(f"Ракурс: {shot_map.get(shot, shot)}. ")
-        if loc == 'photo_studio':
-            decor = data.get("rand_decor")
-            if decor:
-                parts.append(f"Студия: {'с декором' if decor=='decor' else 'без декора'}. ")
-        L = (data.get("length") or "").strip()
-        if L:
-            parts.append(f"Длина изделия: {L}. ")
-        if sleeve_text:
-            parts.append(f"Длина рукава: {sleeve_text}. ")
-        pants_style = data.get("pants_style")
-        if pants_style and pants_style != 'skip':
-            style_map = {"relaxed":"Свободный крой","slim":"Зауженный","banana":"Бананы","flare_knee":"Клеш от колен","baggy":"Багги","mom":"Мом","straight":"Прямые"}
-            parts.append(f"Крой штанов: {style_map.get(pants_style, pants_style)}. ")
-        view_txt = "сзади" if data.get("view") == "back" else "спереди"
-        parts.append(f"Вид: {view_txt}. Профессиональное фото, реалистичный свет, высокое качество.")
-        base_random = await db.get_random_prompt() or ""
-        prompt_filled = (base_random + "\n\n" + ''.join(parts)).strip()
-    elif not own_variant:
-        # Поддержка ракурса для белого фона и общего шаблона
-        view_key = data.get("view")
-        view_word = {"back": "сзади", "front": "спереди", "side": "сбоку"}.get(view_key, "спереди")
-        prompt_filled = (
-            (prompt_text or "")
-            .replace("{размер}", size_text)
-            .replace("{рост}", str(data.get("height", "")))
-            .replace("{длина изделия}", str(data.get("length", "")))
-            .replace("{возраст}", age_text)
-            .replace("{длина рукав}", sleeve_text)
-            .replace("{сзади/спереди}", view_word)
-        )
-        # Для whitebg гарантируем явное указание ракурса и белого фона
-        if (data.get("category") == "whitebg"):
-            extra = f" Ракурс: {view_word}. Белый фон, студийный свет."
-            if prompt_filled.strip():
-                prompt_filled = (prompt_filled.strip() + extra)
-            else:
-                prompt_filled = ("Профессиональное фото одежды на модели. " + extra).strip()
-        # Плюс-режим: добавим локацию/сезон/вайб в конец промта
-        if data.get('plus_mode'):
-            loc_map = {
-                "outdoor":"на улице",
-                "wall":"возле стены",
-                "car":"возле машины",
-                "park":"в парке",
-                "bench":"у лавочки",
-                "restaurant":"возле ресторана",
-                "studio":"в фотостудии",
-            }
-            season_map = {"winter":"зима","summer":"лето","spring":"весна","autumn":"осень"}
-            vibe_map = {"decor":"с декором элементами","plain":"без декора","newyear":"новогодний","normal":"обычный"}
-            extra_parts: list[str] = []
-            if data.get('plus_loc'):
-                extra_parts.append(f" Съёмка {loc_map.get(data.get('plus_loc'))}.")
-            if data.get('plus_season'):
-                extra_parts.append(f" Сезон: {season_map.get(data.get('plus_season'))}.")
-            if data.get('plus_vibe'):
-                extra_parts.append(f" Вайб: {vibe_map.get(data.get('plus_vibe'))}.")
-            if extra_parts:
-                prompt_filled = prompt_filled + " " + ''.join(extra_parts)
+    # Формируем финальный промпт через новую функцию (с поддержкой шаблонов из БД)
+    prompt_filled = await get_final_prompt(data, db)
+    
     await _replace_with_text(callback, "Запуск генерации...", reply_markup=None)
     await _safe_answer(callback)
     # Начальное сообщение с прогресс-баром

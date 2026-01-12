@@ -242,7 +242,9 @@ class Database:
             if "total_usage" not in cols:
                 await db.execute("ALTER TABLE api_keys ADD COLUMN total_usage INTEGER NOT NULL DEFAULT 0")
             if "last_usage_reset" not in cols:
-                await db.execute("ALTER TABLE api_keys ADD COLUMN last_usage_reset TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+                # SQLite doesn't allow CURRENT_TIMESTAMP as a default for new columns in ALTER TABLE
+                await db.execute("ALTER TABLE api_keys ADD COLUMN last_usage_reset TIMESTAMP")
+                await db.execute("UPDATE api_keys SET last_usage_reset = CURRENT_TIMESTAMP")
             
             async with db.execute("PRAGMA table_info(subscriptions)") as cur:
                 cols = [row[1] for row in await cur.fetchall()]

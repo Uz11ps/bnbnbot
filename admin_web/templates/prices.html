@@ -1,22 +1,78 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="row g-3">
-    {% for p in prices %}
-    <div class="col-12 col-md-6">
-        <div class="card p-3">
-            <h6 class="fw-bold">{{ p.key.replace('category_price_', '').replace('_', ' ').upper() }}</h6>
-            <form action="/prices/edit" method="post" class="input-group">
-                <input type="hidden" name="key" value="{{ p.key }}">
-                <input type="number" name="value" value="{{ p.value }}" class="form-control">
-                <span class="input-group-text">0.1 токена</span>
-                <button type="submit" class="btn btn-success">Save</button>
-            </form>
-            <div class="small text-muted mt-1">Пример: 10 = 1 токен, 15 = 1.5 токена</div>
+<div class="card p-4">
+    <h4 class="mb-4"><i class="bi bi-currency-dollar me-2"></i> Управление ценами и планами</h4>
+
+    <h5 class="mt-4 mb-3">💎 Тарифные планы (Подписки)</h5>
+    <div class="row g-3">
+        {% for plan in plans %}
+        <div class="col-12 col-lg-6">
+            <div class="card p-3 border-start border-success border-4 h-100">
+                <form action="/plans/edit" method="post">
+                    <input type="hidden" name="plan_id" value="{{ plan.id }}">
+                    <div class="row g-2">
+                        <div class="col-8">
+                            <label class="form-label small mb-0">Название (RU)</label>
+                            <input type="text" name="name_ru" class="form-control form-control-sm fw-bold" value="{{ plan.name_ru }}">
+                        </div>
+                        <div class="col-4">
+                            <label class="form-label small mb-0">Цена (₽)</label>
+                            <input type="number" name="price" class="form-control form-control-sm" value="{{ plan.price }}">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small mb-0">Дни</label>
+                            <input type="number" name="duration" class="form-control form-control-sm" value="{{ plan.duration_days }}">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small mb-0">Лимит/день</label>
+                            <input type="number" name="limit" class="form-control form-control-sm" value="{{ plan.daily_limit }}">
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label small mb-0">Описание (RU)</label>
+                            <textarea name="desc_ru" class="form-control form-control-sm" rows="4">{{ plan.description_ru }}</textarea>
+                        </div>
+                        <div class="col-12 mt-2">
+                            <button type="submit" class="btn btn-sm btn-success w-100">Сохранить план</button>
+                        </div>
+                    </div>
+                </form>
+            </div>
         </div>
+        {% endfor %}
     </div>
-    {% endfor %}
+
+    <hr class="my-5">
+
+    <h5 class="mb-3">💰 Стоимость генерации по категориям (в 0.1 токена)</h5>
+    <div class="alert alert-info py-2">
+        <small>Значение 10 = 1 токен, 12 = 1.2 токена.</small>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-sm align-middle bg-white">
+            <thead>
+                <tr>
+                    <th>Категория</th>
+                    <th>Цена (в 0.1 токена)</th>
+                    <th>Действие</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in category_prices %}
+                <tr>
+                    <td><code>{{ item.cat }}</code></td>
+                    <form action="/prices/edit" method="post">
+                        <td>
+                            <input type="hidden" name="key" value="{{ item.key }}">
+                            <input type="number" name="value" class="form-control form-control-sm" value="{{ item.value }}" style="width: 80px;">
+                        </td>
+                        <td>
+                            <button type="submit" class="btn btn-sm btn-outline-primary">OK</button>
+                        </td>
+                    </form>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
 </div>
 {% endblock %}
-
-
-

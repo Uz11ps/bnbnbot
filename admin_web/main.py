@@ -17,7 +17,6 @@ from contextlib import asynccontextmanager
 
 # --- Настройки путей ---
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-# Пытаемся найти БД в data/ или в корне
 DB_PATH = os.path.join(BASE_DIR, "data", "bot.db")
 if not os.path.exists(DB_PATH):
     DB_PATH = os.path.join(BASE_DIR, "bot.db")
@@ -27,7 +26,6 @@ STATIC_DIR = os.path.join(BASE_DIR, "admin_web", "static")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Создаем папки при запуске
     os.makedirs(UPLOAD_DIR, exist_ok=True)
     os.makedirs(STATIC_DIR, exist_ok=True)
     yield
@@ -39,12 +37,10 @@ templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "admin_web", "templ
 templates.env.filters["from_json"] = json.loads
 security = HTTPBasic()
 
-# Загружаем настройки (может упасть если нет .env)
 try:
     settings = load_settings()
 except Exception as e:
     print(f"Error loading settings: {e}")
-    # Создаем пустые заглушки чтобы не падало при импорте
     class MockSettings:
         bot_token = "MOCK"
         class MockProxy:
@@ -55,7 +51,6 @@ except Exception as e:
 ADMIN_USER = "123"
 ADMIN_PASS = "123"
 
-# Монтируем статику только если папки существуют
 if os.path.exists(STATIC_DIR):
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 if os.path.exists(os.path.join(BASE_DIR, "data", "uploads")):
@@ -85,7 +80,6 @@ CATEGORIES = ["female", "male", "child", "storefront", "whitebg", "random", "own
 
 # --- Вспомогательные функции ---
 async def get_proxy_url(db: aiosqlite.Connection = None):
-    # 1. Проверяем в БД
     if db:
         async with db.execute("SELECT value FROM app_settings WHERE key='bot_proxy'") as cur:
             row = await cur.fetchone()
@@ -98,32 +92,20 @@ async def get_proxy_url(db: aiosqlite.Connection = None):
                     elif len(parts) == 2:
                         return f"http://{parts[0]}:{parts[1]}"
                 return proxy_val
-    
-    # 2. Проверяем в settings (.env)
     return settings.proxy.as_url()
 
 async def check_proxy(db: aiosqlite.Connection = None):
     try:
         proxy_url = await get_proxy_url(db)
         if not proxy_url: return "❌ Не настроен"
-        
-        # Список URL для проверки (пробуем сначала легкие HTTP без SSL)
-        test_urls = [
-            "http://api.ipify.org",
-            "https://api.ipify.org",
-            "http://google.com"
-        ]
-        
-        # Используем таймаут побольше и разрешаем любые статус-коды
+        test_urls = ["http://api.ipify.org", "https://api.ipify.org", "http://google.com"]
         async with httpx.AsyncClient(proxy=proxy_url, timeout=15, follow_redirects=True, verify=False) as client:
             for url in test_urls:
                 try:
                     resp = await client.get(url)
-                    # Если получили любой ответ (даже 301), значит прокси пропустил запрос
                     if resp.status_code < 500:
                         return f"✅ Работает (код {resp.status_code})"
-                except Exception:
-                    continue
+                except Exception: continue
             return "❌ Прокси не отвечает (Timeout/Auth/IP Block)"
     except Exception as e:
         return f"❌ Ошибка: {str(e)[:50]}"
@@ -138,8 +120,7 @@ async def run_broadcast(message_text: str):
         try:
             await bot.send_message(user[0], message_text)
             await asyncio.sleep(0.05)
-        except Exception:
-            continue
+        except Exception: continue
     await bot.session.close()
     await db.close()
 
@@ -158,8 +139,7 @@ async def index(request: Request, db: aiosqlite.Connection = Depends(get_db), us
             today_gens = (await cur.fetchone())[0]
         async with db.execute("SELECT COALESCE(SUM(balance),0) FROM users") as cur:
             total_balance = (await cur.fetchone())[0]
-    except Exception:
-        total_users = today_users = total_gens = today_gens = total_balance = 0
+    except Exception: total_users = today_users = total_gens = today_gens = total_balance = 0
 
     maintenance = False
     try:
@@ -242,7 +222,6 @@ async def edit_model_prompt(
         file_path = f"{UPLOAD_DIR}/model_{model_id}.jpg"
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(photo.file, buffer)
-        # Сохраняем относительный путь от корня проекта
         rel_path = os.path.relpath(file_path, BASE_DIR).replace("\\", "/")
         await db.execute("UPDATE models SET photo_file_id=? WHERE id=?", (rel_path, model_id))
     async with db.execute("SELECT prompt_id FROM models WHERE id=?", (model_id,)) as cur:
@@ -349,6 +328,45 @@ async def list_history(request: Request, q: str = "", db: aiosqlite.Connection =
                 history = await cur.fetchall()
     except Exception: history = []
     return templates.TemplateResponse("history.html", {"request": request, "history": history, "q": q})
+
+@app.get("/prices", response_class=HTMLResponse)
+async def list_prices(request: Request, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    prices_data = []
+    for cat in CATEGORIES:
+        key = f"category_price_{cat}"
+        async with db.execute("SELECT value FROM app_settings WHERE key=?", (key,)) as cur:
+            row = await cur.fetchone()
+            val = row[0] if row else "10"
+            prices_data.append({"key": key, "cat": cat, "value": val})
+            
+    async with db.execute("SELECT * FROM subscription_plans") as cur:
+        plans = await cur.fetchall()
+        
+    return templates.TemplateResponse("prices.html", {"request": request, "category_prices": prices_data, "plans": plans})
+
+@app.post("/plans/edit")
+async def edit_plan(
+    plan_id: int = Form(...),
+    name_ru: str = Form(...),
+    price: int = Form(...),
+    duration: int = Form(...),
+    limit: int = Form(...),
+    desc_ru: str = Form(None),
+    db: aiosqlite.Connection = Depends(get_db),
+    user: str = Depends(get_current_username)
+):
+    await db.execute(
+        "UPDATE subscription_plans SET name_ru=?, price=?, duration_days=?, daily_limit=?, description_ru=? WHERE id=?",
+        (name_ru, price, duration, limit, desc_ru, plan_id)
+    )
+    await db.commit()
+    return RedirectResponse(url="/prices", status_code=303)
+
+@app.post("/prices/edit")
+async def edit_price(key: str = Form(...), value: str = Form(...), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    await db.execute("INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, value))
+    await db.commit()
+    return RedirectResponse(url="/prices", status_code=303)
 
 @app.post("/users/edit_subscription")
 async def edit_subscription(user_id: int = Form(...), days: int = Form(...), limit: int = Form(...), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):

@@ -370,17 +370,15 @@ async def on_sub_menu(callback: CallbackQuery, db: Database):
     user_id = callback.from_user.id
     sub = await db.get_user_subscription(user_id)
     
-    # 10. Если подписки нет -> предлагаем оформить, если есть -> инфо
+    plans = await db.list_subscription_plans()
+    
     if sub:
-        plan, expires, limit, usage = sub
+        plan_name, expires, limit, usage = sub
         rem = max(0, limit - usage)
-        text = get_string("profile_info", lang, id=user_id, sub=plan.upper(), date=expires, daily_rem=rem)
-        # Все равно даем возможность продлить/купить другой план
-        plans = await db.list_subscription_plans()
+        text = get_string("subscription_info_active", lang, plan=plan_name.upper(), expires=expires, usage=usage, limit=limit)
         await _replace_with_text(callback, text, reply_markup=plans_keyboard(plans, lang))
     else:
-        plans = await db.list_subscription_plans()
-        await _replace_with_text(callback, get_string("buy_plan", lang), reply_markup=plans_keyboard(plans, lang))
+        await _replace_with_text(callback, get_string("subscription_info_none", lang), reply_markup=plans_keyboard(plans, lang))
 
 @router.callback_query(F.data.startswith("buy_plan:"))
 async def on_buy_plan(callback: CallbackQuery, db: Database):
@@ -391,12 +389,35 @@ async def on_buy_plan(callback: CallbackQuery, db: Database):
     plan = await db.get_subscription_plan(plan_id)
     if not plan: return
     
+    # Показываем описание плана перед покупкой
+    name = plan[1] if lang == "ru" else (plan[2] if lang == "en" else plan[3])
+    desc = plan[4] if lang == "ru" else (plan[5] if lang == "en" else plan[6])
+    price = plan[7]
+    
+    text = f"<b>💎 Тариф {name}</b>\n\n{desc}\n\n<b>Цена: {price} ₽</b>\n\nВы уверены, что хотите оформить подписку?"
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Подтвердить", callback_data=f"confirm_buy:{plan_id}")],
+        [InlineKeyboardButton(text=get_string("back", lang), callback_data="menu_subscription")]
+    ])
+    
+    await _replace_with_text(callback, text, reply_markup=kb)
+
+@router.callback_query(F.data.startswith("confirm_buy:"))
+async def on_confirm_buy(callback: CallbackQuery, db: Database):
+    plan_id = int(callback.data.split(":")[1])
+    user_id = callback.from_user.id
+    lang = await db.get_user_language(user_id)
+    
+    plan = await db.get_subscription_plan(plan_id)
+    if not plan: return
+    
     # 12. При оформлении бонус сгорает
-    # Сбрасываем баланс (бонусный) при покупке платного плана
     await db.increment_user_balance(user_id, -await db.get_user_balance(user_id))
     
     # Выдаем подписку
-    await db.grant_subscription(user_id, plan_id, plan[1], plan[5], plan[6])
+    # plan structure: (id, name_ru, name_en, name_vi, desc_ru, desc_en, desc_vi, price, duration, limit, is_active)
+    await db.grant_subscription(user_id, plan_id, plan[1], plan[8], plan[9])
     
-    await callback.answer("✅ Подписка оформлена!", show_alert=True)
+    await callback.answer("✅ Подписка успешно оформлена!", show_alert=True)
     await on_menu_profile(callback, db)

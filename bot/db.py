@@ -29,6 +29,9 @@ CREATE TABLE IF NOT EXISTS subscription_plans (
     name_ru TEXT NOT NULL,
     name_en TEXT NOT NULL,
     name_vi TEXT NOT NULL,
+    description_ru TEXT,
+    description_en TEXT,
+    description_vi TEXT,
     price INTEGER NOT NULL,          -- Цена в рублях
     duration_days INTEGER NOT NULL,
     daily_limit INTEGER NOT NULL,
@@ -199,6 +202,17 @@ class Database:
             await db.execute(CREATE_GENERATION_HISTORY_TABLE_SQL)
             await db.execute(CREATE_PROMPT_TEMPLATES_TABLE_SQL)
             await db.commit()
+        
+        # Миграция для описаний планов
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("PRAGMA table_info(subscription_plans)") as cur:
+                cols = [row[1] for row in await cur.fetchall()]
+            if "description_ru" not in cols:
+                await db.execute("ALTER TABLE subscription_plans ADD COLUMN description_ru TEXT")
+                await db.execute("ALTER TABLE subscription_plans ADD COLUMN description_en TEXT")
+                await db.execute("ALTER TABLE subscription_plans ADD COLUMN description_vi TEXT")
+                await db.commit()
+
         await self._seed_prompts()
         await self._seed_templates()
         await self._seed_subscription_plans()
@@ -1020,13 +1034,44 @@ class Database:
             async with db.execute("SELECT COUNT(*) FROM subscription_plans") as cur:
                 if (await cur.fetchone())[0] == 0:
                     plans = [
-                        ("2 Дня", "2 Days", "2 Ngày", 199, 2, 20),
-                        ("7 Дней", "7 Days", "7 Ngày", 499, 7, 50),
-                        ("Pro", "Pro", "Pro", 999, 30, 100),
-                        ("Max", "Max", "Max", 1499, 30, 250),
+                        ("2 ДНЯ", "2 DAYS", "2 NGÀY", 
+                         "Доступ на 48 часов.\nДо 15 фото в день.\nПодходит для теста сервиса и разовых задач", 
+                         "Access for 48 hours.\nUp to 15 photos per day.\nSuitable for testing the service and one-time tasks", 
+                         "Truy cập trong 48 giờ.\nTối đa 15 ảnh mỗi ngày.\nPhù hợp để thử nghiệm dịch vụ và các nhiệm vụ một lần", 
+                         849, 2, 15),
+                        ("7 ДНЕЙ", "7 DAYS", "7 NGÀY", 
+                         "Доступ на неделю.\nДо 12 фото в день.\nОптимально для небольших каталогов и регулярных генераций.", 
+                         "Access for a week.\nUp to 12 photos per day.\nOptimal for small catalogs and regular generations.", 
+                         "Truy cập trong một tuần.\nTối đa 12 ảnh mỗi ngày.\nTối ưu cho các danh mục nhỏ и tạo ảnh thường xuyên.", 
+                         1990, 7, 12),
+                        ("PRO", "PRO", "PRO", 
+                         "Полный доступ на 30 дней.\nДо 30 фото в день.\nРазрешение 1K (1024×1024).\nДля активной работы с товарами и маркетплейсами.", 
+                         "Full access for 30 days.\nUp to 30 photos per day.\n1K resolution (1024×1024).\nFor active work with products and marketplaces.", 
+                         "Truy cập đầy đủ trong 30 ngày.\nTối đa 30 ảnh mỗi ngày.\nĐộ phân giải 1K (1024×1024).\nĐể làm việc tích cực với các sản phẩm và thị trường.", 
+                         6490, 30, 30),
+                        ("MAX", "MAX", "MAX", 
+                         "Максимальная нагрузка без ограничений по сценариям.\nДо 60 фото в день.\nРазрешение 1K (1024×1024).\nДля продавцов с большим ассортиментом.", 
+                         "Maximum load without scenario limitations.\nUp to 60 photos per day.\n1K resolution (1024×1024).\nFor sellers with a large assortment.", 
+                         "Tải tối đa không giới hạn kịch bản.\nTối đa 60 ảnh mỗi ngày.\nĐộ phân giải 1K (1024×1024).\nDành cho người bán có danh mục hàng hóa lớn.", 
+                         9990, 30, 60),
+                        ("ULTRA 4K", "ULTRA 4K", "ULTRA 4K", 
+                         "До 25 фото в день.\nРазрешение 4K (Ultra High Definition).\nМаксимальная резкость, детализация и фотореализм.\nДля премиальных карточек товаров и коммерческого использования.", 
+                         "Up to 25 photos per day.\n4K resolution (Ultra High Definition).\nMaximum sharpness, detail, and photorealism.\nFor premium product cards and commercial use.", 
+                         "Tối đa 25 ảnh mỗi ngày.\nĐộ phân giải 4K (Ultra High Definition).\nĐộ sắc nét, chi tiết и tính chân thực của ảnh tối đa.\nDành cho thẻ sản phẩm cao cấp и mục đích thương mại.", 
+                         15990, 30, 25),
+                        ("ULTRA BUSINESS 4K", "ULTRA BUSINESS 4K", "ULTRA BUSINESS 4K", 
+                         "До 100 фото в день.\nРазрешение 4K (Ultra High Definition).\nМаксимальная резкость, детализация и фотореализм.\nПодходит для агентств, брендов и студий с высокой нагрузкой.", 
+                         "Up to 100 photos per day.\n4K resolution (Ultra High Definition).\nMaximum sharpness, detail, and photorealism.\nSuitable for agencies, brands, and studios with high load.", 
+                         "Tối đa 100 ảnh mỗi ngày.\nĐộ phân giải 4K (Ultra High Definition).\nĐộ sắc nét, chi tiết и tính chân thực của ảnh tối đa.\nPhù hợp với các đại lý, thương hiệu и studio có tải lượng cao.", 
+                         44990, 30, 100),
+                        ("ULTRA ENTERPRISE 4K", "ULTRA ENTERPRISE 4K", "ULTRA ENTERPRISE 4K", 
+                         " • 250 фото в день\n • 4K Разрешение \n • максимальный приоритет поддержки\n • Выделенная линия генерации.", 
+                         " • 250 photos per day\n • 4K Resolution \n • maximum support priority\n • Dedicated generation line.", 
+                         " • 250 ảnh mỗi ngày\n • Độ phân giải 4K \n • ưu tiên hỗ trợ tối đa\n • Đường truyền tạo ảnh riêng biệt.", 
+                         89990, 30, 250),
                     ]
                     await db.executemany(
-                        "INSERT INTO subscription_plans (name_ru, name_en, name_vi, price, duration_days, daily_limit) VALUES (?, ?, ?, ?, ?, ?)",
+                        "INSERT INTO subscription_plans (name_ru, name_en, name_vi, description_ru, description_en, description_vi, price, duration_days, daily_limit) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                         plans
                     )
                     await db.commit()
@@ -1134,5 +1179,6 @@ class Database:
                 (text,)
             )
             await db.commit()
+
 
 

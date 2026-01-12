@@ -1,49 +1,74 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="alert alert-info">
-    <small>
-        Используйте переменные в фигурных скобках для автоматической подстановки данных пользователя:
-        <br><code>{Длина}</code>, <code>{Возраст}</code>, <code>{Пол}</code>, <code>{Стиль}</code>, <code>{Рукав}</code>, <code>{Размер}</code>, <code>{Рост}</code>, <code>{Ракурс}</code>, <code>{Описание}</code>, <code>{Advantage}</code>
-    </small>
-</div>
-
-<ul class="nav nav-pills mb-3" id="promptTab" role="tablist">
-    <li class="nav-item" role="presentation">
-        <button class="nav-link active" id="db-tab" data-bs-toggle="tab" data-bs-target="#db-prompts" type="button">База моделей</button>
-    </li>
-    <li class="nav-item" role="presentation">
-        <button class="nav-link" id="settings-tab" data-bs-toggle="tab" data-bs-target="#settings-prompts" type="button">Настройки приложения</button>
-    </li>
-</ul>
-
-<div class="tab-content" id="promptTabContent">
-    <div class="tab-pane fade show active" id="db-prompts">
-        {% for p in prompts %}
-        <div class="card p-3 mb-3">
-            <label class="form-label fw-bold">{{ p.title }} (#{{ p.id }})</label>
-            <form action="/prompts/edit_db" method="post">
-                <input type="hidden" name="prompt_id" value="{{ p.id }}">
-                <textarea name="text" class="form-control mb-2" rows="4">{{ p.text }}</textarea>
-                <button type="submit" class="btn btn-sm btn-primary">Сохранить</button>
-            </form>
-        </div>
-        {% endfor %}
+<div class="card p-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h4><i class="bi bi-file-earmark-code me-2"></i> Управление Промптами и Категориями</h4>
     </div>
-    
-    <div class="tab-pane fade" id="settings-prompts">
-        {% for s in settings_prompts %}
-        <div class="card p-3 mb-3 border-start border-warning border-4">
-            <label class="form-label fw-bold">{{ s.key }}</label>
-            <form action="/prompts/edit_settings" method="post">
-                <input type="hidden" name="key" value="{{ s.key }}">
-                <textarea name="value" class="form-control mb-2" rows="4">{{ s.value }}</textarea>
-                <button type="submit" class="btn btn-sm btn-warning">Обновить настройку</button>
-            </form>
+
+    <div class="alert alert-info">
+        <small>
+            Используйте переменные в фигурных скобках для автоматической подстановки данных:
+            <br><code>{Длина}</code>, <code>{Возраст}</code>, <code>{Пол}</code>, <code>{Стиль}</code>, <code>{Рукав}</code>, <code>{Размер}</code>, <code>{Рост}</code>, <code>{Ракурс}</code>, <code>{Описание}</code>, <code>{Advantage}</code>
+        </small>
+    </div>
+
+    <ul class="nav nav-tabs mb-3" id="catTabs" role="tablist">
+        {% for cat in categories %}
+        <li class="nav-item">
+            <button class="nav-link {% if loop.first %}active{% endif %}" id="{{ cat }}-tab" data-bs-toggle="tab" data-bs-target="#{{ cat }}-pane" type="button">{{ cat | capitalize }}</button>
+        </li>
+        {% endfor %}
+        <li class="nav-item">
+            <button class="nav-link" id="templates-tab" data-bs-toggle="tab" data-bs-target="#templates-pane" type="button">Глобальные Шаблоны</button>
+        </li>
+    </ul>
+
+    <div class="tab-content">
+        {% for cat in categories %}
+        <div class="tab-pane fade {% if loop.first %}show active{% endif %}" id="{{ cat }}-pane">
+            <div class="row g-3">
+                {% if categorized_models[cat] %}
+                    {% for m in categorized_models[cat] %}
+                    <div class="col-12 col-lg-6">
+                        <div class="card p-3 border-start border-primary border-4">
+                            <form action="/prompts/edit_model" method="post">
+                                <input type="hidden" name="model_id" value="{{ m.id }}">
+                                <div class="mb-2 d-flex justify-content-between">
+                                    <input type="text" name="name" class="form-control form-control-sm fw-bold w-75" value="{{ m.name }}">
+                                    <span class="badge bg-light text-dark">#{{ m.id }}</span>
+                                </div>
+                                <textarea name="prompt_text" class="form-control mb-2" rows="5">{{ m.prompt_text }}</textarea>
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div class="text-muted small">ID промпта: {{ m.prompt_id }}</div>
+                                    <button type="submit" class="btn btn-sm btn-primary">Сохранить</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="col-12 text-center py-4 text-muted">В этой категории пока нет моделей.</div>
+                {% endif %}
+            </div>
         </div>
         {% endfor %}
+
+        <div class="tab-pane fade" id="templates-pane">
+            <div class="row g-3">
+                {% for t in templates %}
+                <div class="col-12 col-lg-6">
+                    <div class="card p-3 border-start border-warning border-4">
+                        <h6>{{ t.description }} (<code>{{ t.key }}</code>)</h6>
+                        <form action="/templates/edit" method="post">
+                            <input type="hidden" name="key" value="{{ t.key }}">
+                            <textarea name="template" class="form-control mb-2" rows="5">{{ t.template }}</textarea>
+                            <button type="submit" class="btn btn-sm btn-warning">Обновить шаблон</button>
+                        </form>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
     </div>
 </div>
 {% endblock %}
-
-
-

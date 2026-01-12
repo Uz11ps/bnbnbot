@@ -126,23 +126,69 @@ async def send_mailing(background_tasks: BackgroundTasks, text: str = Form(...),
 
 @app.get("/prompts", response_class=HTMLResponse)
 async def list_prompts(request: Request, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
-    async with db.execute("SELECT * FROM prompts") as cur:
-        db_prompts = await cur.fetchall()
-    async with db.execute("SELECT key, value FROM app_settings WHERE key LIKE '%_prompt%'") as cur:
-        settings_prompts = await cur.fetchall()
-    return templates.TemplateResponse("prompts.html", {"request": request, "prompts": db_prompts, "settings_prompts": settings_prompts})
+    # Получаем все модели (модели - это фото + ссылка на промпт)
+    async with db.execute("SELECT m.*, p.text as prompt_text, p.title as prompt_title FROM models m JOIN prompts p ON m.prompt_id = p.id") as cur:
+        models = await cur.fetchall()
+    
+    # Получаем шаблоны
+    async with db.execute("SELECT * FROM prompt_templates") as cur:
+        templates_data = await cur.fetchall()
+        
+    # Группируем модели по категориям
+    categorized_models = {}
+    for m in models:
+        cat = m['category']
+        if cat not in categorized_models:
+            categorized_models[cat] = []
+        categorized_models[cat].append(m)
+        
+    return templates.TemplateResponse("prompts.html", {
+        "request": request, 
+        "categorized_models": categorized_models, 
+        "templates": templates_data,
+        "categories": CATEGORIES
+    })
 
-@app.post("/prompts/edit_db")
-async def edit_prompt_db(prompt_id: int = Form(...), text: str = Form(...), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
-    await db.execute("UPDATE prompts SET text=? WHERE id=?", (text, prompt_id))
+@app.post("/prompts/edit_model")
+async def edit_model_prompt(
+    model_id: int = Form(...), 
+    name: str = Form(...), 
+    prompt_text: str = Form(...), 
+    db: aiosqlite.Connection = Depends(get_db), 
+    user: str = Depends(get_current_username)
+):
+    # Обновляем название модели
+    await db.execute("UPDATE models SET name=? WHERE id=?", (name, model_id))
+    # Находим ID промпта и обновляем его текст
+    async with db.execute("SELECT prompt_id FROM models WHERE id=?", (model_id,)) as cur:
+        row = await cur.fetchone()
+        if row:
+            await db.execute("UPDATE prompts SET text=? WHERE id=?", (prompt_text, row[0]))
     await db.commit()
     return RedirectResponse(url="/prompts", status_code=303)
 
-@app.post("/prompts/edit_settings")
-async def edit_prompt_settings(key: str = Form(...), value: str = Form(...), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
-    await db.execute("UPDATE app_settings SET value=? WHERE key=?", (value, key))
+@app.get("/settings", response_class=HTMLResponse)
+async def settings_page(request: Request, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    async with db.execute("SELECT key, value FROM app_settings WHERE key IN ('agreement_text', 'howto_text')") as cur:
+        rows = await cur.fetchall()
+        settings_dict = {r['key']: r['value'] for r in rows}
+    return templates.TemplateResponse("settings.html", {
+        "request": request, 
+        "agreement": settings_dict.get('agreement_text', ""), 
+        "howto": settings_dict.get('howto_text', "")
+    })
+
+@app.post("/settings/update")
+async def update_app_settings(
+    agreement: str = Form(...), 
+    howto: str = Form(...), 
+    db: aiosqlite.Connection = Depends(get_db), 
+    user: str = Depends(get_current_username)
+):
+    await db.execute("INSERT INTO app_settings (key, value) VALUES ('agreement_text', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (agreement,))
+    await db.execute("INSERT INTO app_settings (key, value) VALUES ('howto_text', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (howto,))
     await db.commit()
-    return RedirectResponse(url="/prompts", status_code=303)
+    return RedirectResponse(url="/settings", status_code=303)
 
 @app.get("/prices", response_class=HTMLResponse)
 async def list_prices(request: Request, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):

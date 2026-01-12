@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card p-4">
+    <h4><i class="bi bi-gear me-2"></i> Системные настройки</h4>
+    
+    <form action="/settings/update" method="post" class="mt-3">
+        <div class="mb-4">
+            <label class="form-label fw-bold">📜 Пользовательское соглашение</label>
+            <textarea name="agreement" class="form-control" rows="10">{{ agreement }}</textarea>
+            <div class="form-text">Отображается новым пользователям перед использованием бота.</div>
+        </div>
+
+        <div class="mb-4">
+            <label class="form-label fw-bold">📖 Инструкция (Как пользоваться)</label>
+            <textarea name="howto" class="form-control" rows="10">{{ howto }}</textarea>
+            <div class="form-text">Отображается при нажатии кнопки "Инструкция" в боте.</div>
+        </div>
+
+        <button type="submit" class="btn btn-primary">Сохранить изменения</button>
+    </form>
+</div>
+{% endblock %}
+

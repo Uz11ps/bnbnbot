@@ -16,30 +16,63 @@
     </form>
 </div>
 
-<h5 class="mt-4">Ключи Gemini</h5>
-<div class="row g-2">
-    {% for k in gemini_keys %}
-    <div class="col-12">
-        <div class="card p-2 d-flex flex-row justify-content-between align-items-center">
-            <code class="text-truncate me-2">{{ k.token }}</code>
-            <a href="/api_keys/delete/gemini/{{ k.id }}" class="btn btn-sm btn-outline-danger" onclick="return confirm('Удалить?')"><i class="bi bi-trash"></i></a>
-        </div>
-    </div>
-    {% endfor %}
+<h5 class="mt-4">Ключи Gemini (20/мин, 250/день)</h5>
+<div class="table-responsive">
+    <table class="table table-sm align-middle bg-white">
+        <thead>
+            <tr>
+                <th>Токен</th>
+                <th>Статус</th>
+                <th>Сегодня</th>
+                <th>Всего</th>
+                <th>Удалить</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for k in gemini_keys %}
+            <tr>
+                <td><code class="text-truncate" style="max-width: 150px;">{{ k.token }}</code></td>
+                <td>
+                    <span class="badge {% if k.is_active %}bg-success{% else %}bg-danger{% endif %}">
+                        {{ "Active" if k.is_active else "Blocked" }}
+                    </span>
+                </td>
+                <td>{{ k.daily_usage }} / 250</td>
+                <td>{{ k.total_usage }}</td>
+                <td>
+                    <a href="/api_keys/delete/gemini/{{ k.id }}" class="btn btn-sm btn-outline-danger" onclick="return confirm('Удалить?')"><i class="bi bi-trash"></i></a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
 </div>
 
 <h5 class="mt-4">Ключи Свой вариант</h5>
-<div class="row g-2">
-    {% for k in own_keys %}
-    <div class="col-12">
-        <div class="card p-2 d-flex flex-row justify-content-between align-items-center">
-            <code class="text-truncate me-2">{{ k.token }}</code>
-            <a href="/api_keys/delete/own/{{ k.id }}" class="btn btn-sm btn-outline-danger" onclick="return confirm('Удалить?')"><i class="bi bi-trash"></i></a>
-        </div>
-    </div>
-    {% endfor %}
+<div class="table-responsive">
+    <table class="table table-sm align-middle bg-white">
+        <thead>
+            <tr>
+                <th>Токен</th>
+                <th>Статус</th>
+                <th>Удалить</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for k in own_keys %}
+            <tr>
+                <td><code class="text-truncate" style="max-width: 150px;">{{ k.token }}</code></td>
+                <td>
+                    <span class="badge {% if k.is_active %}bg-success{% else %}bg-danger{% endif %}">
+                        {{ "Active" if k.is_active else "Blocked" }}
+                    </span>
+                </td>
+                <td>
+                    <a href="/api_keys/delete/own/{{ k.id }}" class="btn btn-sm btn-outline-danger" onclick="return confirm('Удалить?')"><i class="bi bi-trash"></i></a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
 </div>
 {% endblock %}
-
-
-

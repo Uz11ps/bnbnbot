@@ -166,7 +166,11 @@ async def list_users(request: Request, q: str = "", db: aiosqlite.Connection = D
     else:
         async with db.execute("SELECT * FROM users ORDER BY created_at DESC LIMIT 50") as cur:
             users = await cur.fetchall()
-    return templates.TemplateResponse("users.html", {"request": request, "users": users, "q": q})
+            
+    async with db.execute("SELECT id, name_ru, duration_days, daily_limit FROM subscription_plans WHERE is_active=1") as cur:
+        plans = await cur.fetchall()
+        
+    return templates.TemplateResponse("users.html", {"request": request, "users": users, "q": q, "plans": plans})
 
 @app.post("/users/edit_balance")
 async def edit_balance(user_id: int = Form(...), amount: int = Form(...), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
@@ -369,13 +373,33 @@ async def edit_price(key: str = Form(...), value: str = Form(...), db: aiosqlite
     return RedirectResponse(url="/prices", status_code=303)
 
 @app.post("/users/edit_subscription")
-async def edit_subscription(user_id: int = Form(...), days: int = Form(...), limit: int = Form(...), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+async def edit_subscription(
+    user_id: int = Form(...), 
+    plan_id: str = Form(...),
+    days: int = Form(...), 
+    limit: int = Form(...), 
+    db: aiosqlite.Connection = Depends(get_db), 
+    user: str = Depends(get_current_username)
+):
     expires_at = datetime.now() + timedelta(days=days)
+    plan_type = "custom"
+    
+    if plan_id.isdigit():
+        async with db.execute("SELECT name_ru FROM subscription_plans WHERE id=?", (int(plan_id),)) as cur:
+            row = await cur.fetchone()
+            if row:
+                plan_type = row[0]
+    
     await db.execute(
-        "INSERT INTO subscriptions (user_id, plan_type, expires_at, daily_limit) VALUES (?, 'custom', ?, ?) "
-        "ON CONFLICT(user_id) DO UPDATE SET expires_at=excluded.expires_at, daily_limit=excluded.daily_limit",
-        (user_id, expires_at.isoformat(), limit)
+        "INSERT INTO subscriptions (user_id, plan_id, plan_type, expires_at, daily_limit) VALUES (?, ?, ?, ?, ?) "
+        "ON CONFLICT(user_id) DO UPDATE SET plan_id=excluded.plan_id, plan_type=excluded.plan_type, expires_at=excluded.expires_at, daily_limit=excluded.daily_limit",
+        (user_id, int(plan_id) if plan_id.isdigit() else None, plan_type, expires_at.isoformat(), limit)
     )
+    
+    # Сбрасываем флаг триала при выдаче подписки
+    if plan_type != 'trial':
+        await db.execute("UPDATE users SET trial_used=1 WHERE id=?", (user_id,))
+        
     await db.commit()
     return RedirectResponse(url=f"/users?q={user_id}", status_code=303)
 

@@ -1168,6 +1168,18 @@ class Database:
             await db.commit()
 
     # Agreement and Instructions
+    async def get_app_setting(self, key: str, default: str | None = None) -> str | None:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT value FROM app_settings WHERE key=?", (key,)) as cur:
+                row = await cur.fetchone()
+                return str(row[0]) if row else default
+
+    async def get_all_app_settings(self) -> dict[str, str]:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT key, value FROM app_settings") as cur:
+                rows = await cur.fetchall()
+                return {row[0]: row[1] for row in rows}
+
     async def get_agreement_text(self) -> str:
         async with aiosqlite.connect(self._db_path) as db:
             async with db.execute("SELECT value FROM app_settings WHERE key='agreement_text'") as cur:

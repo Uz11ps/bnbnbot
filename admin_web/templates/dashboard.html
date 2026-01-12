@@ -17,18 +17,11 @@
     </div>
     <div class="col-6 col-md-4">
         <div class="card p-3 h-100">
-            <div class="text-muted small">Общий баланс</div>
-            <div class="h3 mb-0">{{ total_balance }}</div>
-            <div class="text-muted small">токенов всего</div>
-        </div>
-    </div>
-    <div class="col-6 col-md-4">
-        <div class="card p-3 h-100">
             <div class="text-muted small">Прокси</div>
             <div class="mt-1 fw-bold">{{ proxy_status }}</div>
         </div>
     </div>
-    <div class="col-12 col-md-8">
+    <div class="col-12 col-md-4">
         <div class="card p-3 h-100">
             <div class="text-muted small">Режим техработ (замораживает подписки)</div>
             <form action="/maintenance/toggle" method="post" class="mt-1">
@@ -43,10 +36,10 @@
 <div class="mt-4">
     <h4>Быстрые действия</h4>
     <div class="list-group shadow-sm">
-        <a href="/users" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center p-3">
-            <span><i class="bi bi-person-plus me-2 text-primary"></i> Управление балансом</span>
-            <i class="bi bi-chevron-right"></i>
-        </a>
+    <a href="/users" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center p-3">
+        <span><i class="bi bi-person-plus me-2 text-primary"></i> Управление пользователями и подписками</span>
+        <i class="bi bi-chevron-right"></i>
+    </a>
         <a href="/prompts" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center p-3">
             <span><i class="bi bi-pencil-square me-2 text-warning"></i> Редактировать промпты</span>
             <i class="bi bi-chevron-right"></i>

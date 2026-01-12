@@ -137,9 +137,7 @@ async def index(request: Request, db: aiosqlite.Connection = Depends(get_db), us
             total_gens = (await cur.fetchone())[0]
         async with db.execute("SELECT COUNT(*) FROM generation_history WHERE date(created_at) = date('now')") as cur:
             today_gens = (await cur.fetchone())[0]
-        async with db.execute("SELECT COALESCE(SUM(balance),0) FROM users") as cur:
-            total_balance = (await cur.fetchone())[0]
-    except Exception: total_users = today_users = total_gens = today_gens = total_balance = 0
+    except Exception: total_users = today_users = total_gens = today_gens = 0
 
     maintenance = False
     try:
@@ -153,7 +151,6 @@ async def index(request: Request, db: aiosqlite.Connection = Depends(get_db), us
         "request": request, 
         "total_users": total_users, "today_users": today_users,
         "total_gens": total_gens, "today_gens": today_gens,
-        "total_balance": total_balance,
         "maintenance": maintenance, "proxy_status": proxy_status
     })
 
@@ -171,12 +168,6 @@ async def list_users(request: Request, q: str = "", db: aiosqlite.Connection = D
         plans = await cur.fetchall()
         
     return templates.TemplateResponse("users.html", {"request": request, "users": users, "q": q, "plans": plans})
-
-@app.post("/users/edit_balance")
-async def edit_balance(user_id: int = Form(...), amount: int = Form(...), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
-    await db.execute("UPDATE users SET balance = balance + ? WHERE id = ?", (amount, user_id))
-    await db.commit()
-    return RedirectResponse(url=f"/users?q={user_id}", status_code=303)
 
 @app.get("/mailing", response_class=HTMLResponse)
 async def mailing_page(request: Request, user: str = Depends(get_current_username)):
@@ -390,11 +381,22 @@ async def edit_subscription(
             if row:
                 plan_type = row[0]
     
-    await db.execute(
-        "INSERT INTO subscriptions (user_id, plan_id, plan_type, expires_at, daily_limit) VALUES (?, ?, ?, ?, ?) "
-        "ON CONFLICT(user_id) DO UPDATE SET plan_id=excluded.plan_id, plan_type=excluded.plan_type, expires_at=excluded.expires_at, daily_limit=excluded.daily_limit",
-        (user_id, int(plan_id) if plan_id.isdigit() else None, plan_type, expires_at.isoformat(), limit)
-    )
+    plan_id_val = int(plan_id) if plan_id.isdigit() else None
+    
+    # Проверяем, есть ли уже подписка у этого пользователя
+    async with db.execute("SELECT id FROM subscriptions WHERE user_id = ?", (user_id,)) as cur:
+        existing = await cur.fetchone()
+        
+    if existing:
+        await db.execute(
+            "UPDATE subscriptions SET plan_id=?, plan_type=?, expires_at=?, daily_limit=? WHERE user_id=?",
+            (plan_id_val, plan_type, expires_at.isoformat(), limit, user_id)
+        )
+    else:
+        await db.execute(
+            "INSERT INTO subscriptions (user_id, plan_id, plan_type, expires_at, daily_limit) VALUES (?, ?, ?, ?, ?)",
+            (user_id, plan_id_val, plan_type, expires_at.isoformat(), limit)
+        )
     
     # Сбрасываем флаг триала при выдаче подписки
     if plan_type != 'trial':

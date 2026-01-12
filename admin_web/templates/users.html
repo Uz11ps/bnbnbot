@@ -16,7 +16,6 @@
                     <h5 class="mb-0">ID: {{ user.id }}</h5>
                     <div class="text-muted">@{{ user.username or "нет" }}</div>
                 </div>
-                <div class="badge bg-primary rounded-pill">{{ user.balance }} токенов</div>
             </div>
             <hr class="my-2">
             <h6 class="small fw-bold">Управление подпиской:</h6>
@@ -40,12 +39,6 @@
                 <div class="col-12">
                     <button class="btn btn-sm btn-success w-100" type="submit">Выдать подписку</button>
                 </div>
-            </form>
-            <hr class="my-2">
-            <form action="/users/edit_balance" method="post" class="input-group input-group-sm">
-                <input type="hidden" name="user_id" value="{{ user.id }}">
-                <input type="number" name="amount" class="form-control" placeholder="+/- токены">
-                <button class="btn btn-outline-success" type="submit">Баланс</button>
             </form>
         </div>
     </div>

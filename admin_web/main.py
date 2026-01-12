@@ -106,9 +106,13 @@ async def check_proxy(db: aiosqlite.Connection = None):
     try:
         proxy_url = await get_proxy_url(db)
         if not proxy_url: return "❌ Не настроен"
-        async with httpx.AsyncClient(proxy=proxy_url, timeout=5) as client:
-            resp = await client.get("https://google.com")
-            return "✅ Работает" if resp.status_code == 200 else f"❌ Ошибка {resp.status_code}"
+        # Используем httpbin.org/ip для проверки - это надежнее для прокси
+        # И разрешаем редиректы (follow_redirects=True)
+        async with httpx.AsyncClient(proxy=proxy_url, timeout=10, follow_redirects=True) as client:
+            resp = await client.get("https://httpbin.org/ip")
+            if resp.status_code == 200:
+                return "✅ Работает"
+            return f"❌ Код {resp.status_code}"
     except Exception as e:
         return f"❌ Ошибка: {e}"
 

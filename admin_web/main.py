@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, Form, Depends, HTTPException, status, BackgroundTasks
+from fastapi import FastAPI, Request, Form, Depends, HTTPException, status, BackgroundTasks, File, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
@@ -8,24 +8,33 @@ import aiosqlite
 import os
 import asyncio
 import httpx
+import json
+import shutil
 from aiogram import Bot
 from bot.config import load_settings
+from datetime import datetime, timedelta
 
 app = FastAPI(title="AI-ROOM Admin Panel")
-import json
 
-# ...
+# --- Настройки ---
 templates = Jinja2Templates(directory="admin_web/templates")
 templates.env.filters["from_json"] = json.loads
 security = HTTPBasic()
 
 DB_PATH = "data/bot.db"
 LOG_PATH = "data/bot.log"
+UPLOAD_DIR = "data/uploads/models"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
 settings = load_settings()
 
 ADMIN_USER = "123"
 ADMIN_PASS = "123"
 
+app.mount("/static", StaticFiles(directory="admin_web/static"), name="static")
+app.mount("/uploads", StaticFiles(directory="data/uploads"), name="uploads")
+
+# --- Зависимости ---
 def get_current_username(credentials: HTTPBasicCredentials = Depends(security)):
     correct_username = secrets.compare_digest(credentials.username, ADMIN_USER)
     correct_password = secrets.compare_digest(credentials.password, ADMIN_PASS)
@@ -73,6 +82,7 @@ async def run_broadcast(message_text: str):
     await db.close()
 
 # --- Роуты ---
+
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
     async with db.execute("SELECT COUNT(*) FROM users") as cur:
@@ -126,38 +136,22 @@ async def send_mailing(background_tasks: BackgroundTasks, text: str = Form(...),
 
 @app.get("/prompts", response_class=HTMLResponse)
 async def list_prompts(request: Request, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
-    # Получаем все модели (модели - это фото + ссылка на промпт)
     async with db.execute("SELECT m.*, p.text as prompt_text, p.title as prompt_title FROM models m JOIN prompts p ON m.prompt_id = p.id") as cur:
         models = await cur.fetchall()
-    
-    # Получаем шаблоны
     async with db.execute("SELECT * FROM prompt_templates") as cur:
         templates_data = await cur.fetchall()
-        
-    # Группируем модели по категориям
     categorized_models = {}
     for m in models:
         cat = m['category']
         if cat not in categorized_models:
             categorized_models[cat] = []
         categorized_models[cat].append(m)
-        
     return templates.TemplateResponse("prompts.html", {
         "request": request, 
         "categorized_models": categorized_models, 
         "templates": templates_data,
         "categories": CATEGORIES
     })
-
-from fastapi import FastAPI, Request, Form, Depends, HTTPException, status, BackgroundTasks, File, UploadFile
-import shutil
-
-# ...
-app.mount("/static", StaticFiles(directory="admin_web/static"), name="static")
-app.mount("/uploads", StaticFiles(directory="data/uploads"), name="uploads")
-
-UPLOAD_DIR = "data/uploads/models"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 @app.post("/prompts/edit_model")
 async def edit_model_prompt(
@@ -168,22 +162,16 @@ async def edit_model_prompt(
     db: aiosqlite.Connection = Depends(get_db), 
     user: str = Depends(get_current_username)
 ):
-    # Обновляем название
     await db.execute("UPDATE models SET name=? WHERE id=?", (name, model_id))
-    
-    # Обработка фото
     if photo and photo.filename:
         file_path = f"{UPLOAD_DIR}/model_{model_id}.jpg"
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(photo.file, buffer)
         await db.execute("UPDATE models SET photo_file_id=? WHERE id=?", (file_path, model_id))
-
-    # Обновляем промпт
     async with db.execute("SELECT prompt_id FROM models WHERE id=?", (model_id,)) as cur:
         row = await cur.fetchone()
         if row:
             await db.execute("UPDATE prompts SET text=? WHERE id=?", (prompt_text, row[0]))
-    
     await db.commit()
     return RedirectResponse(url="/prompts", status_code=303)
 
@@ -196,22 +184,16 @@ async def add_full_model(
     db: aiosqlite.Connection = Depends(get_db),
     user: str = Depends(get_current_username)
 ):
-    # 1. Создаем промпт
     await db.execute("INSERT INTO prompts (title, text) VALUES (?, ?)", (f"Prompt for {name}", prompt_text))
     async with db.execute("SELECT last_insert_rowid()") as cur:
         prompt_id = (await cur.fetchone())[0]
-    
-    # 2. Создаем модель
     await db.execute("INSERT INTO models (category, cloth, name, prompt_id) VALUES (?, 'default', ?, ?)", 
                      (category, name, prompt_id))
     async with db.execute("SELECT last_insert_rowid()") as cur:
         model_id = (await cur.fetchone())[0]
-    
-    # 3. Сохраняем фото
     file_path = f"{UPLOAD_DIR}/model_{model_id}.jpg"
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(photo.file, buffer)
-    
     await db.execute("UPDATE models SET photo_file_id=? WHERE id=?", (file_path, model_id))
     await db.commit()
     return RedirectResponse(url="/prompts", status_code=303)
@@ -239,65 +221,6 @@ async def update_app_settings(
     await db.commit()
     return RedirectResponse(url="/settings", status_code=303)
 
-@app.get("/prices", response_class=HTMLResponse)
-async def list_prices(request: Request, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
-    prices_data = []
-    for cat in CATEGORIES:
-        key = f"category_price_{cat}"
-        async with db.execute("SELECT value FROM app_settings WHERE key=?", (key,)) as cur:
-            row = await cur.fetchone()
-            val = row[0] if row else "10"
-            prices_data.append({"key": key, "cat": cat, "value": val})
-    return templates.TemplateResponse("prices.html", {"request": request, "prices": prices_data})
-
-@app.post("/prices/edit")
-async def edit_price(key: str = Form(...), value: str = Form(...), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
-    await db.execute("INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, value))
-    await db.commit()
-    return RedirectResponse(url="/prices", status_code=303)
-
-@app.get("/categories", response_class=HTMLResponse)
-async def list_categories(request: Request, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
-    cat_status = []
-    for cat in CATEGORIES:
-        key = f"cat_enabled_{cat}"
-        async with db.execute("SELECT value FROM app_settings WHERE key=?", (key,)) as cur:
-            row = await cur.fetchone()
-            enabled = row[0] == '1' if row else True
-            cat_status.append({"key": key, "name": cat, "enabled": enabled})
-    return templates.TemplateResponse("categories.html", {"request": request, "categories": cat_status})
-
-@app.post("/categories/toggle/{name}")
-async def toggle_category(name: str, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
-    key = f"cat_enabled_{name}"
-    async with db.execute("SELECT value FROM app_settings WHERE key=?", (key,)) as cur:
-        row = await cur.fetchone()
-        current = row[0] == '1' if row else True
-    new_val = '0' if current else '1'
-    await db.execute("INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, new_val))
-    await db.commit()
-    return RedirectResponse(url="/categories", status_code=303)
-
-@app.get("/models", response_class=HTMLResponse)
-async def list_models(request: Request, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
-    async with db.execute("SELECT m.*, p.title as prompt_title FROM models m LEFT JOIN prompts p ON m.prompt_id = p.id ORDER BY m.category, m.cloth") as cur:
-        models = await cur.fetchall()
-    async with db.execute("SELECT id, title FROM prompts") as cur:
-        prompts = await cur.fetchall()
-    return templates.TemplateResponse("models.html", {"request": request, "models": models, "prompts": prompts})
-
-@app.post("/models/add")
-async def add_model(category: str = Form(...), cloth: str = Form(...), name: str = Form(...), prompt_id: int = Form(...), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
-    await db.execute("INSERT INTO models (category, cloth, name, prompt_id) VALUES (?, ?, ?, ?)", (category, cloth, name, prompt_id))
-    await db.commit()
-    return RedirectResponse(url="/models", status_code=303)
-
-@app.get("/models/delete/{model_id}")
-async def delete_model(model_id: int, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
-    await db.execute("DELETE FROM models WHERE id = ?", (model_id,))
-    await db.commit()
-    return RedirectResponse(url="/models", status_code=303)
-
 @app.get("/api_keys", response_class=HTMLResponse)
 async def list_keys(request: Request, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
     async with db.execute("SELECT * FROM api_keys") as cur:
@@ -320,17 +243,11 @@ async def delete_key(table: str, key_id: int, db: aiosqlite.Connection = Depends
     await db.commit()
     return RedirectResponse(url="/api_keys", status_code=303)
 
-@app.get("/templates", response_class=HTMLResponse)
-async def list_templates(request: Request, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
-    async with db.execute("SELECT * FROM prompt_templates") as cur:
-        templates_data = await cur.fetchall()
-    return templates.TemplateResponse("templates.html", {"request": request, "templates": templates_data})
-
 @app.post("/templates/edit")
 async def edit_template(key: str = Form(...), template: str = Form(...), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
     await db.execute("UPDATE prompt_templates SET template=? WHERE key=?", (template, key))
     await db.commit()
-    return RedirectResponse(url="/templates", status_code=303)
+    return RedirectResponse(url="/prompts", status_code=303)
 
 @app.get("/history", response_class=HTMLResponse)
 async def list_history(request: Request, q: str = "", db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
@@ -345,7 +262,6 @@ async def list_history(request: Request, q: str = "", db: aiosqlite.Connection =
 
 @app.post("/users/edit_subscription")
 async def edit_subscription(user_id: int = Form(...), days: int = Form(...), limit: int = Form(...), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
-    from datetime import datetime, timedelta
     expires_at = datetime.now() + timedelta(days=days)
     await db.execute(
         "INSERT INTO subscriptions (user_id, plan_type, expires_at, daily_limit) VALUES (?, 'custom', ?, ?) "
@@ -360,8 +276,8 @@ async def proxy_page(request: Request, db: aiosqlite.Connection = Depends(get_db
     async with db.execute("SELECT value FROM app_settings WHERE key='bot_proxy'") as cur:
         row = await cur.fetchone()
         current_proxy = row[0] if row else ""
-    status = await check_proxy()
-    return templates.TemplateResponse("proxy.html", {"request": request, "current_proxy": current_proxy, "status": status})
+    status_text = await check_proxy()
+    return templates.TemplateResponse("proxy.html", {"request": request, "current_proxy": current_proxy, "status": status_text})
 
 @app.post("/proxy/edit")
 async def edit_proxy(proxy_url: str = Form(...), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
@@ -376,14 +292,11 @@ async def toggle_maintenance(db: aiosqlite.Connection = Depends(get_db), user: s
         current = row[0] == '1' if row else False
     
     new_val = '0' if current else '1'
-    from datetime import datetime
     now_str = datetime.now().isoformat()
 
     if new_val == '1':
-        # Включаем: записываем время начала
         await db.execute("INSERT INTO app_settings (key, value) VALUES ('maintenance_start', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (now_str,))
     else:
-        # Выключаем: продлеваем все активные подписки на время, которое длились техработы
         async with db.execute("SELECT value FROM app_settings WHERE key='maintenance_start'") as cur:
             row = await cur.fetchone()
             if row:

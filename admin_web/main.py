@@ -107,24 +107,26 @@ async def check_proxy(db: aiosqlite.Connection = None):
         proxy_url = await get_proxy_url(db)
         if not proxy_url: return "❌ Не настроен"
         
-        # Список надежных URL для проверки
+        # Список URL для проверки (пробуем сначала легкие HTTP без SSL)
         test_urls = [
-            "https://api.ipify.org",
             "http://api.ipify.org",
-            "https://www.google.com"
+            "https://api.ipify.org",
+            "http://google.com"
         ]
         
-        async with httpx.AsyncClient(proxy=proxy_url, timeout=12, follow_redirects=True, verify=False) as client:
+        # Используем таймаут побольше и разрешаем любые статус-коды
+        async with httpx.AsyncClient(proxy=proxy_url, timeout=15, follow_redirects=True, verify=False) as client:
             for url in test_urls:
                 try:
                     resp = await client.get(url)
-                    if resp.status_code < 400:
-                        return "✅ Работает"
+                    # Если получили любой ответ (даже 301), значит прокси пропустил запрос
+                    if resp.status_code < 500:
+                        return f"✅ Работает (код {resp.status_code})"
                 except Exception:
                     continue
-            return "❌ Прокси не отвечает (Timeout/Block)"
+            return "❌ Прокси не отвечает (Timeout/Auth/IP Block)"
     except Exception as e:
-        return f"❌ Ошибка конфигурации: {e}"
+        return f"❌ Ошибка: {str(e)[:50]}"
 
 async def run_broadcast(message_text: str):
     if settings.bot_token == "MOCK": return

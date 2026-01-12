@@ -38,13 +38,36 @@ def load_settings() -> Settings:
     gemini_api_key = os.getenv("GEMINI_API_KEY", "").strip()
     database_url = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./bot.db").strip()
 
-    proxy = ProxyConfig(
-        scheme=os.getenv("PROXY_SCHEME", "").strip() or None,
-        host=os.getenv("PROXY_HOST", "").strip() or None,
-        port=int(os.getenv("PROXY_PORT", "0") or 0) or None,
-        username=os.getenv("PROXY_USER", "").strip() or None,
-        password=os.getenv("PROXY_PASS", "").strip() or None,
-    )
+    # Сначала пробуем получить единый URL прокси
+    bot_http_proxy = os.getenv("BOT_HTTP_PROXY", "").strip()
+    if bot_http_proxy:
+        if "://" in bot_http_proxy:
+            from urllib.parse import urlparse
+            parsed = urlparse(bot_http_proxy)
+            proxy = ProxyConfig(
+                scheme=parsed.scheme or "http",
+                host=parsed.hostname,
+                port=parsed.port,
+                username=parsed.username,
+                password=parsed.password,
+            )
+        else:
+            # Обработка формата host:port:user:pass или host:port
+            parts = bot_http_proxy.split(":")
+            if len(parts) == 4:
+                proxy = ProxyConfig(scheme="http", host=parts[0], port=int(parts[1]), username=parts[2], password=parts[3])
+            elif len(parts) == 2:
+                proxy = ProxyConfig(scheme="http", host=parts[0], port=int(parts[1]), username=None, password=None)
+            else:
+                proxy = ProxyConfig(scheme=None, host=None, port=None, username=None, password=None)
+    else:
+        proxy = ProxyConfig(
+            scheme=os.getenv("PROXY_SCHEME", "").strip() or None,
+            host=os.getenv("PROXY_HOST", "").strip() or None,
+            port=int(os.getenv("PROXY_PORT", "0") or 0) or None,
+            username=os.getenv("PROXY_USER", "").strip() or None,
+            password=os.getenv("PROXY_PASS", "").strip() or None,
+        )
 
     admin_ids_env = os.getenv("ADMIN_IDS", "").strip()
     admin_ids: List[int] = []

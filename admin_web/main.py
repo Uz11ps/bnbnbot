@@ -84,13 +84,31 @@ async def get_db():
 CATEGORIES = ["female", "male", "child", "storefront", "whitebg", "random", "own", "own_variant"]
 
 # --- Вспомогательные функции ---
-async def check_proxy():
+async def get_proxy_url(db: aiosqlite.Connection = None):
+    # 1. Проверяем в БД
+    if db:
+        async with db.execute("SELECT value FROM app_settings WHERE key='bot_proxy'") as cur:
+            row = await cur.fetchone()
+            if row and row[0]:
+                proxy_val = row[0]
+                if "://" not in proxy_val:
+                    parts = proxy_val.split(":")
+                    if len(parts) == 4:
+                        return f"http://{parts[2]}:{parts[3]}@{parts[0]}:{parts[1]}"
+                    elif len(parts) == 2:
+                        return f"http://{parts[0]}:{parts[1]}"
+                return proxy_val
+    
+    # 2. Проверяем в settings (.env)
+    return settings.proxy.as_url()
+
+async def check_proxy(db: aiosqlite.Connection = None):
     try:
-        proxy_url = settings.proxy.as_url()
+        proxy_url = await get_proxy_url(db)
         if not proxy_url: return "❌ Не настроен"
         async with httpx.AsyncClient(proxy=proxy_url, timeout=5) as client:
             resp = await client.get("https://google.com")
-            return "✅ Работает" if resp.status_code == 200 else "❌ Ошибка прокси"
+            return "✅ Работает" if resp.status_code == 200 else f"❌ Ошибка {resp.status_code}"
     except Exception as e:
         return f"❌ Ошибка: {e}"
 
@@ -134,7 +152,7 @@ async def index(request: Request, db: aiosqlite.Connection = Depends(get_db), us
             maintenance = row[0] == '1' if row else False
     except Exception: pass
 
-    proxy_status = await check_proxy()
+    proxy_status = await check_proxy(db)
     return templates.TemplateResponse("dashboard.html", {
         "request": request, 
         "total_users": total_users, "today_users": today_users,
@@ -335,7 +353,7 @@ async def proxy_page(request: Request, db: aiosqlite.Connection = Depends(get_db
             row = await cur.fetchone()
             current_proxy = row[0] if row else ""
     except Exception: pass
-    status_text = await check_proxy()
+    status_text = await check_proxy(db)
     return templates.TemplateResponse("proxy.html", {"request": request, "current_proxy": current_proxy, "status": status_text})
 
 @app.post("/proxy/edit")

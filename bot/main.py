@@ -80,10 +80,33 @@ async def set_commands(bot: Bot) -> None:
 async def main() -> None:
     settings = load_settings()
 
-    # Добавляем поддержку прокси для самого бота, если указано в .env
-    # Это поможет ускорить работу кнопок, если сервер в проблемной зоне
-    proxy_url = os.getenv("BOT_HTTP_PROXY")
+    # Извлекаем путь к БД из DATABASE_URL (поддержка формата sqlite+aiosqlite:///./bot.db)
+    db_path = "bot.db"
+    db_url = settings.database_url
+    if db_url.startswith("sqlite"):
+        if ":///" in db_url:
+            db_path = db_url.split("///", 1)[-1] or "bot.db"
+        else:
+            db_path = "bot.db"
+
+    db = Database(db_path=db_path)
+    await db.init()
+
+    # Пробуем получить прокси из БД
+    proxy_url = await db.get_app_setting("bot_proxy")
     
+    # Если в БД нет, берем из .env
+    if not proxy_url:
+        proxy_url = os.getenv("BOT_HTTP_PROXY")
+    
+    if proxy_url and ":" in proxy_url and "://" not in proxy_url:
+        # Приводим к формату URL
+        parts = proxy_url.split(":")
+        if len(parts) == 4:
+            proxy_url = f"http://{parts[2]}:{parts[3]}@{parts[0]}:{parts[1]}"
+        elif len(parts) == 2:
+            proxy_url = f"http://{parts[0]}:{parts[1]}"
+
     if proxy_url:
         from aiogram.client.session.aiohttp import AiohttpSession
         session = AiohttpSession(proxy=proxy_url)
@@ -100,17 +123,6 @@ async def main() -> None:
         )
 
     dp = Dispatcher(storage=MemoryStorage())
-
-    # Извлекаем путь к БД из DATABASE_URL (поддержка формата sqlite+aiosqlite:///./bot.db)
-    db_path = "bot.db"
-    db_url = settings.database_url
-    if db_url.startswith("sqlite"):
-        if ":///" in db_url:
-            db_path = db_url.split("///", 1)[-1] or "bot.db"
-        else:
-            db_path = "bot.db"
-
-    db = Database(db_path=db_path)
 
     dp.include_router(admin_router)
     dp.include_router(start_router)

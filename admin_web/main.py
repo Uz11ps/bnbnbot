@@ -149,21 +149,70 @@ async def list_prompts(request: Request, db: aiosqlite.Connection = Depends(get_
         "categories": CATEGORIES
     })
 
+from fastapi import FastAPI, Request, Form, Depends, HTTPException, status, BackgroundTasks, File, UploadFile
+import shutil
+
+# ...
+app.mount("/static", StaticFiles(directory="admin_web/static"), name="static")
+app.mount("/uploads", StaticFiles(directory="data/uploads"), name="uploads")
+
+UPLOAD_DIR = "data/uploads/models"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
 @app.post("/prompts/edit_model")
 async def edit_model_prompt(
     model_id: int = Form(...), 
     name: str = Form(...), 
     prompt_text: str = Form(...), 
+    photo: UploadFile = File(None),
     db: aiosqlite.Connection = Depends(get_db), 
     user: str = Depends(get_current_username)
 ):
-    # Обновляем название модели
+    # Обновляем название
     await db.execute("UPDATE models SET name=? WHERE id=?", (name, model_id))
-    # Находим ID промпта и обновляем его текст
+    
+    # Обработка фото
+    if photo and photo.filename:
+        file_path = f"{UPLOAD_DIR}/model_{model_id}.jpg"
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(photo.file, buffer)
+        await db.execute("UPDATE models SET photo_file_id=? WHERE id=?", (file_path, model_id))
+
+    # Обновляем промпт
     async with db.execute("SELECT prompt_id FROM models WHERE id=?", (model_id,)) as cur:
         row = await cur.fetchone()
         if row:
             await db.execute("UPDATE prompts SET text=? WHERE id=?", (prompt_text, row[0]))
+    
+    await db.commit()
+    return RedirectResponse(url="/prompts", status_code=303)
+
+@app.post("/models/add_full")
+async def add_full_model(
+    category: str = Form(...),
+    name: str = Form(...),
+    prompt_text: str = Form(...),
+    photo: UploadFile = File(...),
+    db: aiosqlite.Connection = Depends(get_db),
+    user: str = Depends(get_current_username)
+):
+    # 1. Создаем промпт
+    await db.execute("INSERT INTO prompts (title, text) VALUES (?, ?)", (f"Prompt for {name}", prompt_text))
+    async with db.execute("SELECT last_insert_rowid()") as cur:
+        prompt_id = (await cur.fetchone())[0]
+    
+    # 2. Создаем модель
+    await db.execute("INSERT INTO models (category, cloth, name, prompt_id) VALUES (?, 'default', ?, ?)", 
+                     (category, name, prompt_id))
+    async with db.execute("SELECT last_insert_rowid()") as cur:
+        model_id = (await cur.fetchone())[0]
+    
+    # 3. Сохраняем фото
+    file_path = f"{UPLOAD_DIR}/model_{model_id}.jpg"
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(photo.file, buffer)
+    
+    await db.execute("UPDATE models SET photo_file_id=? WHERE id=?", (file_path, model_id))
     await db.commit()
     return RedirectResponse(url="/prompts", status_code=303)
 

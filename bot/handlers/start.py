@@ -133,12 +133,82 @@ async def on_set_lang(callback: CallbackQuery, db: Database):
     await db.set_user_language(callback.from_user.id, new_lang)
     await on_menu_profile(callback, db)
 
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, URLInputFile, FSInputFile, BufferedInputFile
+import os
+import json
+
+# ...
+
+async def _send_model_photo(callback: CallbackQuery, photo_id: str, caption: str, reply_markup: InlineKeyboardMarkup):
+    """Универсальная функция для отправки фото модели (file_id или локальный путь)"""
+    try:
+        if photo_id and (photo_id.startswith('data/uploads') or photo_id.startswith('C:')):
+            if os.path.exists(photo_id):
+                photo = FSInputFile(photo_id)
+                await callback.message.answer_photo(photo, caption=caption, reply_markup=reply_markup)
+    else:
+                await callback.message.answer(caption, reply_markup=reply_markup)
+        elif photo_id:
+            await callback.message.answer_photo(photo_id, caption=caption, reply_markup=reply_markup)
+    else:
+            await callback.message.answer(caption, reply_markup=reply_markup)
+    except Exception as e:
+        await callback.message.answer(f"{caption}\n\n(Ошибка фото: {e})", reply_markup=reply_markup)
+
 @router.callback_query(F.data == "menu_market")
-async def on_menu_market(callback: CallbackQuery, db: Database, state: FSMContext):
+async def on_menu_market(callback: CallbackQuery, db: Database):
+    lang = await db.get_user_language(callback.from_user.id)
+    # Получаем настройки включенных категорий и цены
+    enabled = await db.get_all_app_settings()
+    # Фильтруем только те, что относятся к категориям
+    cat_status = {k: (v == "1") for k, v in enabled.items() if k in ["female", "male", "child", "storefront", "whitebg", "random", "own", "own_variant"]}
+    
+    # По ТЗ: "создать фото до 4 фотографий промт до 1тыщ символом" - это и есть основной флоу Маркетплейса
+    # Но мы даем выбор категории
+    await _replace_with_text(callback, "Выберите категорию:", reply_markup=create_product_keyboard_dynamic(cat_status))
+
+@router.callback_query(F.data.startswith("create_cat:"))
+async def on_create_cat(callback: CallbackQuery, db: Database):
+    category = callback.data.split(":")[1]
+    lang = await db.get_user_language(callback.from_user.id)
+    
+    # Показываем первую модель в этой категории
+    total = await db.count_models(category, "default")
+    if total == 0:
+        await callback.answer("В этой категории пока нет моделей", show_alert=True)
+        return
+        
+    model = await db.get_model_by_index(category, "default", 0)
+    kb = model_select_keyboard(category, "default", 0, total)
+    
+    await callback.message.delete()
+    await _send_model_photo(callback, model[3], f"Модель: {model[1]} (1/{total})", kb)
+
+@router.callback_query(F.data.startswith("model_nav:"))
+async def on_model_nav(callback: CallbackQuery, db: Database):
+    _, category, cloth, index = callback.data.split(":")
+    index = int(index)
+    total = await db.count_models(category, cloth)
+    
+    if index < 0: index = total - 1
+    if index >= total: index = 0
+    
+    model = await db.get_model_by_index(category, cloth, index)
+    kb = model_select_keyboard(category, cloth, index, total)
+    
+    await callback.message.delete()
+    await _send_model_photo(callback, model[3], f"Модель: {model[1]} ({index+1}/{total})", kb)
+
+@router.callback_query(F.data.startswith("model_pick:"))
+async def on_model_pick(callback: CallbackQuery, db: Database, state: FSMContext):
+    _, category, cloth, index = callback.data.split(":")
+    model = await db.get_model_by_index(category, cloth, int(index))
+    
     lang = await db.get_user_language(callback.from_user.id)
     await state.set_state(CreateForm.waiting_market_photos)
-    await state.update_data(photos=[])
-    await _replace_with_text(callback, get_string("upload_photo", lang), reply_markup=back_main_keyboard(lang))
+    await state.update_data(photos=[], model_id=model[0], prompt_id=model[2], category=category)
+    
+    await callback.message.answer(get_string("upload_photo", lang), reply_markup=back_main_keyboard(lang))
 
 @router.message(CreateForm.waiting_market_photos, F.photo)
 async def on_market_photos(message: Message, state: FSMContext, db: Database):
@@ -156,7 +226,7 @@ async def on_market_photos(message: Message, state: FSMContext, db: Database):
                                  [InlineKeyboardButton(text="Далее", callback_data="market_photos_done")],
                                  [InlineKeyboardButton(text=get_string("back", lang), callback_data="back_main")]
                              ]))
-    else:
+        else:
         await state.set_state(CreateForm.waiting_market_prompt)
         await message.answer(get_string("enter_prompt", lang))
 

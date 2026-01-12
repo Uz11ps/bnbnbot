@@ -26,21 +26,57 @@
     <div class="tab-content">
         {% for cat in categories %}
         <div class="tab-pane fade {% if loop.first %}show active{% endif %}" id="{{ cat }}-pane">
+            
+            <div class="card p-3 mb-4 bg-light border-dashed">
+                <h6 class="mb-3">➕ Добавить модель в категорию {{ cat | capitalize }}</h6>
+                <form action="/models/add_full" method="post" enctype="multipart/form-data" class="row g-2">
+                    <input type="hidden" name="category" value="{{ cat }}">
+                    <div class="col-md-4">
+                        <input type="text" name="name" class="form-control" placeholder="Имя модели" required>
+                    </div>
+                    <div class="col-md-4">
+                        <input type="file" name="photo" class="form-control" accept="image/*" required>
+                    </div>
+                    <div class="col-md-12">
+                        <textarea name="prompt_text" class="form-control" rows="2" placeholder="Текст промпта" required></textarea>
+                    </div>
+                    <div class="col-12">
+                        <button type="submit" class="btn btn-success btn-sm">Создать модель</button>
+                    </div>
+                </form>
+            </div>
+
             <div class="row g-3">
                 {% if categorized_models[cat] %}
                     {% for m in categorized_models[cat] %}
                     <div class="col-12 col-lg-6">
-                        <div class="card p-3 border-start border-primary border-4">
-                            <form action="/prompts/edit_model" method="post">
+                        <div class="card p-3 border-start border-primary border-4 h-100">
+                            <form action="/prompts/edit_model" method="post" enctype="multipart/form-data">
                                 <input type="hidden" name="model_id" value="{{ m.id }}">
-                                <div class="mb-2 d-flex justify-content-between">
-                                    <input type="text" name="name" class="form-control form-control-sm fw-bold w-75" value="{{ m.name }}">
-                                    <span class="badge bg-light text-dark">#{{ m.id }}</span>
-                                </div>
-                                <textarea name="prompt_text" class="form-control mb-2" rows="5">{{ m.prompt_text }}</textarea>
-                                <div class="d-flex justify-content-between align-items-center">
-                                    <div class="text-muted small">ID промпта: {{ m.prompt_id }}</div>
-                                    <button type="submit" class="btn btn-sm btn-primary">Сохранить</button>
+                                <div class="row">
+                                    <div class="col-4">
+                                        {% if m.photo_file_id %}
+                                            {% if m.photo_file_id.startswith('data/') %}
+                                                <img src="/{{ m.photo_file_id }}" class="img-fluid rounded mb-2 shadow-sm" alt="Model">
+                                            {% else %}
+                                                <div class="text-center py-4 bg-light rounded small mb-2">TG Photo<br>{{ m.photo_file_id[:10] }}...</div>
+                                            {% endif %}
+                                        {% else %}
+                                            <div class="text-center py-4 bg-light rounded small mb-2">Нет фото</div>
+                                        {% endif %}
+                                        <input type="file" name="photo" class="form-control form-control-sm" accept="image/*">
+                                    </div>
+                                    <div class="col-8">
+                                        <div class="mb-2 d-flex justify-content-between align-items-center">
+                                            <input type="text" name="name" class="form-control form-control-sm fw-bold" value="{{ m.name }}">
+                                            <span class="badge bg-light text-dark ms-2">#{{ m.id }}</span>
+                                        </div>
+                                        <textarea name="prompt_text" class="form-control mb-2" rows="4" style="font-size: 0.85rem;">{{ m.prompt_text }}</textarea>
+                                        <div class="d-flex justify-content-between align-items-center">
+                                            <div class="text-muted small">Prompt ID: {{ m.prompt_id }}</div>
+                                            <button type="submit" class="btn btn-sm btn-primary">Сохранить</button>
+                                        </div>
+                                    </div>
                                 </div>
                             </form>
                         </div>

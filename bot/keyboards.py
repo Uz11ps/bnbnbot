@@ -172,7 +172,7 @@ def quality_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="Стандарт (HD)", callback_data="quality:hd")],
             [InlineKeyboardButton(text="Премиум (2K)", callback_data="quality:2k")],
             [InlineKeyboardButton(text="Ультра (4K)", callback_data="quality:4k")],
-            [InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_settings")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_step")],
         ]
     )
 
@@ -552,19 +552,60 @@ def back_main_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-def model_select_keyboard(category: str, cloth: str, index: int, total: int = 31) -> InlineKeyboardMarkup:
-    prev_idx = index - 1
-    next_idx = index + 1
+def model_select_keyboard_presets(category: str, cloth: str, index: int, total: int, lang: str = "ru") -> InlineKeyboardMarkup:
+    """Клавиатура для выбора пресета с быстрой навигацией 1-10"""
+    rows: list[list[InlineKeyboardButton]] = []
+    
+    # Кнопки навигации по одной
+    nav_row = [
+        InlineKeyboardButton(text="⬅️", callback_data=f"preset_nav:{category}:{cloth}:{index-1}"),
+        InlineKeyboardButton(text="✅ Выбрать", callback_data=f"preset_pick:{category}:{cloth}:{index}"),
+        InlineKeyboardButton(text="➡️", callback_data=f"preset_nav:{category}:{cloth}:{index+1}"),
+    ]
+    rows.append(nav_row)
+    
+    # Кнопки быстрого перехода (до 10 штук в ряд)
+    quick_nav = []
+    max_quick = min(total, 10)
+    for i in range(max_quick):
+        text = f"{i+1}"
+        if i == index:
+            text = f"•{i+1}•"
+        quick_nav.append(InlineKeyboardButton(text=text, callback_data=f"preset_nav:{category}:{cloth}:{i}"))
+    
+    # Разбиваем кнопки 1-10 на ряды по 5
+    for i in range(0, len(quick_nav), 5):
+        rows.append(quick_nav[i:i+5])
+        
+    rows.append([InlineKeyboardButton(text=get_string("back", lang), callback_data="menu_market")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+def pose_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [
-                InlineKeyboardButton(text="⬅️", callback_data=f"model_nav:{category}:{cloth}:{prev_idx}"),
-                InlineKeyboardButton(text="✅", callback_data=f"model_pick:{category}:{cloth}:{index}"),
-                InlineKeyboardButton(text="➡️", callback_data=f"model_nav:{category}:{cloth}:{next_idx}"),
-            ],
-            [InlineKeyboardButton(text="Главное меню", callback_data="back_main")],
+            [InlineKeyboardButton(text="Обычная", callback_data="pose:normal")],
+            [InlineKeyboardButton(text="Нестандартная", callback_data="pose:unusual")],
+            [InlineKeyboardButton(text="Вульгарная", callback_data="pose:vulgar")],
         ]
     )
+
+def angle_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Близкий", callback_data="angle:close")],
+            [InlineKeyboardButton(text="Средний", callback_data="angle:medium")],
+            [InlineKeyboardButton(text="Дальний", callback_data="angle:far")],
+        ]
+    )
+
+def garment_length_with_custom_keyboard() -> InlineKeyboardMarkup:
+    kb = garment_length_keyboard()
+    # Добавляем кнопку "Свой вариант"
+    kb.inline_keyboard.insert(-1, [InlineKeyboardButton(text="✨ Свой вариант", callback_data="garment_len_custom")])
+    return kb
+
+def quality_keyboard_with_back() -> InlineKeyboardMarkup:
+    return quality_keyboard()
 
 
 def form_age_keyboard() -> InlineKeyboardMarkup:
@@ -626,7 +667,7 @@ def garment_length_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="Миди", callback_data="garment_len:midi")],
             [InlineKeyboardButton(text="До щиколоток", callback_data="garment_len:to_ankles")],
             [InlineKeyboardButton(text="До пола", callback_data="garment_len:to_floor")],
-            [InlineKeyboardButton(text="Пропустить", callback_data="own_variant_length:skip")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_step")],
         ]
     )
 
@@ -638,6 +679,7 @@ def sleeve_length_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="Три четверти", callback_data="form_sleeve:three_quarter"), InlineKeyboardButton(text="До локтей", callback_data="form_sleeve:elbow")],
             [InlineKeyboardButton(text="Короткие", callback_data="form_sleeve:short"), InlineKeyboardButton(text="Без рукав", callback_data="form_sleeve:none")],
             [InlineKeyboardButton(text="Пропустить", callback_data="form_sleeve:skip")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_step")],
         ]
     )
 
@@ -646,6 +688,7 @@ def form_view_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="Сзади", callback_data="form_view:back"), InlineKeyboardButton(text="Передняя часть", callback_data="form_view:front")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_step")],
         ]
     )
 
@@ -678,6 +721,7 @@ def pants_style_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="Бананы", callback_data="pants_style:banana"), InlineKeyboardButton(text="Клеш от колен", callback_data="pants_style:flare_knee")],
             [InlineKeyboardButton(text="Багги", callback_data="pants_style:baggy"), InlineKeyboardButton(text="Мом", callback_data="pants_style:mom")],
             [InlineKeyboardButton(text="Прямые", callback_data="pants_style:straight"), InlineKeyboardButton(text="Пропустить", callback_data="pants_style:skip")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_step")],
         ]
     )
 
@@ -704,7 +748,8 @@ def confirm_generation_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="Создать фото", callback_data="form_generate")],
-            [InlineKeyboardButton(text="Отмена", callback_data="form_cancel")],
+            [InlineKeyboardButton(text="Отмена", callback_data="back_main")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_step")],
         ]
     )
 
@@ -847,6 +892,7 @@ def plus_season_keyboard() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [InlineKeyboardButton(text="Зима", callback_data="plus_season:winter"), InlineKeyboardButton(text="Лето", callback_data="plus_season:summer")],
             [InlineKeyboardButton(text="Весна", callback_data="plus_season:spring"), InlineKeyboardButton(text="Осень", callback_data="plus_season:autumn")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_step")],
         ]
     )
 

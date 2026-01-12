@@ -17,17 +17,43 @@ from contextlib import asynccontextmanager
 
 # --- Настройки путей ---
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# В Docker контейнере база должна быть в /app/data/bot.db
 DB_PATH = os.path.join(BASE_DIR, "data", "bot.db")
-if not os.path.exists(DB_PATH):
+if not os.path.exists(DB_PATH) and os.path.exists(os.path.join(BASE_DIR, "bot.db")):
     DB_PATH = os.path.join(BASE_DIR, "bot.db")
 
 UPLOAD_DIR = os.path.join(BASE_DIR, "data", "uploads", "models")
 STATIC_DIR = os.path.join(BASE_DIR, "admin_web", "static")
 
+async def run_migrations(db: aiosqlite.Connection):
+    # Проверка и добавление недостающих колонок
+    async with db.execute("PRAGMA table_info(subscriptions)") as cur:
+        cols = [row[1] for row in await cur.fetchall()]
+    if cols and "plan_id" not in cols:
+        try:
+            await db.execute("ALTER TABLE subscriptions ADD COLUMN plan_id INTEGER")
+            await db.commit()
+        except Exception as e:
+            print(f"Migration error (subscriptions.plan_id): {e}")
+
+    async with db.execute("PRAGMA table_info(users)") as cur:
+        cols = [row[1] for row in await cur.fetchall()]
+    if cols and "trial_used" not in cols:
+        try:
+            await db.execute("ALTER TABLE users ADD COLUMN trial_used INTEGER NOT NULL DEFAULT 0")
+            await db.commit()
+        except Exception as e:
+            print(f"Migration error (users.trial_used): {e}")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     os.makedirs(UPLOAD_DIR, exist_ok=True)
     os.makedirs(STATIC_DIR, exist_ok=True)
+    
+    # Запуск миграций при старте
+    async with aiosqlite.connect(DB_PATH) as db:
+        await run_migrations(db)
+        
     yield
 
 app = FastAPI(title="AI-ROOM Admin Panel", lifespan=lifespan)
@@ -372,38 +398,47 @@ async def edit_subscription(
     db: aiosqlite.Connection = Depends(get_db), 
     user: str = Depends(get_current_username)
 ):
-    expires_at = datetime.now() + timedelta(days=days)
-    plan_type = "custom"
-    
-    if plan_id.isdigit():
-        async with db.execute("SELECT name_ru FROM subscription_plans WHERE id=?", (int(plan_id),)) as cur:
-            row = await cur.fetchone()
-            if row:
-                plan_type = row[0]
-    
-    plan_id_val = int(plan_id) if plan_id.isdigit() else None
-    
-    # Проверяем, есть ли уже подписка у этого пользователя
-    async with db.execute("SELECT id FROM subscriptions WHERE user_id = ?", (user_id,)) as cur:
-        existing = await cur.fetchone()
+    try:
+        expires_at = datetime.now() + timedelta(days=days)
+        plan_type = "custom"
         
-    if existing:
-        await db.execute(
-            "UPDATE subscriptions SET plan_id=?, plan_type=?, expires_at=?, daily_limit=? WHERE user_id=?",
-            (plan_id_val, plan_type, expires_at.isoformat(), limit, user_id)
-        )
-    else:
-        await db.execute(
-            "INSERT INTO subscriptions (user_id, plan_id, plan_type, expires_at, daily_limit) VALUES (?, ?, ?, ?, ?)",
-            (user_id, plan_id_val, plan_type, expires_at.isoformat(), limit)
-        )
-    
-    # Сбрасываем флаг триала при выдаче подписки
-    if plan_type != 'trial':
-        await db.execute("UPDATE users SET trial_used=1 WHERE id=?", (user_id,))
+        if plan_id.isdigit():
+            async with db.execute("SELECT name_ru FROM subscription_plans WHERE id=?", (int(plan_id),)) as cur:
+                row = await cur.fetchone()
+                if row:
+                    plan_type = row[0]
         
-    await db.commit()
-    return RedirectResponse(url=f"/users?q={user_id}", status_code=303)
+        plan_id_val = int(plan_id) if plan_id.isdigit() else None
+        
+        # Проверяем, есть ли уже подписка у этого пользователя
+        async with db.execute("SELECT id FROM subscriptions WHERE user_id = ?", (user_id,)) as cur:
+            existing = await cur.fetchone()
+            
+        if existing:
+            await db.execute(
+                "UPDATE subscriptions SET plan_id=?, plan_type=?, expires_at=?, daily_limit=? WHERE user_id=?",
+                (plan_id_val, plan_type, expires_at.isoformat(), limit, user_id)
+            )
+        else:
+            # Перед вставкой убедимся, что таблицы и колонки существуют (на случай если миграция в lifespan не успела)
+            await db.execute(
+                "INSERT INTO subscriptions (user_id, plan_id, plan_type, expires_at, daily_limit) VALUES (?, ?, ?, ?, ?)",
+                (user_id, plan_id_val, plan_type, expires_at.isoformat(), limit)
+            )
+        
+        # Сбрасываем флаг триала при выдаче подписки
+        # Сначала проверим, есть ли колонка trial_used (на всякий случай)
+        async with db.execute("PRAGMA table_info(users)") as cur:
+            user_cols = [row[1] for row in await cur.fetchall()]
+        
+        if 'trial_used' in user_cols and plan_type != 'trial':
+            await db.execute("UPDATE users SET trial_used=1 WHERE id=?", (user_id,))
+            
+        await db.commit()
+        return RedirectResponse(url=f"/users?q={user_id}", status_code=303)
+    except Exception as e:
+        print(f"Error in edit_subscription: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/proxy", response_class=HTMLResponse)
 async def proxy_page(request: Request, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):

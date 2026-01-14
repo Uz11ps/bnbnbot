@@ -684,6 +684,54 @@ def camera_distance_keyboard() -> InlineKeyboardMarkup:
         ]
     )
 
+def infographic_gender_extended_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="👨 Мужской", callback_data="info_gender:male"), InlineKeyboardButton(text="👱‍♀️ Женский", callback_data="info_gender:female")],
+            [InlineKeyboardButton(text="👦 Мальчик", callback_data="info_gender:boy"), InlineKeyboardButton(text="👧 Девочка", callback_data="info_gender:girl")],
+            [InlineKeyboardButton(text="👫 Нейтральный", callback_data="info_gender:neutral")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_step")],
+        ]
+    )
+
+def infographic_style_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="1. Современный", callback_data="info_style:modern"), InlineKeyboardButton(text="2. Простой", callback_data="info_style:simple")],
+            [InlineKeyboardButton(text="3. Яркий", callback_data="info_style:bright"), InlineKeyboardButton(text="4. Премиальный", callback_data="info_style:premium")],
+            [InlineKeyboardButton(text="5. Детский", callback_data="info_style:child"), InlineKeyboardButton(text="6. Технологический", callback_data="info_style:tech")],
+            [InlineKeyboardButton(text="7. Натуральный", callback_data="info_style:natural"), InlineKeyboardButton(text="8. Ретро", callback_data="info_style:retro")],
+            [InlineKeyboardButton(text="9. Классический", callback_data="info_style:classic"), InlineKeyboardButton(text="10. Атмосферный", callback_data="info_style:atmos")],
+            [InlineKeyboardButton(text="✏️ Свой вариант", callback_data="info_style:custom")],
+            [InlineKeyboardButton(text="Пропустить", callback_data="info_style:skip")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_step")],
+        ]
+    )
+
+def font_type_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="1. Современный", callback_data="font_type:modern"), InlineKeyboardButton(text="2. С засечками", callback_data="font_type:serif")],
+            [InlineKeyboardButton(text="3. Без засечек", callback_data="font_type:sans"), InlineKeyboardButton(text="4. Жирный", callback_data="font_type:bold")],
+            [InlineKeyboardButton(text="5. Курсив", callback_data="font_type:italic"), InlineKeyboardButton(text="6. Полужирный", callback_data="font_type:semibold")],
+            [InlineKeyboardButton(text="7. Рукописный", callback_data="font_type:hand"), InlineKeyboardButton(text="8. Декоративный", callback_data="font_type:decor")],
+            [InlineKeyboardButton(text="9. Моноширинный", callback_data="font_type:mono"), InlineKeyboardButton(text="10. Узкий", callback_data="font_type:narrow")],
+            [InlineKeyboardButton(text="11. Технологичный", callback_data="font_type:tech")],
+            [InlineKeyboardButton(text="✏️ Свой вариант", callback_data="font_type:custom")],
+            [InlineKeyboardButton(text="Пропустить", callback_data="font_type:skip")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_step")],
+        ]
+    )
+
+def info_lang_keyboard_extended() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🇷🇺 Русский", callback_data="info_lang:ru"), InlineKeyboardButton(text="🇺🇸 Английский", callback_data="info_lang:en")],
+            [InlineKeyboardButton(text="✏️ Свой вариант", callback_data="info_lang:custom")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_step")],
+        ]
+    )
+
 def info_lang_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[

@@ -57,6 +57,11 @@ class PresetForm(StatesGroup):
     waiting_adv2 = State()
     waiting_adv3 = State()
     waiting_extra_info = State()
+    waiting_info_style = State()
+    waiting_info_style_custom = State()
+    waiting_font_type = State()
+    waiting_font_type_custom = State()
+    waiting_info_lang_custom = State()
     waiting_product_name = State()
     waiting_width = State()
     waiting_height = State()
@@ -289,24 +294,30 @@ async def on_rand_aspect(callback: CallbackQuery, state: FSMContext):
     from bot.keyboards import confirm_generation_keyboard
     await _replace_with_text(callback, "Все готово! Создать фото?", reply_markup=confirm_generation_keyboard())
 
+@router.callback_query(F.data == "create_cat:infographic_clothing")
+async def on_create_infographic_clothing(callback: CallbackQuery, db: Database, state: FSMContext):
+    await state.update_data(category="infographic_clothing")
+    await state.set_state(PresetForm.waiting_info_load)
+    await _replace_with_text(callback, "Инфографика: Выберите нагруженность (введите число от 1 до 10):")
+
 @router.callback_query(F.data == "create_cat:infographic_other")
 async def on_create_infographic_other(callback: CallbackQuery, db: Database, state: FSMContext):
     await state.update_data(category="infographic_other")
     await state.set_state(PresetForm.waiting_info_load)
-    await _replace_with_text(callback, "Выберите нагруженность инфографики (введите число от 1 до 10):")
+    await _replace_with_text(callback, "Инфографика: Выберите нагруженность (введите число от 1 до 10):")
 
 @router.message(PresetForm.waiting_info_load)
 async def on_info_load_numeric(message: Message, state: FSMContext):
     await state.update_data(info_load=message.text)
     await state.set_state(PresetForm.waiting_product_name)
-    await message.answer("Введите название вашего продукта вкратце (какой у вас продукт? до 100 символов):")
+    await message.answer("Введите название вашего продукта вкратце (какой у вас продукт? до 75 символов):")
 
 @router.message(PresetForm.waiting_product_name)
 async def on_product_name(message: Message, state: FSMContext):
-    await state.update_data(product_name=message.text[:100])
+    await state.update_data(product_name=message.text[:75])
     await state.set_state(PresetForm.waiting_width)
     from bot.keyboards import skip_step_keyboard
-    await message.answer("Введите параметры: Ширина (числом) или пропустите:", reply_markup=skip_step_keyboard("width"))
+    await message.answer("Введите параметры: 1. Ширина (числом) или пропустите:", reply_markup=skip_step_keyboard("width"))
 
 @router.callback_query(F.data == "width:skip", PresetForm.waiting_width)
 async def on_width_skip(callback: CallbackQuery, state: FSMContext):
@@ -353,31 +364,17 @@ async def on_length_text_info(message: Message, state: FSMContext):
 @router.callback_query(F.data.startswith("camera_dist:"), PresetForm.waiting_camera_dist)
 async def on_camera_dist_info(callback: CallbackQuery, state: FSMContext):
     await state.update_data(camera_dist=callback.data.split(":")[1])
-    data = await state.get_data()
-    if data.get("category") == "infographic_other":
-        await state.set_state(PresetForm.waiting_season)
-        from bot.keyboards import random_season_keyboard
-        await _replace_with_text(callback, "Выберите время года:", reply_markup=random_season_keyboard())
-    else:
-        # Для других категорий (если они используют camera_dist)
-        await state.set_state(PresetForm.waiting_aspect)
-        from bot.keyboards import aspect_ratio_keyboard
-        await _replace_with_text(callback, "Выберите формат фото:", reply_markup=aspect_ratio_keyboard())
+    await state.set_state(PresetForm.waiting_season)
+    from bot.keyboards import random_season_keyboard
+    await _replace_with_text(callback, "Выберите время года:", reply_markup=random_season_keyboard())
 
 @router.callback_query(F.data.startswith("rand_season:"), PresetForm.waiting_season)
 async def on_season_info_other(callback: CallbackQuery, state: FSMContext):
     val = callback.data.split(":")[1]
     await state.update_data(season=None if val == "skip" else val)
-    data = await state.get_data()
-    if data.get("category") == "infographic_other":
-        await state.set_state(PresetForm.waiting_holiday)
-        from bot.keyboards import random_holiday_keyboard
-        await _replace_with_text(callback, "Выберите праздник:", reply_markup=random_holiday_keyboard())
-    else:
-        # Для Рандом одежды (там тоже используется rand_season)
-        await state.set_state(PresetForm.waiting_holiday)
-        from bot.keyboards import random_holiday_keyboard
-        await _replace_with_text(callback, "Выберите праздник:", reply_markup=random_holiday_keyboard())
+    await state.set_state(PresetForm.waiting_holiday)
+    from bot.keyboards import random_holiday_keyboard
+    await _replace_with_text(callback, "Выберите праздник:", reply_markup=random_holiday_keyboard())
 
 @router.callback_query(F.data.startswith("rand_holiday:"), PresetForm.waiting_holiday)
 async def on_holiday_info_other(callback: CallbackQuery, state: FSMContext):
@@ -395,27 +392,112 @@ async def on_holiday_custom_info(message: Message, state: FSMContext):
     await on_after_holiday_info(message, state)
 
 async def on_after_holiday_info(message: Message, state: FSMContext):
-    data = await state.get_data()
-    if data.get("category") == "infographic_other":
-        await state.set_state(PresetForm.waiting_extra_info)
-        from bot.keyboards import skip_step_keyboard
-        await message.answer("Введите дополнение если есть какие либо предпочтения (до 100 символов) или пропустите:", reply_markup=skip_step_keyboard("extra"))
-    else:
-        # Для Рандом одежды
-        await state.set_state(PresetForm.waiting_pose)
-        from bot.keyboards import pose_keyboard
-        await message.answer("Выберите позу:", reply_markup=pose_keyboard())
+    await state.set_state(PresetForm.waiting_adv1)
+    await message.answer("Введите первое преимущество словами (до 180 символов):")
+
+@router.message(PresetForm.waiting_adv1)
+async def on_adv1_text(message: Message, state: FSMContext):
+    await state.update_data(adv1=message.text[:180])
+    await state.set_state(PresetForm.waiting_adv2)
+    await message.answer("Введите второе преимущество словами (до 180 символов):")
+
+@router.message(PresetForm.waiting_adv2)
+async def on_adv2_text(message: Message, state: FSMContext):
+    await state.update_data(adv2=message.text[:180])
+    await state.set_state(PresetForm.waiting_adv3)
+    await message.answer("Введите третье преимущество словами (до 180 символов):")
+
+@router.message(PresetForm.waiting_adv3)
+async def on_adv3_text(message: Message, state: FSMContext):
+    await state.update_data(adv3=message.text[:180])
+    await state.set_state(PresetForm.waiting_extra_info)
+    from bot.keyboards import skip_step_keyboard
+    await message.answer("Введите дополнение если есть какие либо предпочтения (до 100 символов) или пропустите:", reply_markup=skip_step_keyboard("extra"))
 
 @router.callback_query(F.data == "extra:skip", PresetForm.waiting_extra_info)
 async def on_extra_skip_info_other(callback: CallbackQuery, state: FSMContext):
     await state.update_data(extra_info=None)
-    await state.set_state(PresetForm.waiting_aspect)
-    from bot.keyboards import aspect_ratio_keyboard
-    await _replace_with_text(callback, "Выберите формат фото:", reply_markup=aspect_ratio_keyboard())
+    await state.set_state(PresetForm.waiting_gender)
+    from bot.keyboards import infographic_gender_extended_keyboard
+    await _replace_with_text(callback, "К какому полу относится данный продукт:", reply_markup=infographic_gender_extended_keyboard())
 
 @router.message(PresetForm.waiting_extra_info)
 async def on_extra_text_info_other(message: Message, state: FSMContext):
     await state.update_data(extra_info=message.text[:100])
+    await state.set_state(PresetForm.waiting_gender)
+    from bot.keyboards import infographic_gender_extended_keyboard
+    await message.answer("К какому полу относится данный продукт:", reply_markup=infographic_gender_extended_keyboard())
+
+@router.callback_query(F.data.startswith("info_gender:"), PresetForm.waiting_gender)
+async def on_info_gender_ext(callback: CallbackQuery, state: FSMContext):
+    await state.update_data(gender=callback.data.split(":")[1])
+    await state.set_state(PresetForm.waiting_info_style)
+    from bot.keyboards import infographic_style_keyboard
+    await _replace_with_text(callback, "Выберите стиль инфографики:", reply_markup=infographic_style_keyboard())
+
+@router.callback_query(F.data.startswith("info_style:"), PresetForm.waiting_info_style)
+async def on_info_style(callback: CallbackQuery, state: FSMContext):
+    val = callback.data.split(":")[1]
+    if val == "skip":
+        await state.update_data(info_style=None)
+        await state.set_state(PresetForm.waiting_font_type)
+        from bot.keyboards import font_type_keyboard
+        await _replace_with_text(callback, "Выберите тип шрифта:", reply_markup=font_type_keyboard())
+    elif val == "custom":
+        await state.set_state(PresetForm.waiting_info_style_custom)
+        await callback.message.edit_text("Введите свой вариант стиля (до 20 символов):")
+    else:
+        await state.update_data(info_style=val)
+        await state.set_state(PresetForm.waiting_font_type)
+        from bot.keyboards import font_type_keyboard
+        await _replace_with_text(callback, "Выберите тип шрифта:", reply_markup=font_type_keyboard())
+
+@router.message(PresetForm.waiting_info_style_custom)
+async def on_info_style_custom(message: Message, state: FSMContext):
+    await state.update_data(info_style=message.text[:20])
+    await state.set_state(PresetForm.waiting_font_type)
+    from bot.keyboards import font_type_keyboard
+    await message.answer("Выберите тип шрифта:", reply_markup=font_type_keyboard())
+
+@router.callback_query(F.data.startswith("font_type:"), PresetForm.waiting_font_type)
+async def on_font_type(callback: CallbackQuery, state: FSMContext):
+    val = callback.data.split(":")[1]
+    if val == "skip":
+        await state.update_data(font_type=None)
+        await state.set_state(PresetForm.waiting_info_lang)
+        from bot.keyboards import info_lang_keyboard_extended
+        await _replace_with_text(callback, "Выберите язык инфографики:", reply_markup=info_lang_keyboard_extended())
+    elif val == "custom":
+        await state.set_state(PresetForm.waiting_font_type_custom)
+        await callback.message.edit_text("Введите свой вариант шрифта (до 20 символов):")
+    else:
+        await state.update_data(font_type=val)
+        await state.set_state(PresetForm.waiting_info_lang)
+        from bot.keyboards import info_lang_keyboard_extended
+        await _replace_with_text(callback, "Выберите язык инфографики:", reply_markup=info_lang_keyboard_extended())
+
+@router.message(PresetForm.waiting_font_type_custom)
+async def on_font_type_custom(message: Message, state: FSMContext):
+    await state.update_data(font_type=message.text[:20])
+    await state.set_state(PresetForm.waiting_info_lang)
+    from bot.keyboards import info_lang_keyboard_extended
+    await message.answer("Выберите язык инфографики:", reply_markup=info_lang_keyboard_extended())
+
+@router.callback_query(F.data.startswith("info_lang:"), PresetForm.waiting_info_lang)
+async def on_info_lang_ext(callback: CallbackQuery, state: FSMContext):
+    val = callback.data.split(":")[1]
+    if val == "custom":
+        await state.set_state(PresetForm.waiting_info_lang_custom)
+        await callback.message.edit_text("Введите свой вариант языка:")
+    else:
+        await state.update_data(info_lang=val)
+        await state.set_state(PresetForm.waiting_aspect)
+        from bot.keyboards import aspect_ratio_keyboard
+        await _replace_with_text(callback, "Выберите формат фото:", reply_markup=aspect_ratio_keyboard())
+
+@router.message(PresetForm.waiting_info_lang_custom)
+async def on_info_lang_custom(message: Message, state: FSMContext):
+    await state.update_data(info_lang=message.text)
     await state.set_state(PresetForm.waiting_aspect)
     from bot.keyboards import aspect_ratio_keyboard
     await message.answer("Выберите формат фото:", reply_markup=aspect_ratio_keyboard())
@@ -425,7 +507,7 @@ async def on_aspect_info_other(callback: CallbackQuery, state: FSMContext):
     await state.update_data(aspect=callback.data.split(":")[1])
     await state.set_state(PresetForm.result_ready)
     from bot.keyboards import confirm_generation_keyboard
-    await _replace_with_text(callback, "Все готово! Начать генерацию?", reply_markup=confirm_generation_keyboard())
+    await _replace_with_text(callback, "Все готово! Создать инфографику?", reply_markup=confirm_generation_keyboard())
 
 @router.callback_query(F.data.startswith("info_gender:"), PresetForm.waiting_gender)
 async def on_info_gender(callback: CallbackQuery, state: FSMContext, db: Database):
@@ -1010,6 +1092,8 @@ async def on_form_generate(callback: CallbackQuery, state: FSMContext, db: Datab
                 "{Высота}": data.get("height") or "None",
                 "{Длина}": data.get("length") or "None",
                 "{Название продукта}": data.get("product_name") or "None",
+                "{Стиль инфографики}": data.get("info_style") or "None",
+                "{Тип шрифта}": data.get("font_type") or "None",
             }
             
             final_prompt = base_prompt

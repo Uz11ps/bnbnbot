@@ -663,10 +663,11 @@ def random_season_keyboard() -> InlineKeyboardMarkup:
 def random_holiday_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Новый год", callback_data="rand_holiday:newyear"), InlineKeyboardButton(text="День рождение", callback_data="rand_holiday:bday")],
-            [InlineKeyboardButton(text="9 мая", callback_data="rand_holiday:may9"), InlineKeyboardButton(text="23 Февраля", callback_data="rand_holiday:feb23")],
-            [InlineKeyboardButton(text="8 марта", callback_data="rand_holiday:march8"), InlineKeyboardButton(text="День матери", callback_data="rand_holiday:momday")],
-            [InlineKeyboardButton(text="День учителя", callback_data="rand_holiday:teacherday")],
+            [InlineKeyboardButton(text="💍 Свадьба", callback_data="rand_holiday:wedding"), InlineKeyboardButton(text="🎄 Новый год", callback_data="rand_holiday:newyear")],
+            [InlineKeyboardButton(text="🎂 День рождения", callback_data="rand_holiday:bday"), InlineKeyboardButton(text="9 мая", callback_data="rand_holiday:may9")],
+            [InlineKeyboardButton(text="💐 8 марта", callback_data="rand_holiday:march8"), InlineKeyboardButton(text="👩‍👧 День матери", callback_data="rand_holiday:momday")],
+            [InlineKeyboardButton(text="👩‍🏫 День учителя", callback_data="rand_holiday:teacherday"), InlineKeyboardButton(text="🇷🇺 День России", callback_data="rand_holiday:russiaday")],
+            [InlineKeyboardButton(text="🎖️ 23 Февраля", callback_data="rand_holiday:feb23")],
             [InlineKeyboardButton(text="✏️ СВОЙ вариант", callback_data="rand_holiday:custom")],
             [InlineKeyboardButton(text="Пропустить", callback_data="rand_holiday:skip")],
             [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_step")],

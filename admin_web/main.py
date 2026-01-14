@@ -307,7 +307,7 @@ async def settings_page(request: Request, db: aiosqlite.Connection = Depends(get
         "request": request, 
         "agreement": settings_dict.get('agreement_text', ""), 
         "howto": settings_dict.get('howto_text', ""),
-        "channel_id": settings_dict.get('channel_id', "-1002242395646")
+        "channel_id": settings_dict.get('channel_id', "-1003224356583")
     })
 
 @app.post("/settings/update")

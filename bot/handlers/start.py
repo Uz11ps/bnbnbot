@@ -85,8 +85,8 @@ async def check_user_subscription(user_id: int, bot: Bot, db: Database) -> bool:
     """Проверяет подписку на обязательный канал"""
     channel_id = await db.get_app_setting("channel_id")
     if not channel_id:
-        # Если ID не задан в БД, используем дефолтный из ТЗ
-        channel_id = "-1002242395646"
+        # Если ID не задан в БД, используем актуальный ID канала
+        channel_id = "-1003224356583"
     
     try:
         member = await bot.get_chat_member(chat_id=channel_id, user_id=user_id)

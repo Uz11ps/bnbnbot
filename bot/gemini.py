@@ -35,38 +35,41 @@ def _build_proxies_from_env() -> dict:
 def _generate_sync(
     api_key: str,
     prompt: str,
-    user_image_bytes: bytes,
+    images: list[bytes] | bytes,
     ref_image_bytes: bytes | None = None,
     model_name: str | None = None,
 ) -> Optional[bytes]:
     # Используем gemini-3-pro-image-preview для всех категорий
     if model_name == "gemini-3-pro-preview" or model_name == "gemini-3-pro-image-preview":
-        # Используем gemini-3-pro-image-preview для генерации изображений
         endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent?key={api_key}"
     else:
-        # Fallback на стандартный endpoint (не должно использоваться, так как model_name всегда установлен)
         endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key={api_key}"
     headers = {"Content-Type": "application/json"}
 
-    # Определяем части сообщения: текст + фото пользователя, опционально фото модели
-    parts = [
-        {"text": prompt},
-        {
-            "inlineData": {
-                "mimeType": "image/jpeg",
-                "data": base64.b64encode(user_image_bytes).decode("utf-8"),
-            }
-        },
-    ]
-    if ref_image_bytes:
-        parts.append(
-            {
+    parts = [{"text": prompt}]
+    
+    # Обработка основного изображения или списка изображений
+    if isinstance(images, bytes):
+        img_list = [images]
+    else:
+        img_list = images or []
+        
+    for img_bytes in img_list:
+        if img_bytes:
+            parts.append({
                 "inlineData": {
                     "mimeType": "image/jpeg",
-                    "data": base64.b64encode(ref_image_bytes).decode("utf-8"),
+                    "data": base64.b64encode(img_bytes).decode("utf-8"),
                 }
+            })
+            
+    if ref_image_bytes:
+        parts.append({
+            "inlineData": {
+                "mimeType": "image/jpeg",
+                "data": base64.b64encode(ref_image_bytes).decode("utf-8"),
             }
-        )
+        })
 
     # Для Gemini 3 Pro Image используем стандартную конфигурацию
     # Примечание: thinking_level не поддерживается для gemini-3-pro-image-preview
@@ -94,9 +97,9 @@ def _generate_sync(
     session.trust_env = False
 
     logger.info(
-        "[Gemini] v1beta generateContent start: prompt_len=%d, user_img=%d, ref_img=%s, proxy=%s, model=%s",
+        "[Gemini] v1beta generateContent start: prompt_len=%d, images_count=%d, ref_img=%s, proxy=%s, model=%s",
         len(prompt or ""),
-        len(user_image_bytes or b""),
+        len(img_list),
         bool(ref_image_bytes),
         proxies or "none",
         model_name or "default",
@@ -169,11 +172,11 @@ def _generate_sync(
 async def generate_image(
     api_key: str,
     prompt: str,
-    user_image_bytes: bytes,
+    images: list[bytes] | bytes,
     ref_image_bytes: bytes | None = None,
     model_name: str | None = None,
 ) -> Optional[bytes]:
-    return await asyncio.to_thread(_generate_sync, api_key, prompt, user_image_bytes, ref_image_bytes, model_name)
+    return await asyncio.to_thread(_generate_sync, api_key, prompt, images, ref_image_bytes, model_name)
 
 
 def _generate_text_sync(

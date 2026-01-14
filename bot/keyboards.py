@@ -549,9 +549,11 @@ def create_product_keyboard_dynamic(enabled: dict[str, bool], prices: dict[str, 
         rows.append([InlineKeyboardButton(text=f"📦 Инфогр: Прочее • {format_price('infographic_other', 15)}", callback_data="create_cat:infographic_other")])
     
     if enabled.get("own") is not False:
-        rows.append([InlineKeyboardButton(text=f"💃 Свой вариант МОДЕЛИ • {format_price('own', 12)}", callback_data="create_own")])
+        rows.append([InlineKeyboardButton(text=f"💃 Свой вариант МОДЕЛИ • {format_price('own', 12)}", callback_data="create_cat:own")])
     if enabled.get("own_variant") is not False:
-        rows.append([InlineKeyboardButton(text=f"🖼️ Свой вариант ФОНА • {format_price('own_variant', 20)}", callback_data="create_own_variant")])
+        rows.append([InlineKeyboardButton(text=f"🖼️ Свой вариант ФОНА • {format_price('own_variant', 20)}", callback_data="create_cat:own_variant")])
+    
+    rows.append([InlineKeyboardButton(text="✨ ОБЫЧНАЯ ГЕНЕРАЦИЯ (до 3-х фото)", callback_data="create_normal_gen")])
     
     rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="back_main")])
     return InlineKeyboardMarkup(inline_keyboard=rows)

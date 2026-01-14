@@ -31,10 +31,9 @@ logger = logging.getLogger(__name__)
 router = Router()
 
 class CreateForm(StatesGroup):
-    waiting_market_photos = State()
-    waiting_market_prompt = State()
-    waiting_market_advantage = State()
-    waiting_market_aspect = State()
+    waiting_photos = State()
+    waiting_text = State()
+    waiting_aspect = State()
     result_ready = State()
 
 class PresetForm(StatesGroup):
@@ -502,12 +501,60 @@ async def on_info_lang_custom(message: Message, state: FSMContext):
     from bot.keyboards import aspect_ratio_keyboard
     await message.answer("Выберите формат фото:", reply_markup=aspect_ratio_keyboard())
 
-@router.callback_query(F.data.startswith("form_aspect:"), PresetForm.waiting_aspect)
-async def on_aspect_info_other(callback: CallbackQuery, state: FSMContext):
-    await state.update_data(aspect=callback.data.split(":")[1])
-    await state.set_state(PresetForm.result_ready)
+@router.callback_query(F.data == "create_normal_gen")
+async def on_create_normal_gen(callback: CallbackQuery, db: Database, state: FSMContext):
+    await state.clear()
+    await state.set_state(CreateForm.waiting_photos)
+    await state.update_data(photos=[])
+    await _replace_with_text(callback, "Обычная генерация: Пришлите от 1 до 3-х фотографий. Когда закончите, нажмите кнопку ниже.", 
+                             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                                 [InlineKeyboardButton(text="✅ Готово, к тексту", callback_data="photos_done")],
+                                 [InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_market")]
+                             ]))
+
+@router.message(CreateForm.waiting_photos, F.photo)
+async def on_normal_photos(message: Message, state: FSMContext):
+    data = await state.get_data()
+    photos = data.get("photos", [])
+    if len(photos) >= 3:
+        await message.answer("Максимум 3 фото. Нажмите 'Готово', чтобы продолжить.")
+        return
+    
+    photos.append(message.photo[-1].file_id)
+    await state.update_data(photos=photos)
+    
+    if len(photos) < 3:
+        await message.answer(f"Фото получено ({len(photos)}/3). Пришлите еще или нажмите 'Готово'.", 
+                             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                                 [InlineKeyboardButton(text="✅ Готово, к тексту", callback_data="photos_done")]
+                             ]))
+    else:
+        await message.answer("Получено 3 фото. Теперь введите текст описания (до 1000 символов):")
+        await state.set_state(CreateForm.waiting_text)
+
+@router.callback_query(F.data == "photos_done", CreateForm.waiting_photos)
+async def on_photos_done(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    if not data.get("photos"):
+        await callback.answer("Пришлите хотя бы одно фото!", show_alert=True)
+        return
+    
+    await state.set_state(CreateForm.waiting_text)
+    await _replace_with_text(callback, "Теперь введите текст описания (до 1000 символов):")
+
+@router.message(CreateForm.waiting_text)
+async def on_normal_text(message: Message, state: FSMContext):
+    await state.update_data(market_prompt=message.text[:1000]) # Используем market_prompt для совместимости с on_form_generate
+    await state.set_state(CreateForm.waiting_aspect)
+    from bot.keyboards import aspect_ratio_keyboard
+    await message.answer("Выберите формат фото:", reply_markup=aspect_ratio_keyboard())
+
+@router.callback_query(F.data.startswith("form_aspect:"), CreateForm.waiting_aspect)
+async def on_normal_aspect(callback: CallbackQuery, state: FSMContext):
+    await state.update_data(form_aspect=callback.data.split(":")[1])
+    await state.set_state(CreateForm.result_ready)
     from bot.keyboards import confirm_generation_keyboard
-    await _replace_with_text(callback, "Все готово! Создать инфографику?", reply_markup=confirm_generation_keyboard())
+    await _replace_with_text(callback, "Все готово! Начать генерацию?", reply_markup=confirm_generation_keyboard())
 
 @router.callback_query(F.data.startswith("info_gender:"), PresetForm.waiting_gender)
 async def on_info_gender(callback: CallbackQuery, state: FSMContext, db: Database):
@@ -1141,17 +1188,24 @@ async def on_form_generate(callback: CallbackQuery, state: FSMContext, db: Datab
         else:
             prompt = data.get("market_prompt", "")
             if data.get("market_advantage"): prompt += f"\nAdvantage: {data['market_advantage']}"
-            aspect = data.get("form_aspect", "3:4")
+            aspect = data.get("form_aspect") or data.get("aspect") or "3:4"
             prompt += f"\nResolution: 4K. Aspect: {aspect}."
             prompt += "\nBrand name: AI-ROOM."
             final_prompt = prompt
             
             photos = data.get("photos", [])
-            input_image_bytes = None
-            if photos:
-                file = await callback.bot.get_file(photos[0])
+            input_image_bytes = []
+            for photo_id in photos:
+                file = await callback.bot.get_file(photo_id)
                 f_bytes = await callback.bot.download_file(file.file_path)
-                input_image_bytes = f_bytes.read()
+                input_image_bytes.append(f_bytes.read())
+            
+            if not input_image_bytes:
+                # Если вдруг нет фото в photos (старый формат), пробуем взять из product_photo
+                if data.get("product_photo"):
+                    file = await callback.bot.get_file(data["product_photo"])
+                    f_bytes = await callback.bot.download_file(file.file_path)
+                    input_image_bytes = [f_bytes.read()]
 
         await _replace_with_text(callback, get_string("generation_started", lang), reply_markup=None)
         

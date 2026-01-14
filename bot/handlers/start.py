@@ -57,6 +57,15 @@ class PresetForm(StatesGroup):
     waiting_adv2 = State()
     waiting_adv3 = State()
     waiting_extra_info = State()
+    waiting_loc_group = State()
+    waiting_location = State()
+    waiting_loc_custom = State()
+    waiting_holiday_custom = State()
+    waiting_model_size = State()
+    waiting_camera_dist = State()
+    waiting_aspect = State()
+    waiting_background_photo = State()
+    waiting_product_photo = State()
     waiting_quality = State()
     result_ready = State()
 
@@ -77,13 +86,191 @@ async def check_user_subscription(user_id: int, bot: Bot) -> bool:
         # Но по ТЗ должно быть строго. 
         return False
 
-@router.callback_query(F.data == "create_cat:infographic_clothing")
-async def on_create_infographic_clothing(callback: CallbackQuery, db: Database, state: FSMContext):
-    from bot.keyboards import infographic_gender_keyboard
+@router.callback_query(F.data == "create_random")
+async def on_create_random(callback: CallbackQuery, db: Database, state: FSMContext):
+    from bot.keyboards import random_gender_keyboard
     lang = await db.get_user_language(callback.from_user.id)
     await state.set_state(PresetForm.waiting_gender)
-    await state.update_data(category="infographic_clothing")
-    await _replace_with_text(callback, "Выберите пол для инфографики:", reply_markup=infographic_gender_keyboard())
+    await state.update_data(category="random")
+    await _replace_with_text(callback, "Выберите пол модели:", reply_markup=random_gender_keyboard())
+
+@router.callback_query(F.data == "create_own")
+async def on_create_own_model(callback: CallbackQuery, db: Database, state: FSMContext):
+    await state.set_state(PresetForm.waiting_background_photo)
+    await state.update_data(category="own")
+    await _replace_with_text(callback, "Пришлите фото вашей модели (на ком будем менять одежду):")
+
+@router.callback_query(F.data == "create_own_variant")
+async def on_create_own_bg(callback: CallbackQuery, db: Database, state: FSMContext):
+    await state.set_state(PresetForm.waiting_background_photo)
+    await state.update_data(category="own_variant")
+    await _replace_with_text(callback, "Пришлите фото фона (с моделью или без):")
+
+@router.callback_query(F.data.startswith("rand_gender:"), PresetForm.waiting_gender)
+async def on_rand_gender(callback: CallbackQuery, state: FSMContext, db: Database):
+    gender = callback.data.split(":")[1]
+    await state.update_data(gender=gender)
+    await state.set_state(PresetForm.waiting_loc_group)
+    from bot.keyboards import random_loc_group_keyboard
+    await _replace_with_text(callback, "Где будет проходить съемка?", reply_markup=random_loc_group_keyboard())
+
+@router.callback_query(F.data.startswith("rand_locgroup:"), PresetForm.waiting_loc_group)
+async def on_rand_locgroup(callback: CallbackQuery, state: FSMContext):
+    group = callback.data.split(":")[1]
+    await state.update_data(loc_group=group)
+    await state.set_state(PresetForm.waiting_location)
+    from bot.keyboards import random_location_outdoor_keyboard, random_location_indoor_keyboard
+    if group == "outdoor":
+        await _replace_with_text(callback, "Выберите локацию на улице:", reply_markup=random_location_outdoor_keyboard())
+    else:
+        await _replace_with_text(callback, "Выберите локацию в помещении:", reply_markup=random_location_indoor_keyboard())
+
+@router.callback_query(F.data.startswith("rand_loc:"), PresetForm.waiting_location)
+async def on_rand_loc(callback: CallbackQuery, state: FSMContext):
+    loc = callback.data.split(":")[1]
+    if loc == "custom":
+        await state.set_state(PresetForm.waiting_loc_custom)
+        await callback.message.edit_text("Введите ваш вариант локации (до 100 символов):")
+    else:
+        await state.update_data(location=loc)
+        await on_after_location(callback.message, state)
+
+@router.message(PresetForm.waiting_loc_custom)
+async def on_rand_loc_custom(message: Message, state: FSMContext):
+    await state.update_data(location=message.text[:100])
+    await on_after_location(message, state)
+
+async def on_after_location(message: Message, state: FSMContext):
+    data = await state.get_data()
+    if data.get("loc_group") == "outdoor":
+        await state.set_state(PresetForm.waiting_season)
+        from bot.keyboards import random_season_keyboard
+        await message.answer("Выберите время года:", reply_markup=random_season_keyboard())
+    else:
+        # Для помещений сразу к праздникам
+        await state.set_state(PresetForm.waiting_holiday)
+        from bot.keyboards import random_holiday_keyboard
+        await message.answer("Выберите праздник:", reply_markup=random_holiday_keyboard())
+
+@router.callback_query(F.data.startswith("rand_season:"), PresetForm.waiting_season)
+async def on_rand_season(callback: CallbackQuery, state: FSMContext):
+    val = callback.data.split(":")[1]
+    await state.update_data(season=None if val == "skip" else val)
+    await state.set_state(PresetForm.waiting_holiday)
+    from bot.keyboards import random_holiday_keyboard
+    await _replace_with_text(callback, "Выберите праздник:", reply_markup=random_holiday_keyboard())
+
+@router.callback_query(F.data.startswith("rand_holiday:"), PresetForm.waiting_holiday)
+async def on_rand_holiday(callback: CallbackQuery, state: FSMContext):
+    val = callback.data.split(":")[1]
+    if val == "custom":
+        await state.set_state(PresetForm.waiting_holiday_custom)
+        await callback.message.edit_text("Введите ваш вариант праздника (до 30 символов):")
+    else:
+        await state.update_data(holiday=None if val == "skip" else val)
+        await on_after_holiday(callback.message, state)
+
+@router.message(PresetForm.waiting_holiday_custom)
+async def on_rand_holiday_custom(message: Message, state: FSMContext):
+    await state.update_data(holiday=message.text[:30])
+    await on_after_holiday(message, state)
+
+async def on_after_holiday(message: Message, state: FSMContext):
+    await state.set_state(PresetForm.waiting_pose)
+    from bot.keyboards import pose_keyboard
+    await message.answer("Выберите позу:", reply_markup=pose_keyboard())
+
+@router.callback_query(F.data.startswith("pose:"), PresetForm.waiting_pose)
+async def on_rand_pose(callback: CallbackQuery, state: FSMContext):
+    await state.update_data(pose=callback.data.split(":")[1])
+    await state.set_state(PresetForm.waiting_model_size)
+    from bot.keyboards import form_length_skip_keyboard
+    await _replace_with_text(callback, "Введите размер модели (числом):", reply_markup=form_length_skip_keyboard())
+
+@router.message(PresetForm.waiting_background_photo, F.photo)
+async def on_own_bg_photo(message: Message, state: FSMContext):
+    await state.update_data(background_photo=message.photo[-1].file_id)
+    await state.set_state(PresetForm.waiting_product_photo)
+    await message.answer("Теперь пришлите фото товара:")
+
+@router.message(PresetForm.waiting_product_photo, F.photo)
+async def on_own_product_photo(message: Message, state: FSMContext):
+    await state.update_data(product_photo=message.photo[-1].file_id)
+    data = await state.get_data()
+    if data.get("category") == "own_variant":
+        await state.set_state(PresetForm.waiting_photo_type)
+        from bot.keyboards import form_view_keyboard
+        await message.answer("Выберите ракурс фотографии:", reply_markup=form_view_keyboard())
+    else:
+        # Для 'Свой вариант МОДЕЛИ' идем по полному флоу (как раньше)
+        await state.set_state(PresetForm.waiting_height)
+        await message.answer("Введите рост модели (например, 170):")
+
+@router.callback_query(F.data == "form_len:skip", PresetForm.waiting_model_size)
+async def on_rand_size_skip(callback: CallbackQuery, state: FSMContext):
+    await state.update_data(model_size=None)
+    await state.set_state(PresetForm.waiting_height)
+    await callback.message.edit_text("Введите рост модели (например, 170):")
+
+@router.message(PresetForm.waiting_height, F.state == PresetForm.waiting_height)
+async def on_rand_height(message: Message, state: FSMContext):
+    await state.update_data(height=message.text)
+    await state.set_state(PresetForm.waiting_age)
+    await message.answer("Введите возраст модели числом:")
+
+@router.message(PresetForm.waiting_age, F.state == PresetForm.waiting_age)
+async def on_rand_age(message: Message, state: FSMContext):
+    await state.update_data(age=message.text)
+    await state.set_state(PresetForm.waiting_pants_style)
+    from bot.keyboards import pants_style_keyboard
+    await message.answer("Выберите тип кроя штанов:", reply_markup=pants_style_keyboard())
+
+@router.callback_query(F.data.startswith("pants_style:"), PresetForm.waiting_pants_style)
+async def on_rand_pants_style(callback: CallbackQuery, state: FSMContext):
+    val = callback.data.split(":")[1]
+    await state.update_data(pants_style=None if val == "skip" else val)
+    await state.set_state(PresetForm.waiting_sleeve_length)
+    from bot.keyboards import sleeve_length_keyboard
+    await _replace_with_text(callback, "Выберите тип рукавов:", reply_markup=sleeve_length_keyboard())
+
+@router.callback_query(F.data.startswith("form_sleeve:"), PresetForm.waiting_sleeve_length)
+async def on_rand_sleeve(callback: CallbackQuery, state: FSMContext):
+    val = callback.data.split(":")[1]
+    await state.update_data(sleeve_length=None if val == "skip" else val)
+    await state.set_state(PresetForm.waiting_length)
+    from bot.keyboards import garment_length_with_custom_keyboard
+    text = "Выберите длину изделия. Внимание! если ваш продукт Костюм 2-к,3-к то длину можно не указывать."
+    await _replace_with_text(callback, text, reply_markup=garment_length_with_custom_keyboard())
+
+@router.callback_query(F.data.startswith("garment_len:"), PresetForm.waiting_length)
+async def on_rand_length_btn(callback: CallbackQuery, state: FSMContext):
+    val = callback.data.split(":")[1]
+    await state.update_data(length=None if val == "skip" else val)
+    await state.set_state(PresetForm.waiting_photo_type)
+    from bot.keyboards import form_view_keyboard
+    await _replace_with_text(callback, "Выберите ракурс фотографии:", reply_markup=form_view_keyboard())
+
+@router.callback_query(F.data.startswith("form_view:"), PresetForm.waiting_photo_type)
+async def on_rand_view(callback: CallbackQuery, state: FSMContext):
+    await state.update_data(photo_type=callback.data.split(":")[1])
+    await state.set_state(PresetForm.waiting_camera_dist)
+    from bot.keyboards import camera_distance_keyboard
+    await _replace_with_text(callback, "Выберите ракурс (удаленность):", reply_markup=camera_distance_keyboard())
+
+# Добавляем обработку остальных шагов аналогично пресетам, но с новыми клавиатурами
+@router.callback_query(F.data.startswith("camera_dist:"), PresetForm.waiting_camera_dist)
+async def on_rand_camera_dist(callback: CallbackQuery, state: FSMContext):
+    await state.update_data(camera_dist=callback.data.split(":")[1])
+    await state.set_state(PresetForm.waiting_aspect)
+    from bot.keyboards import aspect_ratio_keyboard
+    await _replace_with_text(callback, "Выберите формат фото:", reply_markup=aspect_ratio_keyboard())
+
+@router.callback_query(F.data.startswith("form_aspect:"), PresetForm.waiting_aspect)
+async def on_rand_aspect(callback: CallbackQuery, state: FSMContext):
+    await state.update_data(aspect=callback.data.split(":")[1])
+    await state.set_state(PresetForm.result_ready)
+    from bot.keyboards import confirm_generation_keyboard
+    await _replace_with_text(callback, "Все готово! Создать фото?", reply_markup=confirm_generation_keyboard())
 
 @router.callback_query(F.data == "create_cat:infographic_other")
 async def on_create_infographic_other(callback: CallbackQuery, db: Database, state: FSMContext):
@@ -373,8 +560,19 @@ async def preset_ask_photo_type(message: Message, state: FSMContext):
 async def on_preset_photo_type(callback: CallbackQuery, state: FSMContext):
     val = callback.data.split(":")[1]
     await state.update_data(photo_type=val)
-    await state.set_state(PresetForm.waiting_pose)
-    await callback.message.edit_text("Выберите позу:", reply_markup=pose_keyboard())
+    
+    data = await state.get_data()
+    category = data.get("category")
+    
+    if category == "own_variant":
+        # Сценарий 'Свой вариант ФОНА' - после ракурса сразу генерация
+        await state.set_state(PresetForm.result_ready)
+        from bot.keyboards import confirm_generation_keyboard
+        await callback.message.edit_text("Все готово! Создать фото?", reply_markup=confirm_generation_keyboard())
+    else:
+        await state.set_state(PresetForm.waiting_pose)
+        from bot.keyboards import pose_keyboard
+        await callback.message.edit_text("Выберите позу:", reply_markup=pose_keyboard())
 
 @router.callback_query(F.data.startswith("pose:"), PresetForm.waiting_pose)
 async def on_preset_pose(callback: CallbackQuery, state: FSMContext):
@@ -589,22 +787,35 @@ async def on_back_to_adv3(callback: CallbackQuery, state: FSMContext):
     from bot.keyboards import skip_step_keyboard
     await callback.message.edit_text("Введите Преимущество 3 (текстом) или пропустите:", reply_markup=skip_step_keyboard("adv3"))
 
-@router.callback_query(F.data == "back_step", PresetForm.waiting_quality)
-async def on_back_to_extra_or_season(callback: CallbackQuery, state: FSMContext):
-    data = await state.get_data()
-    category = data.get("category")
-    if category and category.startswith("infographic"):
-        await state.set_state(PresetForm.waiting_extra_info)
-        from bot.keyboards import skip_step_keyboard
-        await callback.message.edit_text("Введите ДОП ИНФОРМАЦИЮ (до 75 символов) или пропустите:", reply_markup=skip_step_keyboard("extra_info"))
-    else:
-        await state.set_state(PresetForm.waiting_season)
-        await callback.message.edit_text("Выберите сезон:", reply_markup=plus_season_keyboard())
+@router.callback_query(F.data == "back_step", PresetForm.waiting_loc_group)
+async def on_back_to_gender(callback: CallbackQuery, state: FSMContext, db: Database):
+    await state.set_state(PresetForm.waiting_gender)
+    from bot.keyboards import random_gender_keyboard
+    await callback.message.edit_text("Выберите пол модели:", reply_markup=random_gender_keyboard())
 
-@router.callback_query(F.data == "back_step", PresetForm.result_ready)
-async def on_back_to_quality(callback: CallbackQuery, state: FSMContext):
-    await state.set_state(PresetForm.waiting_quality)
-    await callback.message.edit_text("Выберите формат (качество):", reply_markup=quality_keyboard_with_back())
+@router.callback_query(F.data == "back_step", PresetForm.waiting_location)
+async def on_back_to_loc_group(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(PresetForm.waiting_loc_group)
+    from bot.keyboards import random_loc_group_keyboard
+    await callback.message.edit_text("Где будет проходить съемка?", reply_markup=random_loc_group_keyboard())
+
+@router.callback_query(F.data == "back_step", PresetForm.waiting_model_size)
+async def on_back_to_pose_info(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(PresetForm.waiting_pose)
+    from bot.keyboards import pose_keyboard
+    await callback.message.edit_text("Выберите позу:", reply_markup=pose_keyboard())
+
+@router.callback_query(F.data == "back_step", PresetForm.waiting_camera_dist)
+async def on_back_to_photo_type_info(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(PresetForm.waiting_photo_type)
+    from bot.keyboards import form_view_keyboard
+    await callback.message.edit_text("Выберите ракурс фотографии:", reply_markup=form_view_keyboard())
+
+@router.callback_query(F.data == "back_step", PresetForm.waiting_aspect)
+async def on_back_to_camera_dist(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(PresetForm.waiting_camera_dist)
+    from bot.keyboards import camera_distance_keyboard
+    await callback.message.edit_text("Выберите ракурс (удаленность):", reply_markup=camera_distance_keyboard())
 
 @router.callback_query(F.data == "form_generate")
 async def on_form_generate(callback: CallbackQuery, state: FSMContext, db: Database):
@@ -645,9 +856,11 @@ async def on_form_generate(callback: CallbackQuery, state: FSMContext, db: Datab
                 "{Тип кроя штанов}": data.get("pants_style") or "None",
                 "{Возраст}": data.get("age") or "None",
                 "{Рост}": data.get("height") or "None",
+                "{Размер}": data.get("model_size") or "None",
                 "{Поза}": data.get("pose") or "None",
                 "{Праздник}": data.get("holiday") or "None",
                 "{Сезон}": data.get("season") or "None",
+                "{Локация}": data.get("location") or "None",
                 "{НАГРУЖЕННОСТЬ ИНФОГРАФИКИ}": data.get("info_load") or "None",
                 "{ЯЗЫК ИНФОГРАФИКИ}": data.get("info_lang") or "None",
                 "{Преимущество 1}": data.get("adv1") or "None",
@@ -655,8 +868,7 @@ async def on_form_generate(callback: CallbackQuery, state: FSMContext, db: Datab
                 "{Преимущество 3}": data.get("adv3") or "None",
                 "{ДОП ИНФОРМАЦИЯ}": data.get("extra_info") or "None",
                 "{ДОП ИНФОРМАЦИЯ ДО 75 СИМВОЛОВ}": data.get("extra_info") or "None",
-                "{РАСТОЯНИЕ КАМЕРЫ}": data.get("angle") or "None",
-                "{РАССТОЯНИЕ КАМЕРЫ}": data.get("angle") or "None",
+                "{РАСТОЯНИЕ КАМЕРЫ}": data.get("camera_dist") or data.get("angle") or "None",
                 "{РАКУРС}": data.get("photo_type") or "None",
             }
             
@@ -668,7 +880,8 @@ async def on_form_generate(callback: CallbackQuery, state: FSMContext, db: Datab
             if category == "child":
                 final_prompt = "Kid style, soft lighting, child model. " + final_prompt
 
-            final_prompt += f"\nResolution: {data.get('quality', 'hd').upper()}."
+            aspect = data.get("aspect") or data.get("form_aspect") or "3:4"
+            final_prompt += f"\nResolution: {data.get('quality', 'hd').upper()}. Aspect: {aspect}."
             final_prompt += "\nBrand name: AI-ROOM."
             
             async with aiosqlite.connect(db._db_path) as conn:
@@ -677,7 +890,21 @@ async def on_form_generate(callback: CallbackQuery, state: FSMContext, db: Datab
                     model_photo = row[0] if row else None
             
             input_image_bytes = None
-            if model_photo:
+            bg_image_bytes = None
+            
+            # Если есть фото товара (product_photo) и фона (background_photo) - это Свой Вариант
+            if data.get("product_photo"):
+                # Скачиваем товар
+                pfile = await callback.bot.get_file(data["product_photo"])
+                pb = await callback.bot.download_file(pfile.file_path)
+                input_image_bytes = pb.read()
+                
+                # Если есть фон (background_photo) - скачиваем его
+                if data.get("background_photo"):
+                    bfile = await callback.bot.get_file(data["background_photo"])
+                    bb = await callback.bot.download_file(bfile.file_path)
+                    bg_image_bytes = bb.read()
+            elif model_photo:
                 if model_photo.startswith('data/uploads') or model_photo.startswith('C:'):
                     if os.path.exists(model_photo):
                         with open(model_photo, "rb") as f:
@@ -712,7 +939,7 @@ async def on_form_generate(callback: CallbackQuery, state: FSMContext, db: Datab
             if not allowed: continue
             
             try:
-                result_bytes = await generate_image(token, final_prompt, input_image_bytes, None, "gemini-3-pro-image-preview")
+                result_bytes = await generate_image(token, final_prompt, input_image_bytes, bg_image_bytes, "gemini-3-pro-image-preview")
                 if result_bytes:
                     await db.record_api_usage(kid)
                     break

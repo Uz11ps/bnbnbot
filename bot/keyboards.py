@@ -98,8 +98,10 @@ def history_pagination_keyboard(page: int, total_pages: int, lang="ru") -> Inlin
 def aspect_ratio_keyboard(lang="ru") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="4:3", callback_data="form_aspect:4x3"), InlineKeyboardButton(text="3:4", callback_data="form_aspect:3x4")],
-            [InlineKeyboardButton(text="16:9", callback_data="form_aspect:16x9"), InlineKeyboardButton(text="9:16", callback_data="form_aspect:9x16")],
+            [InlineKeyboardButton(text="АВТО", callback_data="form_aspect:auto"), InlineKeyboardButton(text="21:9", callback_data="form_aspect:21x9")],
+            [InlineKeyboardButton(text="16:9", callback_data="form_aspect:16x9"), InlineKeyboardButton(text="3:4", callback_data="form_aspect:3x4")],
+            [InlineKeyboardButton(text="9:16", callback_data="form_aspect:9x16"), InlineKeyboardButton(text="5:4", callback_data="form_aspect:5x4")],
+            [InlineKeyboardButton(text="1:1", callback_data="form_aspect:1x1"), InlineKeyboardButton(text="4:5", callback_data="form_aspect:4x5")],
             [InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")]
         ]
     )
@@ -526,7 +528,6 @@ def create_product_keyboard_dynamic(enabled: dict[str, bool], prices: dict[str, 
     
     rows: list[list[InlineKeyboardButton]] = []
     row1: list[InlineKeyboardButton] = []
-    # Проверяем что категория есть в словаре и включена (по умолчанию True если ключа нет)
     if enabled.get("female") is not False:
         row1.append(InlineKeyboardButton(text=f"👱‍♀️ Женская • {format_price('female', 10)}", callback_data="create_cat:female"))
     if enabled.get("male") is not False:
@@ -535,23 +536,24 @@ def create_product_keyboard_dynamic(enabled: dict[str, bool], prices: dict[str, 
         rows.append(row1)
     if enabled.get("child") is not False:
         rows.append([InlineKeyboardButton(text=f"🧒 Детская одежда • {format_price('child', 10)}", callback_data="create_cat:child")])
-    row3: list[InlineKeyboardButton] = []
-    if enabled.get("storefront") is not False:
-        row3.append(InlineKeyboardButton(text=f"🏬 Витринное фото • {format_price('storefront', 10)}", callback_data="create_cat:storefront"))
-    if enabled.get("whitebg") is not False:
-        row3.append(InlineKeyboardButton(text=f"⚪ На белом фоне • {format_price('whitebg', 10)}", callback_data="create_cat:whitebg"))
-    if row3:
-        rows.append(row3)
+    
+    row_rand: list[InlineKeyboardButton] = []
     if enabled.get("random") is not False:
-        rows.append([InlineKeyboardButton(text=f"👕 Одежда и обувь • {format_price('random', 10)}", callback_data="create_random")])
+        row_rand.append(InlineKeyboardButton(text=f"👕 Обувь и Одежда (Рандом) • {format_price('random', 10)}", callback_data="create_random"))
+    if row_rand:
+        rows.append(row_rand)
+
     if enabled.get("infographic_clothing") is not False:
         rows.append([InlineKeyboardButton(text=f"🖼️ Инфогр: Одежда • {format_price('infographic_clothing', 15)}", callback_data="create_cat:infographic_clothing")])
     if enabled.get("infographic_other") is not False:
         rows.append([InlineKeyboardButton(text=f"📦 Инфогр: Прочее • {format_price('infographic_other', 15)}", callback_data="create_cat:infographic_other")])
+    
     if enabled.get("own") is not False:
-        rows.append([InlineKeyboardButton(text=f"🧪 Попробовать своё • {format_price('own', 12)}", callback_data="create_own")])
+        rows.append([InlineKeyboardButton(text=f"💃 Свой вариант МОДЕЛИ • {format_price('own', 12)}", callback_data="create_own")])
     if enabled.get("own_variant") is not False:
-        rows.append([InlineKeyboardButton(text=f"✨ Свой вариант • {format_price('own_variant', 20)}", callback_data="create_own_variant")])
+        rows.append([InlineKeyboardButton(text=f"🖼️ Свой вариант ФОНА • {format_price('own_variant', 20)}", callback_data="create_own_variant")])
+    
+    rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="back_main")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -620,6 +622,63 @@ def info_load_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="Средняя", callback_data="info_load:med")],
             [InlineKeyboardButton(text="Максимальная", callback_data="info_load:max")],
             [InlineKeyboardButton(text="Пропустить", callback_data="info_load:skip")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_step")],
+        ]
+    )
+
+def random_location_outdoor_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="У машины", callback_data="rand_loc:car"), InlineKeyboardButton(text="У кофейни", callback_data="rand_loc:cafe")],
+            [InlineKeyboardButton(text="У стены", callback_data="rand_loc:wall"), InlineKeyboardButton(text="У здания", callback_data="rand_loc:building")],
+            [InlineKeyboardButton(text="Москва сити", callback_data="rand_loc:moscow_city"), InlineKeyboardButton(text="В лесу", callback_data="rand_loc:forest")],
+            [InlineKeyboardButton(text="В горах", callback_data="rand_loc:mountains"), InlineKeyboardButton(text="На аллее", callback_data="rand_loc:alley")],
+            [InlineKeyboardButton(text="В парке", callback_data="rand_loc:park"), InlineKeyboardButton(text="В городе", callback_data="rand_loc:city")],
+            [InlineKeyboardButton(text="✏️ СВОЙ вариант", callback_data="rand_loc:custom")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_step")],
+        ]
+    )
+
+def random_location_indoor_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Фотостудия", callback_data="rand_loc:studio"), InlineKeyboardButton(text="В комнате", callback_data="rand_loc:room")],
+            [InlineKeyboardButton(text="В ресторане", callback_data="rand_loc:restaurant"), InlineKeyboardButton(text="В гостинице", callback_data="rand_loc:hotel")],
+            [InlineKeyboardButton(text="В торговом центре", callback_data="rand_loc:mall")],
+            [InlineKeyboardButton(text="✏️ СВОЙ вариант", callback_data="rand_loc:custom")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_step")],
+        ]
+    )
+
+def random_season_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Зима", callback_data="rand_season:winter"), InlineKeyboardButton(text="Лето", callback_data="rand_season:summer")],
+            [InlineKeyboardButton(text="Осень", callback_data="rand_season:autumn"), InlineKeyboardButton(text="Весна", callback_data="rand_season:spring")],
+            [InlineKeyboardButton(text="Пропустить", callback_data="rand_season:skip")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_step")],
+        ]
+    )
+
+def random_holiday_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Новый год", callback_data="rand_holiday:newyear"), InlineKeyboardButton(text="День рождение", callback_data="rand_holiday:bday")],
+            [InlineKeyboardButton(text="9 мая", callback_data="rand_holiday:may9"), InlineKeyboardButton(text="23 Февраля", callback_data="rand_holiday:feb23")],
+            [InlineKeyboardButton(text="8 марта", callback_data="rand_holiday:march8"), InlineKeyboardButton(text="День матери", callback_data="rand_holiday:momday")],
+            [InlineKeyboardButton(text="День учителя", callback_data="rand_holiday:teacherday")],
+            [InlineKeyboardButton(text="✏️ СВОЙ вариант", callback_data="rand_holiday:custom")],
+            [InlineKeyboardButton(text="Пропустить", callback_data="rand_holiday:skip")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_step")],
+        ]
+    )
+
+def camera_distance_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Дальний", callback_data="camera_dist:far")],
+            [InlineKeyboardButton(text="Средний", callback_data="camera_dist:medium")],
+            [InlineKeyboardButton(text="Близкий", callback_data="camera_dist:close")],
             [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_step")],
         ]
     )

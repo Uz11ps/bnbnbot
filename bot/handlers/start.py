@@ -81,17 +81,20 @@ class PresetForm(StatesGroup):
 active_generations = 0
 active_generations_lock = asyncio.Lock()
 
-async def check_user_subscription(user_id: int, bot: Bot) -> bool:
+async def check_user_subscription(user_id: int, bot: Bot, db: Database) -> bool:
     """Проверяет подписку на обязательный канал"""
-    channel_id = "-1002242395646" # ID канала из ТЗ
+    channel_id = await db.get_app_setting("channel_id")
+    if not channel_id:
+        # Если ID не задан в БД, используем дефолтный из ТЗ
+        channel_id = "-1002242395646"
+    
     try:
         member = await bot.get_chat_member(chat_id=channel_id, user_id=user_id)
         # Если статус не 'left', значит пользователь в канале (member, administrator, creator)
         return member.status in ["member", "administrator", "creator"]
     except Exception as e:
-        logger.error(f"Error checking subscription: {e}")
-        # Если не удалось проверить (например, бот не админ), временно разрешаем, чтобы не блокировать всех
-        # Но по ТЗ должно быть строго. 
+        logger.error(f"Error checking subscription (channel_id={channel_id}): {e}")
+        # Если ошибка "chat not found", значит ID неверный или бот не админ
         return False
 
 @router.callback_query(F.data == "create_random")
@@ -604,7 +607,7 @@ async def cmd_start(message: Message, state: FSMContext, db: Database, bot: Bot)
     lang = await db.get_user_language(user_id)
     
     # 1. Обязательная подписка
-    if not await check_user_subscription(user_id, bot):
+    if not await check_user_subscription(user_id, bot, db):
         channel_url = "https://t.me/+fOA5fiDstVdlMzIy"
         await message.answer(get_string("subscribe_channel", lang), reply_markup=subscription_check_keyboard(channel_url, lang))
         return
@@ -634,7 +637,7 @@ async def on_accept_terms(callback: CallbackQuery, db: Database):
 @router.callback_query(F.data == "check_subscription")
 async def on_check_sub(callback: CallbackQuery, bot: Bot, db: Database):
     lang = await db.get_user_language(callback.from_user.id)
-    if await check_user_subscription(callback.from_user.id, bot):
+    if await check_user_subscription(callback.from_user.id, bot, db):
         await _replace_with_text(callback, get_string("start_welcome", lang), reply_markup=main_menu_keyboard(lang))
     else:
         await callback.answer(get_string("subscribe_channel", lang), show_alert=True)

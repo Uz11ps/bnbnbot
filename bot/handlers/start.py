@@ -110,9 +110,17 @@ async def on_create_own_bg(callback: CallbackQuery, db: Database, state: FSMCont
 async def on_rand_gender(callback: CallbackQuery, state: FSMContext, db: Database):
     gender = callback.data.split(":")[1]
     await state.update_data(gender=gender)
-    await state.set_state(PresetForm.waiting_loc_group)
-    from bot.keyboards import random_loc_group_keyboard
-    await _replace_with_text(callback, "Где будет проходить съемка?", reply_markup=random_loc_group_keyboard())
+    data = await state.get_data()
+    
+    if data.get("category") == "own":
+        # Если это 'Свой вариант МОДЕЛИ', после пола идем к параметрам (рост, возраст и т.д.)
+        await state.set_state(PresetForm.waiting_height)
+        await callback.message.edit_text("Введите рост модели (например, 170):")
+    else:
+        # Если это 'Одежда и обувь (Рандом)', идем к выбору локации
+        await state.set_state(PresetForm.waiting_loc_group)
+        from bot.keyboards import random_loc_group_keyboard
+        await _replace_with_text(callback, "Где будет проходить съемка?", reply_markup=random_loc_group_keyboard())
 
 @router.callback_query(F.data.startswith("rand_locgroup:"), PresetForm.waiting_loc_group)
 async def on_rand_locgroup(callback: CallbackQuery, state: FSMContext):
@@ -198,11 +206,16 @@ async def on_own_product_photo(message: Message, state: FSMContext):
     await state.update_data(product_photo=message.photo[-1].file_id)
     data = await state.get_data()
     if data.get("category") == "own_variant":
+        # Сценарий 'Свой вариант ФОНА'
         await state.set_state(PresetForm.waiting_photo_type)
         from bot.keyboards import form_view_keyboard
         await message.answer("Выберите ракурс фотографии:", reply_markup=form_view_keyboard())
+    elif data.get("category") == "own":
+        # Сценарий 'Свой вариант МОДЕЛИ' - теперь спрашиваем пол/тип одежды
+        await state.set_state(PresetForm.waiting_gender)
+        from bot.keyboards import random_gender_keyboard
+        await message.answer("Выберите пол/тип модели для генерации:", reply_markup=random_gender_keyboard())
     else:
-        # Для 'Свой вариант МОДЕЛИ' идем по полному флоу (как раньше)
         await state.set_state(PresetForm.waiting_height)
         await message.answer("Введите рост модели (например, 170):")
 

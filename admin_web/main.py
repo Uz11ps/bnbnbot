@@ -102,7 +102,25 @@ async def get_db():
     finally:
         await db.close()
 
-CATEGORIES = ["female", "male", "child", "storefront", "whitebg", "random", "own", "own_variant"]
+CATEGORIES = ["female", "male", "child", "storefront", "whitebg", "random", "own", "own_variant", "infographic_clothing", "infographic_other"]
+
+@app.get("/models/delete/{model_id}")
+async def delete_model(model_id: int, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    async with db.execute("SELECT prompt_id, photo_file_id FROM models WHERE id=?", (model_id,)) as cur:
+        row = await cur.fetchone()
+        if row:
+            prompt_id, photo_path = row
+            await db.execute("DELETE FROM models WHERE id=?", (model_id,))
+            await db.execute("DELETE FROM prompts WHERE id=?", (prompt_id,))
+            if photo_path and photo_path.startswith("data/"):
+                full_path = os.path.join(BASE_DIR, photo_path)
+                if os.path.exists(full_path):
+                    try:
+                        os.remove(full_path)
+                    except Exception as e:
+                        print(f"Error removing file {full_path}: {e}")
+            await db.commit()
+    return RedirectResponse(url="/prompts", status_code=303)
 
 # --- Вспомогательные функции ---
 async def get_proxy_url(db: aiosqlite.Connection = None):

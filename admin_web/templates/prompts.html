@@ -8,7 +8,12 @@
     <div class="alert alert-info">
         <small>
             Используйте переменные в фигурных скобках для автоматической подстановки данных:
-            <br><code>{Длина}</code>, <code>{Возраст}</code>, <code>{Пол}</code>, <code>{Стиль}</code>, <code>{Рукав}</code>, <code>{Размер}</code>, <code>{Рост}</code>, <code>{Ракурс}</code>, <code>{Описание}</code>, <code>{Advantage}</code>
+            <br>
+            <code>{Пол}</code>, <code>{Длина изделия}</code>, <code>{Тип рукав}</code>, <code>{Тип кроя штанов}</code>, 
+            <code>{Возраст}</code>, <code>{Рост}</code>, <code>{Поза}</code>, <code>{Праздник}</code>, <code>{Сезон}</code>,
+            <code>{НАГРУЖЕННОСТЬ ИНФОГРАФИКИ}</code>, <code>{ЯЗЫК ИНФОГРАФИКИ}</code>, 
+            <code>{Преимущество 1}</code>, <code>{Преимущество 2}</code>, <code>{Преимущество 3}</code>,
+            <code>{ДОП ИНФОРМАЦИЯ}</code>, <code>{РАСТОЯНИЕ КАМЕРЫ}</code>, <code>{РАКУРС}</code>
         </small>
     </div>
 
@@ -74,7 +79,10 @@
                                         <textarea name="prompt_text" class="form-control mb-2" rows="4" style="font-size: 0.85rem;">{{ m.prompt_text }}</textarea>
                                         <div class="d-flex justify-content-between align-items-center">
                                             <div class="text-muted small">Prompt ID: {{ m.prompt_id }}</div>
-                                            <button type="submit" class="btn btn-sm btn-primary">Сохранить</button>
+                                            <div class="d-flex gap-2">
+                                                <a href="/models/delete/{{ m.id }}" class="btn btn-sm btn-outline-danger" onclick="return confirm('Удалить модель?')">Удалить</a>
+                                                <button type="submit" class="btn btn-sm btn-primary">Сохранить</button>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>

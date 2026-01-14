@@ -235,6 +235,8 @@ def admin_categories_keyboard(status: dict[str, bool]) -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text=label("child", "Детская"), callback_data="admin_toggle_cat:child")],
             [InlineKeyboardButton(text=label("storefront", "Витринное фото"), callback_data="admin_toggle_cat:storefront"), InlineKeyboardButton(text=label("whitebg", "На белом фоне"), callback_data="admin_toggle_cat:whitebg")],
             [InlineKeyboardButton(text=label("random", "Одежда и обувь"), callback_data="admin_toggle_cat:random")],
+            [InlineKeyboardButton(text=label("infographic_clothing", "Инфографика: Одежда"), callback_data="admin_toggle_cat:infographic_clothing")],
+            [InlineKeyboardButton(text=label("infographic_other", "Инфографика: Прочее"), callback_data="admin_toggle_cat:infographic_other")],
             [InlineKeyboardButton(text=label("own", "Пробовать своё"), callback_data="admin_toggle_cat:own")],
             [InlineKeyboardButton(text=label("own_variant", "Свой вариант"), callback_data="admin_toggle_cat:own_variant")],
             [InlineKeyboardButton(text="Назад", callback_data="admin_main")],
@@ -258,6 +260,8 @@ def admin_category_prices_keyboard(prices: dict[str, int]) -> InlineKeyboardMark
         "storefront": "Витринное фото",
         "whitebg": "На белом фоне",
         "random": "Одежда и обувь",
+        "infographic_clothing": "Инфографика: Одежда",
+        "infographic_other": "Инфографика: Прочее",
         "own": "Пробовать своё",
         "own_variant": "Свой вариант",
     }
@@ -327,6 +331,7 @@ def admin_models_category_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="🧒 Детская", callback_data="admin_cat:child")],
             [InlineKeyboardButton(text="🏬 Витринное фото", callback_data="admin_cat:storefront"), InlineKeyboardButton(text="⚪ На белом фоне", callback_data="admin_cat:whitebg")],
             [InlineKeyboardButton(text="👕 Одежда и обувь", callback_data="admin_cat:random")],
+            [InlineKeyboardButton(text="🖼️ Инфогр: Одежда", callback_data="admin_cat:infographic_clothing"), InlineKeyboardButton(text="📦 Инфогр: Прочее", callback_data="admin_cat:infographic_other")],
             [InlineKeyboardButton(text="Назад", callback_data="admin_models")],
         ]
     )
@@ -539,6 +544,10 @@ def create_product_keyboard_dynamic(enabled: dict[str, bool], prices: dict[str, 
         rows.append(row3)
     if enabled.get("random") is not False:
         rows.append([InlineKeyboardButton(text=f"👕 Одежда и обувь • {format_price('random', 10)}", callback_data="create_random")])
+    if enabled.get("infographic_clothing") is not False:
+        rows.append([InlineKeyboardButton(text=f"🖼️ Инфогр: Одежда • {format_price('infographic_clothing', 15)}", callback_data="create_cat:infographic_clothing")])
+    if enabled.get("infographic_other") is not False:
+        rows.append([InlineKeyboardButton(text=f"📦 Инфогр: Прочее • {format_price('infographic_other', 15)}", callback_data="create_cat:infographic_other")])
     if enabled.get("own") is not False:
         rows.append([InlineKeyboardButton(text=f"🧪 Попробовать своё • {format_price('own', 12)}", callback_data="create_own")])
     if enabled.get("own_variant") is not False:
@@ -603,6 +612,48 @@ def garment_length_with_custom_keyboard() -> InlineKeyboardMarkup:
     # Добавляем кнопку "Свой вариант"
     kb.inline_keyboard.insert(-1, [InlineKeyboardButton(text="✨ Свой вариант", callback_data="garment_len_custom")])
     return kb
+
+def info_load_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Минимальная", callback_data="info_load:min")],
+            [InlineKeyboardButton(text="Средняя", callback_data="info_load:med")],
+            [InlineKeyboardButton(text="Максимальная", callback_data="info_load:max")],
+            [InlineKeyboardButton(text="Пропустить", callback_data="info_load:skip")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_step")],
+        ]
+    )
+
+def info_lang_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Русский", callback_data="info_lang:ru")],
+            [InlineKeyboardButton(text="Английский", callback_data="info_lang:en")],
+            [InlineKeyboardButton(text="Вьетнамский", callback_data="info_lang:vi")],
+            [InlineKeyboardButton(text="Пропустить", callback_data="info_lang:skip")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_step")],
+        ]
+    )
+
+def info_holiday_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Новый год", callback_data="info_holiday:newyear")],
+            [InlineKeyboardButton(text="8 марта", callback_data="info_holiday:8march")],
+            [InlineKeyboardButton(text="23 февраля", callback_data="info_holiday:23feb")],
+            [InlineKeyboardButton(text="День рождения", callback_data="info_holiday:bday")],
+            [InlineKeyboardButton(text="Пропустить", callback_data="info_holiday:skip")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_step")],
+        ]
+    )
+
+def skip_step_keyboard(callback_prefix: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Пропустить", callback_data=f"{callback_prefix}:skip")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_step")],
+        ]
+    )
 
 def quality_keyboard_with_back() -> InlineKeyboardMarkup:
     return quality_keyboard()
@@ -789,6 +840,17 @@ def random_gender_keyboard() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [InlineKeyboardButton(text="Мужчина", callback_data="rand_gender:male"), InlineKeyboardButton(text="Женщина", callback_data="rand_gender:female")],
             [InlineKeyboardButton(text="Детский мальчик", callback_data="rand_gender:boy"), InlineKeyboardButton(text="Детская девочка", callback_data="rand_gender:girl")],
+            [InlineKeyboardButton(text="УНИСЕКС", callback_data="rand_gender:unisex")],
+        ]
+    )
+
+
+def infographic_gender_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="👨 Мужчина", callback_data="info_gender:male"), InlineKeyboardButton(text="👱‍♀️ Женщина", callback_data="info_gender:female")],
+            [InlineKeyboardButton(text="🧒 Детский", callback_data="info_gender:child"), InlineKeyboardButton(text="👫 УНИСЕКС", callback_data="info_gender:unisex")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_step")],
         ]
     )
 

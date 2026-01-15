@@ -14,7 +14,7 @@ from bot.db import Database
 from bot.strings import get_string
 from bot.keyboards import (
     terms_keyboard, main_menu_keyboard, profile_keyboard, 
-    language_keyboard, marketplace_menu_keyboard, plans_keyboard,
+    settings_keyboard, language_keyboard, marketplace_menu_keyboard, plans_keyboard,
     history_pagination_keyboard, aspect_ratio_keyboard,
     form_generate_keyboard, subscription_check_keyboard,
     back_main_keyboard, create_product_keyboard_dynamic,
@@ -950,7 +950,7 @@ async def cmd_profile(message: Message, db: Database):
     sub = await db.get_user_subscription(user_id)
     
     if sub:
-        plan, expires, limit, usage = sub
+        plan, expires, limit, usage, api_key = sub
         rem = max(0, limit - usage)
         sub_text = get_string("sub_active", lang, plan=plan.upper(), date=expires)
     else:
@@ -1000,7 +1000,7 @@ async def on_menu_profile(callback: CallbackQuery, db: Database):
     sub = await db.get_user_subscription(user_id)
     
     if sub:
-        plan, expires, limit, usage = sub
+        plan, expires, limit, usage, api_key = sub
         rem = max(0, limit - usage)
         sub_text = get_string("sub_active", lang, plan=plan.upper(), date=expires)
     else:

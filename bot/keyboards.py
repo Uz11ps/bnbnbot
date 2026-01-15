@@ -566,6 +566,17 @@ def girl_clothes_keyboard(lang="ru") -> InlineKeyboardMarkup:
         ]
     )
 
+def admin_user_actions_keyboard(user_id: int, lang="ru", blocked: bool = False) -> InlineKeyboardMarkup:
+    block_text = get_string("admin_unblock", lang) if blocked else get_string("admin_block", lang)
+    block_val = "0" if blocked else "1"
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=block_text, callback_data=f"admin_block:{user_id}:{block_val}")],
+            [InlineKeyboardButton(text=get_string("menu_history", lang), callback_data=f"admin_user_history:{user_id}")],
+            [InlineKeyboardButton(text=get_string("back", lang), callback_data="admin_users_page:0")]
+        ]
+    )
+
 def admin_user_history_keyboard(user_id: int, lang="ru") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[

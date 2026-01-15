@@ -238,7 +238,7 @@ async def admin_user_search_finish(message: Message, state: FSMContext, db: Data
     state_txt = get_string("admin_block", lang) if blocked else get_string("admin_unblock", lang)
     text = get_string("admin_user_title", lang, uid=uid) + f"\n{get_string('admin_user_status', lang, status=state_txt)}"
     await state.clear()
-    await message.answer(text, reply_markup=admin_user_actions_keyboard(uid, lang))
+    await message.answer(text, reply_markup=admin_user_actions_keyboard(uid, lang, blocked=blocked))
 
 
 PAGE_SIZE = 10
@@ -1279,7 +1279,7 @@ async def admin_choose_user(callback: CallbackQuery, settings: Settings, db: Dat
     state_txt = get_string("admin_block", lang) if blocked else get_string("admin_unblock", lang)
     text = get_string("admin_user_title", lang, uid=user_id) + f"\n{get_string('admin_user_status', lang, status=state_txt)}"
     try:
-        await callback.message.edit_text(text, reply_markup=admin_user_actions_keyboard(user_id, lang))
+        await callback.message.edit_text(text, reply_markup=admin_user_actions_keyboard(user_id, lang, blocked=blocked))
     except TelegramBadRequest:
         pass
     await _safe_answer(callback)
@@ -1309,7 +1309,7 @@ async def admin_block_user(callback: CallbackQuery, db: Database, settings: Sett
     state_txt = get_string("admin_block", lang) if blocked else get_string("admin_unblock", lang)
     text = get_string("admin_user_title", lang, uid=user_id) + f"\n{get_string('admin_user_status', lang, status=state_txt)}"
     try:
-        await callback.message.edit_text(text, reply_markup=admin_user_actions_keyboard(user_id, lang))
+        await callback.message.edit_text(text, reply_markup=admin_user_actions_keyboard(user_id, lang, blocked=blocked))
     except TelegramBadRequest:
         pass
     await _safe_answer(callback, get_string("admin_status_updated", lang), show_alert=False)

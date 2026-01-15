@@ -1743,6 +1743,8 @@ async def on_form_generate(callback: CallbackQuery, state: FSMContext, db: Datab
             target_keys = await db.list_api_keys()
 
         result_bytes = None
+        working_msg = None # Будем редактировать это сообщение в случае успеха или ошибки
+        
         for kid, token, active, priority, daily, total, last_reset, created, updated in target_keys:
             if not active: continue
             
@@ -1758,16 +1760,34 @@ async def on_form_generate(callback: CallbackQuery, state: FSMContext, db: Datab
                         await db.record_api_usage(kid)
                     break
             except Exception as e:
-                logger.error(f"Error generating image with key {kid}: {e}")
+                err_str = str(e)
+                logger.error(f"Error generating image with key {kid}: {err_str}")
+                
+                # Автоматическая деактивация невалидных ключей
+                if "API key not valid" in err_str or "API_KEY_INVALID" in err_str:
+                    logger.warning(f"Deactivating invalid API key {kid}")
+                    async with aiosqlite.connect(db._db_path) as conn:
+                        await conn.execute("UPDATE api_keys SET is_active=0 WHERE id=?", (kid,))
+                        await conn.commit()
                 continue
 
         if not result_bytes:
-            await callback.message.answer(get_string("error_api", lang))
+            # Вместо нового сообщения редактируем "Генерация запущена"
+            try:
+                await callback.message.edit_text(get_string("error_api", lang))
+            except Exception:
+                await callback.message.answer(get_string("error_api", lang))
             return
 
         await db.update_daily_usage(user_id)
         pid = await db.generate_pid()
         
+        # Удаляем сообщение "Генерация запущена" перед отправкой фото
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
+
         await callback.message.answer_photo(
             BufferedInputFile(result_bytes, filename=f"{pid}.jpg"),
             caption=f"PID: `{pid}`",

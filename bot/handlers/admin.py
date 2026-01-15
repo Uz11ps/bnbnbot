@@ -1357,6 +1357,11 @@ async def admin_api_key_add_token(message: Message, state: FSMContext, settings:
     if not token:
         await message.answer(get_string("admin_gemini_token_empty", lang))
         return
+    
+    if not all(ord(c) < 128 for c in token):
+        await message.answer("❌ Ошибка: Ключ содержит недопустимые символы (например, русские буквы или спецсимволы). Пожалуйста, скопируйте ключ заново.")
+        return
+
     await state.update_data(token=token)
     await state.set_state(ApiKeyAddState.waiting_priority)
     await message.answer(get_string("admin_gemini_priority", lang))

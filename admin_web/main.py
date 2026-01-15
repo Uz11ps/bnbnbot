@@ -352,6 +352,11 @@ async def list_keys(request: Request, db: aiosqlite.Connection = Depends(get_db)
 
 @app.post("/api_keys/add")
 async def add_key(token: str = Form(...), table: str = Form(...), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    token = token.strip()
+    # Исправляем кириллическую 'А' в начале, если она есть
+    if token.startswith('А'): # Кириллица
+        token = 'A' + token[1:] # Латиница
+    
     table_name = "api_keys" if table == "gemini" else "own_variant_api_keys"
     await db.execute(f"INSERT INTO {table_name} (token) VALUES (?)", (token,))
     await db.commit()

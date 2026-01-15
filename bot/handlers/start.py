@@ -939,7 +939,7 @@ async def cmd_start(message: Message, state: FSMContext, db: Database, bot: Bot)
             if row and not row[0]:
                 agreement_text = await db.get_agreement_text()
                 await message.answer(f"<b>{get_string('agreement', lang)}</b>\n\n{agreement_text}", reply_markup=terms_keyboard(lang))
-        return
+                return
 
     await message.answer(get_string("start_welcome", lang), reply_markup=main_menu_keyboard(lang))
 

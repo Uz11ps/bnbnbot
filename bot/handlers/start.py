@@ -844,7 +844,7 @@ async def on_photos_done(callback: CallbackQuery, state: FSMContext, db: Databas
     data = await state.get_data()
     if not data.get("photos"):
         await callback.answer(get_string("at_least_one_photo", lang), show_alert=True)
-            return
+        return
     
     await state.set_state(CreateForm.waiting_text)
     await _replace_with_text(callback, get_string("enter_normal_text", lang))
@@ -967,7 +967,7 @@ async def on_menu_profile(callback: CallbackQuery, db: Database):
         plan, expires, limit, usage = sub
         rem = max(0, limit - usage)
         sub_text = get_string("sub_active", lang, plan=plan.upper(), date=expires)
-            else:
+    else:
         sub_text = get_string("sub_none", lang)
         rem = 0
     
@@ -998,7 +998,7 @@ async def _send_model_photo(callback: CallbackQuery, photo_id: str, caption: str
                 from aiogram.types import FSInputFile
                 photo = FSInputFile(photo_id)
                 await callback.message.answer_photo(photo, caption=caption, reply_markup=reply_markup)
-    else:
+            else:
                 await callback.message.answer(caption, reply_markup=reply_markup)
         elif photo_id:
             await callback.message.answer_photo(photo_id, caption=caption, reply_markup=reply_markup)
@@ -1124,7 +1124,7 @@ async def on_preset_pants_style(callback: CallbackQuery, state: FSMContext, db: 
     lang = await db.get_user_language(callback.from_user.id)
     if style == "skip":
         await state.update_data(pants_style=None)
-        else:
+    else:
         await state.update_data(pants_style=style)
     await state.set_state(PresetForm.waiting_sleeve_length)
     from bot.keyboards import sleeve_length_keyboard
@@ -1136,7 +1136,7 @@ async def on_preset_sleeve_length(callback: CallbackQuery, state: FSMContext, db
     lang = await db.get_user_language(callback.from_user.id)
     if length == "skip":
         await state.update_data(sleeve_length=None)
-        else:
+    else:
         await state.update_data(sleeve_length=length)
     await state.set_state(PresetForm.waiting_length)
     text = get_string("garment_length_notice", lang)
@@ -1357,7 +1357,7 @@ async def on_back_to_pants_style(callback: CallbackQuery, state: FSMContext, db:
     if data.get("category") == "own":
         await state.set_state(PresetForm.waiting_product_photo)
         await callback.message.edit_text(get_string("upload_product", lang))
-            return
+        return
     await state.set_state(PresetForm.waiting_pants_style)
     from bot.keyboards import pants_style_keyboard
     await callback.message.edit_text(get_string("select_pants_style_btn", lang), reply_markup=pants_style_keyboard(lang))
@@ -1512,19 +1512,19 @@ async def on_form_generate(callback: CallbackQuery, state: FSMContext, db: Datab
     maint = await db.get_app_setting("maintenance")
     if maint == "1":
         await callback.answer(get_string("maintenance_alert", lang), show_alert=True)
-            return
+        return
 
     async with active_generations_lock:
         if active_generations >= 20:
             await callback.answer(get_string("rate_limit", lang), show_alert=True)
-        return
+            return
         active_generations += 1
 
     try:
         sub = await db.get_user_subscription(user_id)
         if not sub or sub[3] >= sub[2]:
             await callback.answer(get_string("limit_rem_zero", lang), show_alert=True)
-        return
+            return
 
         data = await state.get_data()
         current_state = await state.get_state()
@@ -1626,7 +1626,7 @@ async def on_form_generate(callback: CallbackQuery, state: FSMContext, db: Datab
                     if os.path.exists(model_photo):
                         with open(model_photo, "rb") as f:
                             input_image_bytes = f.read()
-    else:
+                else:
                     file = await callback.bot.get_file(model_photo)
                     f_bytes = await callback.bot.download_file(file.file_path)
                     input_image_bytes = f_bytes.read()
@@ -1663,7 +1663,7 @@ async def on_form_generate(callback: CallbackQuery, state: FSMContext, db: Datab
         if "4K" in plan_type.upper():
             if not individual_key:
                 await callback.message.answer(get_string("missing_4k_key", lang))
-        return
+                return
             target_keys = [(0, individual_key, 1, 0, 0, 0, None, None, None)] # Mock structure
         else:
             target_keys = await db.list_api_keys()
@@ -1689,7 +1689,7 @@ async def on_form_generate(callback: CallbackQuery, state: FSMContext, db: Datab
 
         if not result_bytes:
             await callback.message.answer(get_string("error_api", lang))
-        return
+            return
 
         await db.update_daily_usage(user_id)
         pid = await db.generate_pid()

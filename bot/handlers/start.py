@@ -1378,19 +1378,19 @@ async def on_back_to_body_type(callback: CallbackQuery, state: FSMContext, db: D
         await on_preset_pick(callback, db, state)
     else:
         await state.set_state(PresetForm.waiting_body_type)
-        await callback.message.edit_text(get_string("enter_body_type", lang))
+        await _replace_with_text(callback, get_string("enter_body_type", lang))
 
 @router.callback_query(F.data == "back_step", PresetForm.waiting_age)
 async def on_back_to_height(callback: CallbackQuery, state: FSMContext, db: Database):
     lang = await db.get_user_language(callback.from_user.id)
     await state.set_state(PresetForm.waiting_height)
-    await callback.message.edit_text(get_string("enter_height_example", lang))
+    await _replace_with_text(callback, get_string("enter_height_example", lang))
 
 @router.callback_query(F.data == "back_step", PresetForm.waiting_pants_style)
 async def on_back_to_age(callback: CallbackQuery, state: FSMContext, db: Database):
     lang = await db.get_user_language(callback.from_user.id)
     await state.set_state(PresetForm.waiting_age)
-    await callback.message.edit_text(get_string("enter_age_num", lang))
+    await _replace_with_text(callback, get_string("enter_age_num", lang))
 
 @router.callback_query(F.data == "back_step", PresetForm.waiting_sleeve_length)
 async def on_back_to_pants_style(callback: CallbackQuery, state: FSMContext, db: Database):
@@ -1398,18 +1398,18 @@ async def on_back_to_pants_style(callback: CallbackQuery, state: FSMContext, db:
     data = await state.get_data()
     if data.get("category") == "own":
         await state.set_state(PresetForm.waiting_product_photo)
-        await callback.message.edit_text(get_string("upload_product", lang))
+        await _replace_with_text(callback, get_string("upload_product", lang))
         return
     await state.set_state(PresetForm.waiting_pants_style)
     from bot.keyboards import pants_style_keyboard
-    await callback.message.edit_text(get_string("select_pants_style_btn", lang), reply_markup=pants_style_keyboard(lang))
+    await _replace_with_text(callback, get_string("select_pants_style_btn", lang), reply_markup=pants_style_keyboard(lang))
 
 @router.callback_query(F.data == "back_step", PresetForm.waiting_length)
 async def on_back_to_sleeve_length(callback: CallbackQuery, state: FSMContext, db: Database):
     lang = await db.get_user_language(callback.from_user.id)
     await state.set_state(PresetForm.waiting_sleeve_length)
     from bot.keyboards import sleeve_length_keyboard
-    await callback.message.edit_text(get_string("select_sleeve_length_btn", lang), reply_markup=sleeve_length_keyboard(lang))
+    await _replace_with_text(callback, get_string("select_sleeve_length_btn", lang), reply_markup=sleeve_length_keyboard(lang))
 
 @router.callback_query(F.data == "back_step", PresetForm.waiting_photo_type)
 async def on_back_to_length(callback: CallbackQuery, state: FSMContext, db: Database):
@@ -1417,12 +1417,12 @@ async def on_back_to_length(callback: CallbackQuery, state: FSMContext, db: Data
     data = await state.get_data()
     if data.get("category") == "own_variant":
         await state.set_state(PresetForm.waiting_product_photo)
-        await callback.message.edit_text(get_string("upload_product", lang))
+        await _replace_with_text(callback, get_string("upload_product", lang))
         return
     await state.set_state(PresetForm.waiting_length)
     text = get_string("garment_length_notice", lang)
     from bot.keyboards import garment_length_with_custom_keyboard
-    await callback.message.edit_text(text, reply_markup=garment_length_with_custom_keyboard(lang))
+    await _replace_with_text(callback, text, reply_markup=garment_length_with_custom_keyboard(lang))
 
 @router.callback_query(F.data == "back_step", PresetForm.waiting_pose)
 async def on_back_to_photo_type(callback: CallbackQuery, state: FSMContext, db: Database):
@@ -1433,91 +1433,91 @@ async def on_back_to_pose(callback: CallbackQuery, state: FSMContext, db: Databa
     lang = await db.get_user_language(callback.from_user.id)
     await state.set_state(PresetForm.waiting_pose)
     from bot.keyboards import pose_keyboard
-    await callback.message.edit_text(get_string("select_pose", lang), reply_markup=pose_keyboard(lang))
+    await _replace_with_text(callback, get_string("select_pose", lang), reply_markup=pose_keyboard(lang))
 
 @router.callback_query(F.data == "back_step", PresetForm.waiting_season)
 async def on_back_to_angle(callback: CallbackQuery, state: FSMContext, db: Database):
     lang = await db.get_user_language(callback.from_user.id)
     await state.set_state(PresetForm.waiting_angle)
     from bot.keyboards import angle_keyboard
-    await callback.message.edit_text(get_string("select_view", lang), reply_markup=angle_keyboard(lang))
+    await _replace_with_text(callback, get_string("select_view", lang), reply_markup=angle_keyboard(lang))
 
 @router.callback_query(F.data == "back_step", PresetForm.waiting_holiday)
 async def on_back_to_season_info(callback: CallbackQuery, state: FSMContext, db: Database):
     lang = await db.get_user_language(callback.from_user.id)
     await state.set_state(PresetForm.waiting_season)
-    from bot.keyboards import plus_season_keyboard
-    await callback.message.edit_text(get_string("select_season", lang), reply_markup=plus_season_keyboard(lang))
+    from bot.keyboards import random_season_keyboard
+    await _replace_with_text(callback, get_string("select_season", lang), reply_markup=random_season_keyboard(lang))
 
 @router.callback_query(F.data == "back_step", PresetForm.waiting_info_load)
 async def on_back_to_holiday(callback: CallbackQuery, state: FSMContext, db: Database):
     lang = await db.get_user_language(callback.from_user.id)
     await state.set_state(PresetForm.waiting_holiday)
     from bot.keyboards import info_holiday_keyboard
-    await callback.message.edit_text(get_string("select_holiday", lang), reply_markup=info_holiday_keyboard(lang))
+    await _replace_with_text(callback, get_string("select_holiday", lang), reply_markup=info_holiday_keyboard(lang))
 
 @router.callback_query(F.data == "back_step", PresetForm.waiting_info_lang)
 async def on_back_to_info_load(callback: CallbackQuery, state: FSMContext, db: Database):
     lang = await db.get_user_language(callback.from_user.id)
     await state.set_state(PresetForm.waiting_info_load)
     from bot.keyboards import info_load_keyboard
-    await callback.message.edit_text(get_string("select_info_load", lang), reply_markup=info_load_keyboard(lang))
+    await _replace_with_text(callback, get_string("select_info_load", lang), reply_markup=info_load_keyboard(lang))
 
 @router.callback_query(F.data == "back_step", PresetForm.waiting_adv1)
 async def on_back_to_info_lang(callback: CallbackQuery, state: FSMContext, db: Database):
     lang = await db.get_user_language(callback.from_user.id)
     await state.set_state(PresetForm.waiting_info_lang)
     from bot.keyboards import info_lang_keyboard
-    await callback.message.edit_text(get_string("select_info_lang", lang), reply_markup=info_lang_keyboard(lang))
+    await _replace_with_text(callback, get_string("select_info_lang", lang), reply_markup=info_lang_keyboard(lang))
 
 @router.callback_query(F.data == "back_step", PresetForm.waiting_adv2)
 async def on_back_to_adv1(callback: CallbackQuery, state: FSMContext, db: Database):
     lang = await db.get_user_language(callback.from_user.id)
     await state.set_state(PresetForm.waiting_adv1)
     from bot.keyboards import skip_step_keyboard
-    await callback.message.edit_text(get_string("enter_adv1_skip", lang), reply_markup=skip_step_keyboard("adv1", lang))
+    await _replace_with_text(callback, get_string("enter_adv1_skip", lang), reply_markup=skip_step_keyboard("adv1", lang))
 
 @router.callback_query(F.data == "back_step", PresetForm.waiting_adv3)
 async def on_back_to_adv2(callback: CallbackQuery, state: FSMContext, db: Database):
     lang = await db.get_user_language(callback.from_user.id)
     await state.set_state(PresetForm.waiting_adv2)
     from bot.keyboards import skip_step_keyboard
-    await callback.message.edit_text(get_string("enter_adv2_skip", lang), reply_markup=skip_step_keyboard("adv2", lang))
+    await _replace_with_text(callback, get_string("enter_adv2_skip", lang), reply_markup=skip_step_keyboard("adv2", lang))
 
 @router.callback_query(F.data == "back_step", PresetForm.waiting_extra_info)
 async def on_back_to_adv3(callback: CallbackQuery, state: FSMContext, db: Database):
     lang = await db.get_user_language(callback.from_user.id)
     await state.set_state(PresetForm.waiting_adv3)
     from bot.keyboards import skip_step_keyboard
-    await callback.message.edit_text(get_string("enter_adv3_skip", lang), reply_markup=skip_step_keyboard("adv3", lang))
+    await _replace_with_text(callback, get_string("enter_adv3_skip", lang), reply_markup=skip_step_keyboard("adv3", lang))
 
 @router.callback_query(F.data == "back_step", PresetForm.waiting_loc_group)
 async def on_back_to_gender(callback: CallbackQuery, state: FSMContext, db: Database):
     lang = await db.get_user_language(callback.from_user.id)
     await state.set_state(PresetForm.waiting_gender)
     from bot.keyboards import random_gender_keyboard
-    await callback.message.edit_text(get_string("select_gender", lang), reply_markup=random_gender_keyboard(lang))
+    await _replace_with_text(callback, get_string("select_gender", lang), reply_markup=random_gender_keyboard(lang))
 
 @router.callback_query(F.data == "back_step", PresetForm.waiting_location)
 async def on_back_to_loc_group(callback: CallbackQuery, state: FSMContext, db: Database):
     lang = await db.get_user_language(callback.from_user.id)
     await state.set_state(PresetForm.waiting_loc_group)
     from bot.keyboards import random_loc_group_keyboard
-    await callback.message.edit_text(get_string("select_loc_group", lang), reply_markup=random_loc_group_keyboard(lang))
+    await _replace_with_text(callback, get_string("select_loc_group", lang), reply_markup=random_loc_group_keyboard(lang))
 
 @router.callback_query(F.data == "back_step", PresetForm.waiting_model_size)
 async def on_back_to_pose_info(callback: CallbackQuery, state: FSMContext, db: Database):
     lang = await db.get_user_language(callback.from_user.id)
     await state.set_state(PresetForm.waiting_pose)
     from bot.keyboards import pose_keyboard
-    await callback.message.edit_text(get_string("select_pose", lang), reply_markup=pose_keyboard(lang))
+    await _replace_with_text(callback, get_string("select_pose", lang), reply_markup=pose_keyboard(lang))
 
 @router.callback_query(F.data == "back_step", PresetForm.waiting_camera_dist)
 async def on_back_to_photo_type_info(callback: CallbackQuery, state: FSMContext, db: Database):
     lang = await db.get_user_language(callback.from_user.id)
     await state.set_state(PresetForm.waiting_photo_type)
     from bot.keyboards import form_view_keyboard
-    await callback.message.edit_text(get_string("select_photo_type", lang), reply_markup=form_view_keyboard(lang))
+    await _replace_with_text(callback, get_string("select_photo_type", lang), reply_markup=form_view_keyboard(lang))
 
 @router.callback_query(F.data.startswith("form_aspect:"), PresetForm.waiting_aspect)
 async def on_preset_aspect_done(callback: CallbackQuery, state: FSMContext, db: Database):

@@ -1742,16 +1742,27 @@ async def on_form_generate(callback: CallbackQuery, state: FSMContext, db: Datab
         else:
             target_keys = await db.list_api_keys()
 
-        result_bytes = None
-        working_msg = None # Будем редактировать это сообщение в случае успеха или ошибки
+        # Фильтруем только активные ключи
+        active_keys = [k for k in target_keys if k[2]] # k[2] is is_active
         
-        for kid, token, active, priority, daily, total, last_reset, created, updated in target_keys:
-            if not active: continue
-            
-            # Для индивидуальных ключей лимиты пока не проверяем по БД (они на совести юзера или внешнего сервиса)
+        if not active_keys:
+            logger.error(f"No active API keys found for user {user_id}")
+            try:
+                await callback.message.edit_text(get_string("error_api", lang) + "\n(No active API keys)")
+            except Exception:
+                await callback.message.answer(get_string("error_api", lang) + "\n(No active API keys)")
+            return
+
+        result_bytes = None
+        working_msg = None 
+        
+        for kid, token, active, priority, daily, total, last_reset, created, updated in active_keys:
+            # Для индивидуальных ключей лимиты пока не проверяем по БД
             if kid != 0:
-                allowed, _ = await db.check_api_key_limits(kid)
-                if not allowed: continue
+                allowed, reason = await db.check_api_key_limits(kid)
+                if not allowed: 
+                    logger.warning(f"Key {kid} skipped: {reason}")
+                    continue
             
             try:
                 result_bytes = await generate_image(token, final_prompt, input_image_bytes, bg_image_bytes, "gemini-3-pro-image-preview")

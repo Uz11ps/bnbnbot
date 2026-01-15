@@ -952,13 +952,14 @@ async def cmd_profile(message: Message, db: Database):
     if sub:
         plan, expires, limit, usage, api_key = sub
         rem = max(0, limit - usage)
-        sub_text = get_string("sub_active", lang, plan=plan.upper(), date=expires)
+        # Форматируем дату (убираем T и миллисекунды)
+        formatted_date = expires.replace("T", " ")[:16]
+        sub_text = get_string("sub_active", lang, plan=plan.upper(), date=formatted_date)
     else:
         sub_text = get_string("sub_none", lang)
         rem = 0
     
     text = get_string("profile_info", lang, id=user_id, sub=sub_text, daily_rem=rem)
-    from bot.keyboards import profile_keyboard
     await message.answer(text, reply_markup=profile_keyboard(lang))
 
 @router.message(Command("settings"))
@@ -1002,7 +1003,9 @@ async def on_menu_profile(callback: CallbackQuery, db: Database):
     if sub:
         plan, expires, limit, usage, api_key = sub
         rem = max(0, limit - usage)
-        sub_text = get_string("sub_active", lang, plan=plan.upper(), date=expires)
+        # Форматируем дату (убираем T и миллисекунды)
+        formatted_date = expires.replace("T", " ")[:16]
+        sub_text = get_string("sub_active", lang, plan=plan.upper(), date=formatted_date)
     else:
         sub_text = get_string("sub_none", lang)
         rem = 0
@@ -1780,9 +1783,11 @@ async def on_sub_menu(callback: CallbackQuery, db: Database):
     plans = await db.list_subscription_plans()
     
     if sub:
-        plan_name, expires, limit, usage = sub
+        plan_name, expires, limit, usage, api_key = sub
         rem = max(0, limit - usage)
-        text = get_string("profile_info", lang, id=user_id, sub=get_string("sub_active", lang, plan=plan_name.upper(), date=expires), daily_rem=rem)
+        # Форматируем дату (убираем T и миллисекунды)
+        formatted_date = expires.replace("T", " ")[:16]
+        text = get_string("profile_info", lang, id=user_id, sub=get_string("sub_active", lang, plan=plan_name.upper(), date=formatted_date), daily_rem=rem)
         await _replace_with_text(callback, text, reply_markup=plans_keyboard(plans, lang))
     else:
         await _replace_with_text(callback, get_string("buy_plan", lang), reply_markup=plans_keyboard(plans, lang))

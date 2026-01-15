@@ -64,7 +64,10 @@ def marketplace_menu_keyboard(lang="ru") -> InlineKeyboardMarkup:
 def plans_keyboard(plans: list[tuple], lang="ru") -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
     for plan in plans:
-        pid, name_ru, name_en, name_vi, price, duration, limit, _active = plan
+        # plan: (id, name_ru, name_en, name_vi, desc_ru, desc_en, desc_vi, price, duration, limit, active)
+        pid = plan[0]
+        name_ru, name_en, name_vi = plan[1], plan[2], plan[3]
+        price = plan[7]
         name = name_ru if lang == "ru" else (name_en if lang == "en" else name_vi)
         rows.append([InlineKeyboardButton(text=f"{name} — {price} ₽", callback_data=f"buy_plan:{pid}")])
     rows.append([InlineKeyboardButton(text=get_string("back", lang), callback_data="menu_profile")])

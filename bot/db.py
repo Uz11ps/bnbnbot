@@ -255,13 +255,12 @@ class Database:
             await db.commit()
 
     # API keys management
-    async def list_api_keys(self) -> list[tuple[int, str, int]]:
+    async def list_api_keys(self) -> list[tuple]:
         async with aiosqlite.connect(self._db_path) as db:
             async with db.execute(
-                "SELECT id, token, is_active FROM api_keys ORDER BY is_active DESC, priority DESC, id"
+                "SELECT id, token, is_active, priority, daily_usage, total_usage, last_usage_reset, created_at, updated_at FROM api_keys ORDER BY is_active DESC, priority DESC, id"
             ) as cur:
-                rows = await cur.fetchall()
-                return [(int(r[0]), str(r[1]), int(r[2])) for r in rows]
+                return await cur.fetchall()
 
     async def list_active_api_keys(self) -> list[str]:
         async with aiosqlite.connect(self._db_path) as db:

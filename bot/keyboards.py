@@ -122,16 +122,6 @@ def admin_main_keyboard(lang="ru") -> InlineKeyboardMarkup:
         ]
     )
 
-def quality_keyboard(lang="ru") -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=get_string("quality_hd", lang), callback_data="quality:hd")],
-            [InlineKeyboardButton(text=get_string("quality_2k", lang), callback_data="quality:2k")],
-            [InlineKeyboardButton(text=get_string("quality_4k", lang), callback_data="quality:4k")],
-            [InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")],
-        ]
-    )
-
 def admin_users_keyboard(users: list[tuple], page: int, has_next: bool, lang="ru") -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
     for row in users:

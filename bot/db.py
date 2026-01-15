@@ -1121,7 +1121,7 @@ class Database:
                 daily_usage, last_reset = row
                 
                 # Reset daily if needed
-                if last_reset[:10] != datetime.now().isoformat()[:10]:
+                if not last_reset or last_reset[:10] != datetime.now().isoformat()[:10]:
                     await db.execute("UPDATE api_keys SET daily_usage=0, last_usage_reset=CURRENT_TIMESTAMP WHERE id=?", (key_id,))
                     await db.commit()
                     daily_usage = 0

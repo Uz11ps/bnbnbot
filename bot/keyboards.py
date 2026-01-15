@@ -459,7 +459,6 @@ def confirm_generation_keyboard(lang="ru") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text=get_string("create_photo", lang), callback_data="form_generate")],
-            [InlineKeyboardButton(text=get_string("back_main", lang), callback_data="back_main")],
             [InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")],
         ]
     )

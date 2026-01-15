@@ -191,10 +191,15 @@ async def index(request: Request, db: aiosqlite.Connection = Depends(get_db), us
         # Генераций сегодня
         async with db.execute("SELECT COUNT(*) FROM generation_history WHERE date(created_at) = date('now')") as cur:
             today_gens = (await cur.fetchone())[0]
+
+        # Общий баланс лимитов (активные подписки)
+        async with db.execute("SELECT SUM(MAX(0, daily_limit - daily_usage)) FROM subscriptions WHERE expires_at > CURRENT_TIMESTAMP") as cur:
+            row = await cur.fetchone()
+            total_balance = row[0] if row and row[0] else 0
             
     except Exception as e:
         print(f"Stats error: {e}")
-        total_users = today_users = today_gens = 0
+        total_users = today_users = today_gens = total_balance = 0
 
     maintenance = False
     try:
@@ -207,7 +212,7 @@ async def index(request: Request, db: aiosqlite.Connection = Depends(get_db), us
     return templates.TemplateResponse("dashboard.html", {
         "request": request, 
         "total_users": total_users, "today_users": today_users,
-        "total_gens": total_gens, "today_gens": today_gens,
+        "today_gens": today_gens, "total_balance": total_balance,
         "maintenance": maintenance, "proxy_status": proxy_status
     })
 

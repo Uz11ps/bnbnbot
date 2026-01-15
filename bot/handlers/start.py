@@ -272,7 +272,7 @@ async def on_preset_pants_style(callback: CallbackQuery, state: FSMContext, db: 
         await state.set_state(PresetForm.waiting_loc_group)
         from bot.keyboards import random_loc_group_keyboard
         await _replace_with_text(callback, get_string("select_loc_group", lang), reply_markup=random_loc_group_keyboard(lang))
-        else:
+    else:
         await state.set_state(PresetForm.waiting_sleeve_length)
         from bot.keyboards import sleeve_length_keyboard
         await _replace_with_text(callback, get_string("select_sleeve_length_btn", lang), reply_markup=sleeve_length_keyboard(lang))

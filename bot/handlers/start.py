@@ -512,7 +512,7 @@ async def on_create_normal_gen(callback: CallbackQuery, db: Database, state: FSM
     await _replace_with_text(callback, "Обычная генерация: Пришлите от 1 до 3-х фотографий. Когда закончите, нажмите кнопку ниже.", 
                              reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                                  [InlineKeyboardButton(text="✅ Готово, к тексту", callback_data="photos_done")],
-                                 [InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_market")]
+                                 [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_main")]
                              ]))
 
 @router.message(CreateForm.waiting_photos, F.photo)

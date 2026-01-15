@@ -25,6 +25,7 @@ def subscription_check_keyboard(channel_url: str, lang="ru") -> InlineKeyboardMa
 def main_menu_keyboard(lang="ru") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
+            [InlineKeyboardButton(text="✨ СВОЙ ВАРИАНТ (до 3-х фото)", callback_data="create_normal_gen")],
             [InlineKeyboardButton(text=get_string("menu_market", lang), callback_data="menu_market")],
             [InlineKeyboardButton(text=get_string("menu_profile", lang), callback_data="menu_profile")],
             [InlineKeyboardButton(text=get_string("menu_howto", lang), callback_data="menu_howto")],
@@ -527,6 +528,7 @@ def create_product_keyboard_dynamic(enabled: dict[str, bool], prices: dict[str, 
             return f"{price_tenths / 10:.1f} токена"
     
     rows: list[list[InlineKeyboardButton]] = []
+
     row1: list[InlineKeyboardButton] = []
     if enabled.get("female") is not False:
         row1.append(InlineKeyboardButton(text=f"👱‍♀️ Женская • {format_price('female', 10)}", callback_data="create_cat:female"))
@@ -552,8 +554,6 @@ def create_product_keyboard_dynamic(enabled: dict[str, bool], prices: dict[str, 
         rows.append([InlineKeyboardButton(text=f"💃 Свой вариант МОДЕЛИ • {format_price('own', 12)}", callback_data="create_cat:own")])
     if enabled.get("own_variant") is not False:
         rows.append([InlineKeyboardButton(text=f"🖼️ Свой вариант ФОНА • {format_price('own_variant', 20)}", callback_data="create_cat:own_variant")])
-    
-    rows.append([InlineKeyboardButton(text="✨ ОБЫЧНАЯ ГЕНЕРАЦИЯ (до 3-х фото)", callback_data="create_normal_gen")])
     
     rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="back_main")])
     return InlineKeyboardMarkup(inline_keyboard=rows)

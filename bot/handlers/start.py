@@ -1,6 +1,6 @@
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery, BufferedInputFile, InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.filters import CommandStart
+from aiogram.filters import CommandStart, Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.enums import ChatAction
@@ -943,6 +943,42 @@ async def cmd_start(message: Message, state: FSMContext, db: Database, bot: Bot)
 
     await message.answer(get_string("start_welcome", lang), reply_markup=main_menu_keyboard(lang))
 
+@router.message(Command("profile"))
+async def cmd_profile(message: Message, db: Database):
+    lang = await db.get_user_language(message.from_user.id)
+    user_id = message.from_user.id
+    sub = await db.get_user_subscription(user_id)
+    
+    if sub:
+        plan, expires, limit, usage = sub
+        rem = max(0, limit - usage)
+        sub_text = get_string("sub_active", lang, plan=plan.upper(), date=expires)
+    else:
+        sub_text = get_string("sub_none", lang)
+        rem = 0
+    
+    text = get_string("profile_info", lang, id=user_id, sub=sub_text, daily_rem=rem)
+    from bot.keyboards import profile_keyboard
+    await message.answer(text, reply_markup=profile_keyboard(lang))
+
+@router.message(Command("settings"))
+async def cmd_settings(message: Message, db: Database):
+    lang = await db.get_user_language(message.from_user.id)
+    from bot.keyboards import settings_keyboard
+    await message.answer(get_string("menu_settings", lang), reply_markup=settings_keyboard(lang))
+
+@router.message(Command("reset"))
+async def cmd_reset(message: Message, state: FSMContext, db: Database, bot: Bot):
+    await state.clear()
+    await cmd_start(message, state, db, bot)
+
+@router.message(Command("help"))
+async def cmd_help(message: Message, db: Database):
+    lang = await db.get_user_language(message.from_user.id)
+    text = await db.get_app_setting("howto") or get_string("how_to", lang)
+    from bot.keyboards import back_main_keyboard
+    await message.answer(text, reply_markup=back_main_keyboard(lang))
+
 @router.callback_query(F.data == "accept_terms")
 async def on_accept_terms(callback: CallbackQuery, db: Database):
     await db.set_terms_acceptance(callback.from_user.id, True)
@@ -1732,7 +1768,8 @@ async def on_back_main(callback: CallbackQuery, state: FSMContext, db: Database)
 @router.callback_query(F.data == "menu_howto")
 async def on_howto(callback: CallbackQuery, db: Database):
     lang = await db.get_user_language(callback.from_user.id)
-    await _replace_with_text(callback, get_string("how_to", lang), reply_markup=back_main_keyboard(lang))
+    text = await db.get_app_setting("howto") or get_string("how_to", lang)
+    await _replace_with_text(callback, text, reply_markup=back_main_keyboard(lang))
 
 @router.callback_query(F.data == "menu_subscription")
 async def on_sub_menu(callback: CallbackQuery, db: Database):

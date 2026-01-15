@@ -352,10 +352,24 @@ async def list_keys(request: Request, db: aiosqlite.Connection = Depends(get_db)
 
 @app.post("/api_keys/add")
 async def add_key(token: str = Form(...), table: str = Form(...), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
-    token = token.strip()
-    # Исправляем кириллическую 'А' в начале, если она есть
-    if token.startswith('А'): # Кириллица
-        token = 'A' + token[1:] # Латиница
+    # Очистка токена от всего лишнего
+    # 1. Убираем пробелы, табы, переносы строк
+    token = "".join(token.split())
+    
+    # 2. Исправляем кириллицу (частые ошибки при копировании)
+    cyr_to_lat = {
+        'А': 'A', 'В': 'B', 'Е': 'E', 'К': 'K', 'М': 'M', 'Н': 'H', 
+        'О': 'O', 'Р': 'P', 'С': 'C', 'Т': 'T', 'У': 'y', 'Х': 'X',
+        'а': 'a', 'е': 'e', 'о': 'o', 'р': 'p', 'с': 'c', 'у': 'y', 'х': 'x'
+    }
+    new_token = ""
+    for char in token:
+        new_token += cyr_to_lat.get(char, char)
+    token = new_token
+
+    # 3. Оставляем только допустимые символы для API ключа (A-Z, a-z, 0-9, _, -)
+    import re
+    token = re.sub(r'[^A-Za-z0-9_\-]', '', token)
     
     table_name = "api_keys" if table == "gemini" else "own_variant_api_keys"
     await db.execute(f"INSERT INTO {table_name} (token) VALUES (?)", (token,))

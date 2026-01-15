@@ -31,9 +31,6 @@
             <button class="nav-link {% if loop.first %}active{% endif %}" id="{{ cat }}-tab" data-bs-toggle="tab" data-bs-target="#{{ cat }}-pane" type="button">{{ cat | capitalize }}</button>
         </li>
         {% endfor %}
-        <li class="nav-item">
-            <button class="nav-link" id="templates-tab" data-bs-toggle="tab" data-bs-target="#templates-pane" type="button">Глобальные Шаблоны</button>
-        </li>
     </ul>
 
     <div class="tab-content">
@@ -104,23 +101,6 @@
             </div>
         </div>
         {% endfor %}
-
-        <div class="tab-pane fade" id="templates-pane">
-            <div class="row g-3">
-                {% for t in templates %}
-                <div class="col-12 col-lg-6">
-                    <div class="card p-3 border-start border-warning border-4">
-                        <h6>{{ t.description }} (<code>{{ t.key }}</code>)</h6>
-                        <form action="/templates/edit" method="post">
-                            <input type="hidden" name="key" value="{{ t.key }}">
-                            <textarea name="template" class="form-control mb-2" rows="5">{{ t.template }}</textarea>
-                            <button type="submit" class="btn btn-sm btn-warning">Обновить шаблон</button>
-                        </form>
-                    </div>
-                </div>
-                {% endfor %}
-            </div>
-        </div>
     </div>
 </div>
 {% endblock %}

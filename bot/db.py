@@ -13,9 +13,7 @@ CREATE TABLE IF NOT EXISTS users (
     last_name TEXT,
     accepted_terms INTEGER NOT NULL DEFAULT 0,
     blocked INTEGER NOT NULL DEFAULT 0,
-    balance INTEGER NOT NULL DEFAULT 0,
     referrer_id INTEGER,
-    referral_balance INTEGER NOT NULL DEFAULT 0,
     language TEXT NOT NULL DEFAULT 'ru',
     trial_used INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -49,6 +47,7 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     daily_limit INTEGER NOT NULL,
     daily_usage INTEGER NOT NULL DEFAULT 0,
     last_usage_reset TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    individual_api_key TEXT,         -- Индивидуальный ключ для 4K планов
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(user_id) REFERENCES users(id),
     FOREIGN KEY(plan_id) REFERENCES subscription_plans(id)
@@ -250,6 +249,8 @@ class Database:
                 cols = [row[1] for row in await cur.fetchall()]
             if "plan_id" not in cols:
                 await db.execute("ALTER TABLE subscriptions ADD COLUMN plan_id INTEGER")
+            if "individual_api_key" not in cols:
+                await db.execute("ALTER TABLE subscriptions ADD COLUMN individual_api_key TEXT")
 
             await db.commit()
 
@@ -812,7 +813,7 @@ class Database:
     async def get_user_subscription(self, user_id: int) -> tuple | None:
         async with aiosqlite.connect(self._db_path) as db:
             async with db.execute(
-                "SELECT plan_type, expires_at, daily_limit, daily_usage FROM subscriptions WHERE user_id=? AND expires_at > CURRENT_TIMESTAMP",
+                "SELECT plan_type, expires_at, daily_limit, daily_usage, individual_api_key FROM subscriptions WHERE user_id=? AND expires_at > CURRENT_TIMESTAMP",
                 (user_id,)
             ) as cur:
                 return await cur.fetchone()
@@ -848,9 +849,7 @@ class Database:
         async with aiosqlite.connect(self._db_path) as db:
             async with db.execute("SELECT COUNT(*) FROM users WHERE referrer_id=?", (user_id,)) as cur:
                 count = (await cur.fetchone())[0]
-            async with db.execute("SELECT referral_balance FROM users WHERE id=?", (user_id,)) as cur:
-                earned = (await cur.fetchone())[0]
-            return count, earned
+            return count, 0
 
     async def user_exists(self, user_id: int) -> bool:
         """Проверяет, существует ли пользователь в базе"""
@@ -858,23 +857,7 @@ class Database:
             async with db.execute("SELECT id FROM users WHERE id=?", (user_id,)) as cur:
                 row = await cur.fetchone()
                 return row is not None
-
-    async def get_user_balance(self, user_id: int) -> int:
-        async with aiosqlite.connect(self._db_path) as db:
-            async with db.execute("SELECT balance FROM users WHERE id=?", (user_id,)) as cur:
-                row = await cur.fetchone()
-                return int(row[0]) if row else 0
-
-    async def increment_user_balance(self, user_id: int, amount: int) -> None:
-        if amount == 0:
-            return
-        async with aiosqlite.connect(self._db_path) as db:
-            await db.execute(
-                "UPDATE users SET balance = MAX(0, balance + ?) WHERE id=?",
-                (amount, user_id),
-            )
-            await db.commit()
-
+    
     async def get_stats(self) -> dict:
         async with aiosqlite.connect(self._db_path) as db:
             stats = {}
@@ -890,20 +873,17 @@ class Database:
             async with db.execute("SELECT COUNT(*) FROM generation_history WHERE date(created_at) = date('now')") as cur:
                 stats["today_generations"] = (await cur.fetchone())[0]
 
-            # Балансы
-            async with db.execute("SELECT COALESCE(SUM(balance),0) FROM users") as cur:
-                stats["total_balance"] = (await cur.fetchone())[0]
-            
             return stats
 
     async def list_users_page(self, offset: int, limit: int) -> list[tuple[int, str | None, int, int]]:
         async with aiosqlite.connect(self._db_path) as db:
             async with db.execute(
-                "SELECT id, username, balance, blocked FROM users ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                "SELECT id, username, blocked FROM users ORDER BY created_at DESC LIMIT ? OFFSET ?",
                 (limit, offset),
             ) as cur:
                 rows = await cur.fetchall()
-                return [(int(r[0]), r[1], int(r[2]), int(r[3])) for r in rows]
+                # Возвращаем 0 в качестве баланса для совместимости с интерфейсом, если нужно
+                return [(int(r[0]), r[1], 0, int(r[2])) for r in rows]
 
     async def list_all_user_ids(self) -> list[int]:
         async with aiosqlite.connect(self._db_path) as db:

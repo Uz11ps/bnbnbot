@@ -36,6 +36,13 @@ async def run_migrations(db: aiosqlite.Connection):
         except Exception as e:
             print(f"Migration error (subscriptions.plan_id): {e}")
 
+    if cols and "individual_api_key" not in cols:
+        try:
+            await db.execute("ALTER TABLE subscriptions ADD COLUMN individual_api_key TEXT")
+            await db.commit()
+        except Exception as e:
+            print(f"Migration error (subscriptions.individual_api_key): {e}")
+
     async with db.execute("PRAGMA table_info(users)") as cur:
         cols = [row[1] for row in await cur.fetchall()]
     if cols and "trial_used" not in cols:
@@ -185,14 +192,9 @@ async def index(request: Request, db: aiosqlite.Connection = Depends(get_db), us
         async with db.execute("SELECT COUNT(*) FROM generation_history WHERE date(created_at) = date('now')") as cur:
             today_gens = (await cur.fetchone())[0]
             
-        # Общий баланс (суммарный лимит активных подписок)
-        async with db.execute("SELECT SUM(daily_limit) FROM subscriptions WHERE expires_at > CURRENT_TIMESTAMP") as cur:
-            row = await cur.fetchone()
-            total_balance = row[0] if row and row[0] else 0
-            
     except Exception as e:
         print(f"Stats error: {e}")
-        total_users = today_users = today_gens = total_balance = 0
+        total_users = today_users = today_gens = 0
 
     maintenance = False
     try:
@@ -212,11 +214,11 @@ async def index(request: Request, db: aiosqlite.Connection = Depends(get_db), us
 @app.get("/users", response_class=HTMLResponse)
 async def list_users(request: Request, q: str = "", db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
     if q:
-        query = "SELECT * FROM users WHERE id LIKE ? OR username LIKE ? ORDER BY created_at DESC LIMIT 100"
+        query = "SELECT id, username, blocked FROM users WHERE id LIKE ? OR username LIKE ? ORDER BY created_at DESC LIMIT 100"
         async with db.execute(query, (f"%{q}%", f"%{q}%")) as cur:
             users = await cur.fetchall()
     else:
-        async with db.execute("SELECT * FROM users ORDER BY created_at DESC LIMIT 50") as cur:
+        async with db.execute("SELECT id, username, blocked FROM users ORDER BY created_at DESC LIMIT 50") as cur:
             users = await cur.fetchall()
             
     async with db.execute("SELECT id, name_ru, duration_days, daily_limit FROM subscription_plans WHERE is_active=1") as cur:
@@ -240,11 +242,6 @@ async def list_prompts(request: Request, db: aiosqlite.Connection = Depends(get_
             models = await cur.fetchall()
     except Exception: models = []
     
-    try:
-        async with db.execute("SELECT * FROM prompt_templates") as cur:
-            templates_data = await cur.fetchall()
-    except Exception: templates_data = []
-
     categorized_models = {}
     for m in models:
         cat = m['category']
@@ -254,7 +251,6 @@ async def list_prompts(request: Request, db: aiosqlite.Connection = Depends(get_
     return templates.TemplateResponse("prompts.html", {
         "request": request, 
         "categorized_models": categorized_models, 
-        "templates": templates_data,
         "categories": CATEGORIES
     })
 
@@ -363,12 +359,6 @@ async def delete_key(table: str, key_id: int, db: aiosqlite.Connection = Depends
     await db.commit()
     return RedirectResponse(url="/api_keys", status_code=303)
 
-@app.post("/templates/edit")
-async def edit_template(key: str = Form(...), template: str = Form(...), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
-    await db.execute("UPDATE prompt_templates SET template=? WHERE key=?", (template, key))
-    await db.commit()
-    return RedirectResponse(url="/prompts", status_code=303)
-
 @app.get("/history", response_class=HTMLResponse)
 async def list_history(request: Request, q: str = "", db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
     try:
@@ -384,32 +374,25 @@ async def list_history(request: Request, q: str = "", db: aiosqlite.Connection =
 
 @app.get("/prices", response_class=HTMLResponse)
 async def list_prices(request: Request, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
-    prices_data = []
+    status_data = []
     for cat in CATEGORIES:
-        price_key = f"category_price_{cat}"
         status_key = f"{cat}" # Ключ статуса в БД: female, male и т.д.
         
-        async with db.execute("SELECT value FROM app_settings WHERE key=?", (price_key,)) as cur:
-            row = await cur.fetchone()
-            price_val = row[0] if row else "10"
-            
         async with db.execute("SELECT value FROM app_settings WHERE key=?", (status_key,)) as cur:
             row = await cur.fetchone()
             # По умолчанию все включены (1), если не задано иное
             status_val = row[0] if row else "1"
             
-        prices_data.append({
-            "key": price_key, 
+        status_data.append({
             "status_key": status_key,
             "cat": cat, 
-            "value": price_val, 
             "is_enabled": status_val == "1"
         })
             
     async with db.execute("SELECT * FROM subscription_plans") as cur:
         plans = await cur.fetchall()
         
-    return templates.TemplateResponse("prices.html", {"request": request, "category_prices": prices_data, "plans": plans})
+    return templates.TemplateResponse("prices.html", {"request": request, "category_status": status_data, "plans": plans})
 
 @app.post("/categories/toggle")
 async def toggle_category(key: str = Form(...), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
@@ -423,35 +406,12 @@ async def toggle_category(key: str = Form(...), db: aiosqlite.Connection = Depen
     return RedirectResponse(url="/prices", status_code=303)
 
 @app.post("/plans/edit")
-async def edit_plan(
-    plan_id: int = Form(...),
-    name_ru: str = Form(...),
-    price: int = Form(...),
-    duration: int = Form(...),
-    limit: int = Form(...),
-    desc_ru: str = Form(None),
-    db: aiosqlite.Connection = Depends(get_db),
-    user: str = Depends(get_current_username)
-):
-    await db.execute(
-        "UPDATE subscription_plans SET name_ru=?, price=?, duration_days=?, daily_limit=?, description_ru=? WHERE id=?",
-        (name_ru, price, duration, limit, desc_ru, plan_id)
-    )
-    await db.commit()
-    return RedirectResponse(url="/prices", status_code=303)
-
-@app.post("/prices/edit")
-async def edit_price(key: str = Form(...), value: str = Form(...), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
-    await db.execute("INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, value))
-    await db.commit()
-    return RedirectResponse(url="/prices", status_code=303)
-
-@app.post("/users/edit_subscription")
 async def edit_subscription(
     user_id: int = Form(...), 
     plan_id: str = Form(...),
     days: int = Form(...), 
     limit: int = Form(...), 
+    api_key: str = Form(None),
     db: aiosqlite.Connection = Depends(get_db), 
     user: str = Depends(get_current_username)
 ):
@@ -466,6 +426,7 @@ async def edit_subscription(
                     plan_type = row[0]
         
         plan_id_val = int(plan_id) if plan_id.isdigit() else None
+        safe_api_key = api_key.strip() if api_key else None
         
         # Проверяем, есть ли уже подписка у этого пользователя
         async with db.execute("SELECT id FROM subscriptions WHERE user_id = ?", (user_id,)) as cur:
@@ -473,14 +434,13 @@ async def edit_subscription(
             
         if existing:
             await db.execute(
-                "UPDATE subscriptions SET plan_id=?, plan_type=?, expires_at=?, daily_limit=? WHERE user_id=?",
-                (plan_id_val, plan_type, expires_at.isoformat(), limit, user_id)
+                "UPDATE subscriptions SET plan_id=?, plan_type=?, expires_at=?, daily_limit=?, individual_api_key=? WHERE user_id=?",
+                (plan_id_val, plan_type, expires_at.isoformat(), limit, safe_api_key, user_id)
             )
         else:
-            # Перед вставкой убедимся, что таблицы и колонки существуют (на случай если миграция в lifespan не успела)
             await db.execute(
-                "INSERT INTO subscriptions (user_id, plan_id, plan_type, expires_at, daily_limit) VALUES (?, ?, ?, ?, ?)",
-                (user_id, plan_id_val, plan_type, expires_at.isoformat(), limit)
+                "INSERT INTO subscriptions (user_id, plan_id, plan_type, expires_at, daily_limit, individual_api_key) VALUES (?, ?, ?, ?, ?, ?)",
+                (user_id, plan_id_val, plan_type, expires_at.isoformat(), limit, safe_api_key)
             )
         
         # Сбрасываем флаг триала при выдаче подписки

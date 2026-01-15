@@ -43,40 +43,30 @@
 
     <hr class="my-5">
 
-    <h5 class="mb-3">💰 Стоимость и Статус категорий</h5>
+    <h5 class="mb-3">⚙️ Управление категориями</h5>
     <div class="alert alert-info py-2">
-        <small>Значение 10 = 1 токен, 12 = 1.2 токена. Отключенная категория скрывается в боте.</small>
+        <small>Отключенная категория скрывается в боте.</small>
     </div>
     <div class="table-responsive">
-        <table class="table table-sm align-middle bg-white">
-            <thead>
+        <table class="table table-sm align-middle bg-white border">
+            <thead class="table-light">
                 <tr>
                     <th>Категория</th>
-                    <th>Цена (в 0.1 токена)</th>
-                    <th>Статус</th>
-                    <th>Действие</th>
+                    <th class="text-center">Статус</th>
                 </tr>
             </thead>
             <tbody>
-                {% for item in category_prices %}
+                {% for item in category_status %}
                 <tr>
                     <td><code>{{ item.cat }}</code></td>
-                    <td style="width: 150px;">
-                        <form action="/prices/edit" method="post" class="d-flex gap-1">
-                            <input type="hidden" name="key" value="{{ item.key }}">
-                            <input type="number" name="value" class="form-control form-control-sm" value="{{ item.value }}" style="width: 80px;">
-                            <button type="submit" class="btn btn-sm btn-outline-primary">OK</button>
-                        </form>
-                    </td>
-                    <td>
+                    <td class="text-center">
                         <form action="/categories/toggle" method="post">
                             <input type="hidden" name="key" value="{{ item.status_key }}">
-                            <button type="submit" class="btn btn-sm {% if item.is_enabled %}btn-success{% else %}btn-secondary{% endif %}">
+                            <button type="submit" class="btn btn-sm {% if item.is_enabled %}btn-success{% else %}btn-secondary{% endif %} px-3">
                                 {% if item.is_enabled %}Включена{% else %}Отключена{% endif %}
                             </button>
                         </form>
                     </td>
-                    <td></td>
                 </tr>
                 {% endfor %}
             </tbody>

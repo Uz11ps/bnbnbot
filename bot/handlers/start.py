@@ -21,7 +21,6 @@ from bot.keyboards import (
     model_select_keyboard_presets, pants_style_keyboard,
     sleeve_length_keyboard, garment_length_with_custom_keyboard,
     form_view_keyboard, pose_keyboard, angle_keyboard,
-    plus_season_keyboard, quality_keyboard_with_back,
     confirm_generation_keyboard
 )
 from bot.config import load_settings
@@ -75,6 +74,8 @@ class PresetForm(StatesGroup):
     waiting_background_photo = State()
     waiting_product_photo = State()
     waiting_quality = State()
+    waiting_has_person = State()
+    waiting_model_gender = State()
     result_ready = State()
 
 # Глобальный счетчик активных генераций для rate limiting
@@ -103,461 +104,766 @@ async def on_create_random(callback: CallbackQuery, db: Database, state: FSMCont
     lang = await db.get_user_language(callback.from_user.id)
     await state.set_state(PresetForm.waiting_gender)
     await state.update_data(category="random")
-    await _replace_with_text(callback, "Выберите пол модели:", reply_markup=random_gender_keyboard())
+    await _replace_with_text(callback, get_string("select_gender", lang), reply_markup=random_gender_keyboard(lang))
 
 @router.callback_query(F.data == "create_own")
 async def on_create_own_model(callback: CallbackQuery, db: Database, state: FSMContext):
+    lang = await db.get_user_language(callback.from_user.id)
     await state.set_state(PresetForm.waiting_background_photo)
     await state.update_data(category="own")
-    await _replace_with_text(callback, "Пришлите фото вашей модели (на ком будем менять одежду):")
+    await _replace_with_text(callback, get_string("upload_background", lang))
 
 @router.callback_query(F.data == "create_own_variant")
 async def on_create_own_bg(callback: CallbackQuery, db: Database, state: FSMContext):
+    lang = await db.get_user_language(callback.from_user.id)
     await state.set_state(PresetForm.waiting_background_photo)
     await state.update_data(category="own_variant")
-    await _replace_with_text(callback, "Пришлите фото фона (с моделью или без):")
+    await _replace_with_text(callback, get_string("upload_background", lang))
 
 @router.callback_query(F.data.startswith("rand_gender:"), PresetForm.waiting_gender)
 async def on_rand_gender(callback: CallbackQuery, state: FSMContext, db: Database):
     gender = callback.data.split(":")[1]
     await state.update_data(gender=gender)
     data = await state.get_data()
+    lang = await db.get_user_language(callback.from_user.id)
     
     if data.get("category") == "own":
-        # Если это 'Свой вариант МОДЕЛИ', после пола идем к параметрам (рост, возраст и т.д.)
         await state.set_state(PresetForm.waiting_height)
-        await callback.message.edit_text("Введите рост модели (например, 170):")
+        await callback.message.edit_text(get_string("enter_height", lang))
+    elif data.get("category") == "random":
+        if gender in ["boy", "girl"]:
+            await state.set_state(PresetForm.waiting_height)
+            await callback.message.edit_text(get_string("enter_height_example", lang))
+        else:
+            await state.set_state(PresetForm.waiting_age)
+            await callback.message.edit_text(get_string("enter_age_num", lang))
+    elif data.get("category") == "infographic_clothing":
+        await state.set_state(PresetForm.waiting_info_load)
+        await callback.message.edit_text(get_string("select_info_load", lang))
+    elif data.get("category") == "infographic_other":
+        # Если это в конце флоу 'Прочее', идем к качеству
+        await state.set_state(PresetForm.waiting_quality)
+        from bot.keyboards import quality_keyboard
+        await _replace_with_text(callback, get_string("select_quality", lang), reply_markup=quality_keyboard(lang))
     else:
-        # Если это 'Одежда и обувь (Рандом)', идем к выбору локации
-        await state.set_state(PresetForm.waiting_loc_group)
-        from bot.keyboards import random_loc_group_keyboard
-        await _replace_with_text(callback, "Где будет проходить съемка?", reply_markup=random_loc_group_keyboard())
+        # Для других категорий (female, male, child и т.д.) - опрос из прошлого запроса
+        await state.set_state(PresetForm.waiting_age)
+        await callback.message.edit_text(get_string("enter_age_num", lang))
 
-@router.callback_query(F.data.startswith("rand_locgroup:"), PresetForm.waiting_loc_group)
-async def on_rand_locgroup(callback: CallbackQuery, state: FSMContext):
-    group = callback.data.split(":")[1]
-    await state.update_data(loc_group=group)
-    await state.set_state(PresetForm.waiting_location)
-    from bot.keyboards import random_location_outdoor_keyboard, random_location_indoor_keyboard
-    if group == "outdoor":
-        await _replace_with_text(callback, "Выберите локацию на улице:", reply_markup=random_location_outdoor_keyboard())
-    else:
-        await _replace_with_text(callback, "Выберите локацию в помещении:", reply_markup=random_location_indoor_keyboard())
-
-@router.callback_query(F.data.startswith("rand_loc:"), PresetForm.waiting_location)
-async def on_rand_loc(callback: CallbackQuery, state: FSMContext):
-    loc = callback.data.split(":")[1]
-    if loc == "custom":
-        await state.set_state(PresetForm.waiting_loc_custom)
-        await callback.message.edit_text("Введите ваш вариант локации (до 100 символов):")
-    else:
-        await state.update_data(location=loc)
-        await on_after_location(callback.message, state)
-
-@router.message(PresetForm.waiting_loc_custom)
-async def on_rand_loc_custom(message: Message, state: FSMContext):
-    await state.update_data(location=message.text[:100])
-    await on_after_location(message, state)
-
-async def on_after_location(message: Message, state: FSMContext):
+@router.message(PresetForm.waiting_age)
+async def on_preset_age(message: Message, state: FSMContext, db: Database):
+    lang = await db.get_user_language(message.from_user.id)
+    await state.update_data(age=message.text)
     data = await state.get_data()
-    if data.get("loc_group") == "outdoor":
-        await state.set_state(PresetForm.waiting_season)
-        from bot.keyboards import random_season_keyboard
-        await message.answer("Выберите время года:", reply_markup=random_season_keyboard())
+    cat = data.get("category")
+    
+    if cat == "random":
+        await state.set_state(PresetForm.waiting_height)
+        await message.answer(get_string("enter_height_example", lang))
+    elif cat == "infographic_clothing":
+        await state.set_state(PresetForm.waiting_pose)
+        from bot.keyboards import pose_keyboard
+        await message.answer(get_string("select_pose", lang), reply_markup=pose_keyboard(lang))
     else:
-        # Для помещений сразу к праздникам
-        await state.set_state(PresetForm.waiting_holiday)
-        from bot.keyboards import random_holiday_keyboard
-        await message.answer("Выберите праздник:", reply_markup=random_holiday_keyboard())
+        await state.set_state(PresetForm.waiting_model_size)
+        from bot.keyboards import skip_step_keyboard
+        await message.answer(get_string("enter_model_size", lang), reply_markup=skip_step_keyboard("size", lang))
 
-@router.callback_query(F.data.startswith("rand_season:"), PresetForm.waiting_season)
-async def on_rand_season(callback: CallbackQuery, state: FSMContext):
-    val = callback.data.split(":")[1]
-    await state.update_data(season=None if val == "skip" else val)
-    await state.set_state(PresetForm.waiting_holiday)
-    from bot.keyboards import random_holiday_keyboard
-    await _replace_with_text(callback, "Выберите праздник:", reply_markup=random_holiday_keyboard())
-
-@router.callback_query(F.data.startswith("rand_holiday:"), PresetForm.waiting_holiday)
-async def on_rand_holiday(callback: CallbackQuery, state: FSMContext):
-    val = callback.data.split(":")[1]
-    if val == "custom":
-        await state.set_state(PresetForm.waiting_holiday_custom)
-        await callback.message.edit_text("Введите ваш вариант праздника (до 30 символов):")
+@router.message(PresetForm.waiting_height)
+async def on_preset_height(message: Message, state: FSMContext, db: Database):
+    lang = await db.get_user_language(message.from_user.id)
+    await state.update_data(height=message.text)
+    data = await state.get_data()
+    cat = data.get("category")
+    
+    if cat == "random":
+        await state.set_state(PresetForm.waiting_model_size)
+        from bot.keyboards import skip_step_keyboard
+        await message.answer(get_string("enter_model_size", lang), reply_markup=skip_step_keyboard("size", lang))
+    elif cat == "infographic_clothing":
+        await state.set_state(PresetForm.waiting_model_gender)
+        from bot.keyboards import random_gender_keyboard
+        await message.answer(get_string("select_model_gender", lang), reply_markup=random_gender_keyboard(lang))
+    elif cat == "child" or data.get("gender") in ["boy", "girl"]:
+        await state.set_state(PresetForm.waiting_pants_style)
+        from bot.keyboards import pants_style_keyboard
+        await message.answer(get_string("select_pants_style_btn", lang), reply_markup=pants_style_keyboard(lang))
     else:
-        await state.update_data(holiday=None if val == "skip" else val)
-        await on_after_holiday(callback.message, state)
+        await state.set_state(PresetForm.waiting_age)
+        await message.answer(get_string("enter_age_num", lang))
 
-@router.message(PresetForm.waiting_holiday_custom)
-async def on_rand_holiday_custom(message: Message, state: FSMContext):
-    await state.update_data(holiday=message.text[:30])
-    await on_after_holiday(message, state)
-
-async def on_after_holiday(message: Message, state: FSMContext):
-    await state.set_state(PresetForm.waiting_pose)
-    from bot.keyboards import pose_keyboard
-    await message.answer("Выберите позу:", reply_markup=pose_keyboard())
+@router.callback_query(F.data == "size:skip", PresetForm.waiting_model_size)
+@router.message(PresetForm.waiting_model_size)
+async def on_preset_size(event: Message | CallbackQuery, state: FSMContext, db: Database):
+    val = None if isinstance(event, CallbackQuery) else event.text
+    await state.update_data(model_size=val)
+    msg = event.message if isinstance(event, CallbackQuery) else event
+    uid = event.from_user.id
+    lang = await db.get_user_language(uid)
+    data = await state.get_data()
+    cat = data.get("category")
+    
+    if cat == "random":
+        await state.set_state(PresetForm.waiting_pose)
+        from bot.keyboards import pose_keyboard
+        await (event.message.edit_text if isinstance(event, CallbackQuery) else msg.answer)(
+            get_string("select_pose", lang), reply_markup=pose_keyboard(lang))
+    elif cat == "infographic_clothing":
+        await state.set_state(PresetForm.waiting_height)
+        await (event.message.edit_text if isinstance(event, CallbackQuery) else msg.answer)(
+            get_string("enter_height_example", lang))
+    else:
+        await state.set_state(PresetForm.waiting_height)
+        await (event.message.edit_text if isinstance(event, CallbackQuery) else msg.answer)(
+            get_string("enter_height_example", lang))
 
 @router.callback_query(F.data.startswith("pose:"), PresetForm.waiting_pose)
-async def on_rand_pose(callback: CallbackQuery, state: FSMContext):
+async def on_preset_pose(callback: CallbackQuery, state: FSMContext, db: Database):
     await state.update_data(pose=callback.data.split(":")[1])
-    await state.set_state(PresetForm.waiting_model_size)
-    from bot.keyboards import form_length_skip_keyboard
-    await _replace_with_text(callback, "Введите размер модели (числом):", reply_markup=form_length_skip_keyboard())
+    lang = await db.get_user_language(callback.from_user.id)
+    await state.set_state(PresetForm.waiting_photo_type)
+    from bot.keyboards import form_view_keyboard
+    await _replace_with_text(callback, get_string("select_photo_type", lang), reply_markup=form_view_keyboard(lang))
+
+@router.callback_query(F.data.startswith("form_view:"), PresetForm.waiting_photo_type)
+async def on_preset_photo_type(callback: CallbackQuery, state: FSMContext, db: Database):
+    await state.update_data(photo_type=callback.data.split(":")[1])
+    lang = await db.get_user_language(callback.from_user.id)
+    data = await state.get_data()
+    cat = data.get("category")
+    
+    await state.set_state(PresetForm.waiting_camera_dist)
+    from bot.keyboards import camera_distance_keyboard
+    await _replace_with_text(callback, get_string("select_camera_dist", lang), reply_markup=camera_distance_keyboard(lang))
+
+@router.callback_query(F.data.startswith("camera_dist:"), PresetForm.waiting_camera_dist)
+async def on_preset_camera_dist(callback: CallbackQuery, state: FSMContext, db: Database):
+    await state.update_data(camera_dist=callback.data.split(":")[1])
+    lang = await db.get_user_language(callback.from_user.id)
+    data = await state.get_data()
+    cat = data.get("category")
+    
+    if cat == "random":
+        await state.set_state(PresetForm.waiting_pants_style)
+        from bot.keyboards import pants_style_keyboard
+        await _replace_with_text(callback, get_string("select_pants_style_btn", lang), reply_markup=pants_style_keyboard(lang))
+    elif cat == "infographic_clothing":
+        await state.set_state(PresetForm.waiting_length)
+        from bot.keyboards import garment_length_with_custom_keyboard
+        await _replace_with_text(callback, get_string("garment_length_notice", lang), reply_markup=garment_length_with_custom_keyboard(lang))
+    else:
+        await state.set_state(PresetForm.waiting_pose)
+        from bot.keyboards import pose_keyboard
+        await _replace_with_text(callback, get_string("select_pose", lang), reply_markup=pose_keyboard(lang))
+
+@router.callback_query(F.data.startswith("pants_style:"), PresetForm.waiting_pants_style)
+async def on_preset_pants_style(callback: CallbackQuery, state: FSMContext, db: Database):
+    val = callback.data.split(":")[1]
+    await state.update_data(pants_style=None if val == "skip" else val)
+    lang = await db.get_user_language(callback.from_user.id)
+    data = await state.get_data()
+    cat = data.get("category")
+    
+    if cat == "random":
+        await state.set_state(PresetForm.waiting_sleeve_length)
+        from bot.keyboards import sleeve_length_keyboard
+        await _replace_with_text(callback, get_string("select_sleeve_length_btn", lang), reply_markup=sleeve_length_keyboard(lang))
+    elif cat == "infographic_clothing":
+        await state.set_state(PresetForm.waiting_loc_group)
+        from bot.keyboards import random_loc_group_keyboard
+        await _replace_with_text(callback, get_string("select_loc_group", lang), reply_markup=random_loc_group_keyboard(lang))
+        else:
+        await state.set_state(PresetForm.waiting_sleeve_length)
+        from bot.keyboards import sleeve_length_keyboard
+        await _replace_with_text(callback, get_string("select_sleeve_length_btn", lang), reply_markup=sleeve_length_keyboard(lang))
+
+@router.callback_query(F.data.startswith("form_sleeve:"), PresetForm.waiting_sleeve_length)
+async def on_preset_sleeve_length(callback: CallbackQuery, state: FSMContext, db: Database):
+    val = callback.data.split(":")[1]
+    await state.update_data(sleeve_length=None if val == "skip" else val)
+    lang = await db.get_user_language(callback.from_user.id)
+    data = await state.get_data()
+    cat = data.get("category")
+    
+    if cat == "random":
+        await state.set_state(PresetForm.waiting_length)
+        from bot.keyboards import garment_length_with_custom_keyboard
+        await _replace_with_text(callback, get_string("garment_length_notice", lang), reply_markup=garment_length_with_custom_keyboard(lang))
+    elif cat == "infographic_clothing":
+        await state.set_state(PresetForm.waiting_pants_style)
+        from bot.keyboards import pants_style_keyboard
+        await _replace_with_text(callback, get_string("select_pants_style_btn", lang), reply_markup=pants_style_keyboard(lang))
+    else:
+        await state.set_state(PresetForm.waiting_length)
+        from bot.keyboards import garment_length_with_custom_keyboard
+        await _replace_with_text(callback, get_string("garment_length_notice", lang), reply_markup=garment_length_with_custom_keyboard(lang))
+
+@router.callback_query(F.data.startswith("garment_len:"), PresetForm.waiting_length)
+@router.callback_query(F.data == "garment_len:skip", PresetForm.waiting_length)
+async def on_preset_length_btn(callback: CallbackQuery, state: FSMContext, db: Database):
+    val = callback.data.split(":")[1]
+    await state.update_data(length=None if val == "skip" else val)
+    lang = await db.get_user_language(callback.from_user.id)
+    data = await state.get_data()
+    cat = data.get("category")
+    
+    if cat == "random":
+        await state.set_state(PresetForm.waiting_quality)
+        from bot.keyboards import quality_keyboard
+        await _replace_with_text(callback, get_string("select_quality", lang), reply_markup=quality_keyboard(lang))
+    elif cat == "infographic_clothing":
+        await state.set_state(PresetForm.waiting_sleeve_length)
+        from bot.keyboards import sleeve_length_keyboard
+        await _replace_with_text(callback, get_string("select_sleeve_length_btn", lang), reply_markup=sleeve_length_keyboard(lang))
+    elif cat == "own":
+        await state.set_state(PresetForm.waiting_aspect)
+        from bot.keyboards import aspect_ratio_keyboard
+        await _replace_with_text(callback, get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
+    else:
+        await state.set_state(PresetForm.waiting_photo_type)
+        from bot.keyboards import form_view_keyboard
+        await _replace_with_text(callback, get_string("select_photo_type", lang), reply_markup=form_view_keyboard(lang))
 
 @router.message(PresetForm.waiting_background_photo, F.photo)
-async def on_own_bg_photo(message: Message, state: FSMContext):
+async def on_own_bg_photo(message: Message, state: FSMContext, db: Database):
     await state.update_data(background_photo=message.photo[-1].file_id)
     await state.set_state(PresetForm.waiting_product_photo)
-    await message.answer("Теперь пришлите фото товара:")
+    lang = await db.get_user_language(message.from_user.id)
+    await message.answer(get_string("upload_product", lang))
 
 @router.message(PresetForm.waiting_product_photo, F.photo)
-async def on_own_product_photo(message: Message, state: FSMContext):
+async def on_own_product_photo(message: Message, state: FSMContext, db: Database):
     await state.update_data(product_photo=message.photo[-1].file_id)
     data = await state.get_data()
+    lang = await db.get_user_language(message.from_user.id)
     if data.get("category") == "own_variant":
         # Сценарий 'Свой вариант ФОНА'
         await state.set_state(PresetForm.waiting_photo_type)
         from bot.keyboards import form_view_keyboard
-        await message.answer("Выберите ракурс фотографии:", reply_markup=form_view_keyboard())
+        await message.answer(get_string("select_view", lang), reply_markup=form_view_keyboard(lang))
     elif data.get("category") == "own":
-        # Сценарий 'Свой вариант МОДЕЛИ' - теперь спрашиваем пол/тип одежды
-        await state.set_state(PresetForm.waiting_gender)
-        from bot.keyboards import random_gender_keyboard
-        await message.answer("Выберите пол/тип модели для генерации:", reply_markup=random_gender_keyboard())
+        # Сценарий 'Свой вариант МОДЕЛИ' - оставляем только длину и рукав
+        await state.set_state(PresetForm.waiting_sleeve_length)
+        from bot.keyboards import sleeve_length_keyboard
+        await message.answer(get_string("select_sleeve_length_btn", lang), reply_markup=sleeve_length_keyboard(lang))
     else:
         await state.set_state(PresetForm.waiting_height)
-        await message.answer("Введите рост модели (например, 170):")
+        await message.answer(get_string("enter_height", lang))
 
 @router.callback_query(F.data == "form_len:skip", PresetForm.waiting_model_size)
-async def on_rand_size_skip(callback: CallbackQuery, state: FSMContext):
+async def on_rand_size_skip(callback: CallbackQuery, state: FSMContext, db: Database):
     await state.update_data(model_size=None)
     await state.set_state(PresetForm.waiting_height)
-    await callback.message.edit_text("Введите рост модели (например, 170):")
+    lang = await db.get_user_language(callback.from_user.id)
+    await callback.message.edit_text(get_string("enter_height", lang))
 
 @router.message(PresetForm.waiting_height, F.state == PresetForm.waiting_height)
-async def on_rand_height(message: Message, state: FSMContext):
+async def on_rand_height(message: Message, state: FSMContext, db: Database):
     await state.update_data(height=message.text)
     await state.set_state(PresetForm.waiting_age)
-    await message.answer("Введите возраст модели числом:")
+    lang = await db.get_user_language(message.from_user.id)
+    await message.answer(get_string("enter_age", lang))
 
 @router.message(PresetForm.waiting_age, F.state == PresetForm.waiting_age)
-async def on_rand_age(message: Message, state: FSMContext):
+async def on_rand_age(message: Message, state: FSMContext, db: Database):
     await state.update_data(age=message.text)
     await state.set_state(PresetForm.waiting_pants_style)
     from bot.keyboards import pants_style_keyboard
-    await message.answer("Выберите тип кроя штанов:", reply_markup=pants_style_keyboard())
+    lang = await db.get_user_language(message.from_user.id)
+    await message.answer(get_string("select_pants_style", lang), reply_markup=pants_style_keyboard(lang))
 
 @router.callback_query(F.data.startswith("pants_style:"), PresetForm.waiting_pants_style)
-async def on_rand_pants_style(callback: CallbackQuery, state: FSMContext):
+async def on_rand_pants_style(callback: CallbackQuery, state: FSMContext, db: Database):
     val = callback.data.split(":")[1]
     await state.update_data(pants_style=None if val == "skip" else val)
     await state.set_state(PresetForm.waiting_sleeve_length)
+    lang = await db.get_user_language(callback.from_user.id)
     from bot.keyboards import sleeve_length_keyboard
-    await _replace_with_text(callback, "Выберите тип рукавов:", reply_markup=sleeve_length_keyboard())
+    await _replace_with_text(callback, get_string("select_sleeve_length", lang), reply_markup=sleeve_length_keyboard(lang))
 
 @router.callback_query(F.data.startswith("form_sleeve:"), PresetForm.waiting_sleeve_length)
-async def on_rand_sleeve(callback: CallbackQuery, state: FSMContext):
+async def on_rand_sleeve(callback: CallbackQuery, state: FSMContext, db: Database):
     val = callback.data.split(":")[1]
     await state.update_data(sleeve_length=None if val == "skip" else val)
     await state.set_state(PresetForm.waiting_length)
+    lang = await db.get_user_language(callback.from_user.id)
     from bot.keyboards import garment_length_with_custom_keyboard
-    text = "Выберите длину изделия. Внимание! если ваш продукт Костюм 2-к,3-к то длину можно не указывать."
-    await _replace_with_text(callback, text, reply_markup=garment_length_with_custom_keyboard())
+    await _replace_with_text(callback, get_string("select_garment_length", lang), reply_markup=garment_length_with_custom_keyboard(lang))
 
 @router.callback_query(F.data.startswith("garment_len:"), PresetForm.waiting_length)
-async def on_rand_length_btn(callback: CallbackQuery, state: FSMContext):
+async def on_rand_length_btn(callback: CallbackQuery, state: FSMContext, db: Database):
     val = callback.data.split(":")[1]
     await state.update_data(length=None if val == "skip" else val)
     await state.set_state(PresetForm.waiting_photo_type)
+    lang = await db.get_user_language(callback.from_user.id)
     from bot.keyboards import form_view_keyboard
-    await _replace_with_text(callback, "Выберите ракурс фотографии:", reply_markup=form_view_keyboard())
+    await _replace_with_text(callback, get_string("select_view", lang), reply_markup=form_view_keyboard(lang))
 
 @router.callback_query(F.data.startswith("form_view:"), PresetForm.waiting_photo_type)
-async def on_rand_view(callback: CallbackQuery, state: FSMContext):
+async def on_rand_view(callback: CallbackQuery, state: FSMContext, db: Database):
     await state.update_data(photo_type=callback.data.split(":")[1])
     await state.set_state(PresetForm.waiting_camera_dist)
+    lang = await db.get_user_language(callback.from_user.id)
     from bot.keyboards import camera_distance_keyboard
-    await _replace_with_text(callback, "Выберите ракурс (удаленность):", reply_markup=camera_distance_keyboard())
+    await _replace_with_text(callback, get_string("select_camera_dist", lang), reply_markup=camera_distance_keyboard(lang))
 
 # Добавляем обработку остальных шагов аналогично пресетам, но с новыми клавиатурами
 @router.callback_query(F.data.startswith("camera_dist:"), PresetForm.waiting_camera_dist)
-async def on_rand_camera_dist(callback: CallbackQuery, state: FSMContext):
+async def on_rand_camera_dist(callback: CallbackQuery, state: FSMContext, db: Database):
     await state.update_data(camera_dist=callback.data.split(":")[1])
     await state.set_state(PresetForm.waiting_aspect)
+    lang = await db.get_user_language(callback.from_user.id)
     from bot.keyboards import aspect_ratio_keyboard
-    await _replace_with_text(callback, "Выберите формат фото:", reply_markup=aspect_ratio_keyboard())
+    await _replace_with_text(callback, get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
 
 @router.callback_query(F.data.startswith("form_aspect:"), PresetForm.waiting_aspect)
-async def on_rand_aspect(callback: CallbackQuery, state: FSMContext):
+async def on_rand_aspect(callback: CallbackQuery, state: FSMContext, db: Database):
     await state.update_data(aspect=callback.data.split(":")[1])
     await state.set_state(PresetForm.result_ready)
+    lang = await db.get_user_language(callback.from_user.id)
     from bot.keyboards import confirm_generation_keyboard
-    await _replace_with_text(callback, "Все готово! Создать фото?", reply_markup=confirm_generation_keyboard())
+    await _replace_with_text(callback, get_string("create_photo", lang) + "?", reply_markup=confirm_generation_keyboard(lang))
 
 @router.callback_query(F.data == "create_cat:infographic_clothing")
 async def on_create_infographic_clothing(callback: CallbackQuery, db: Database, state: FSMContext):
+    lang = await db.get_user_language(callback.from_user.id)
     await state.update_data(category="infographic_clothing")
-    await state.set_state(PresetForm.waiting_info_load)
-    await _replace_with_text(callback, "Инфографика: Выберите нагруженность (введите число от 1 до 10):")
+    await state.set_state(PresetForm.waiting_gender)
+    from bot.keyboards import infographic_gender_keyboard
+    await _replace_with_text(callback, get_string("select_gender", lang), reply_markup=infographic_gender_keyboard(lang))
 
 @router.callback_query(F.data == "create_cat:infographic_other")
 async def on_create_infographic_other(callback: CallbackQuery, db: Database, state: FSMContext):
+    lang = await db.get_user_language(callback.from_user.id)
     await state.update_data(category="infographic_other")
-    await state.set_state(PresetForm.waiting_info_load)
-    await _replace_with_text(callback, "Инфографика: Выберите нагруженность (введите число от 1 до 10):")
+    await state.set_state(PresetForm.waiting_product_name)
+    await _replace_with_text(callback, get_string("enter_product_name", lang))
 
 @router.message(PresetForm.waiting_info_load)
-async def on_info_load_numeric(message: Message, state: FSMContext):
+async def on_info_load_numeric(message: Message, state: FSMContext, db: Database):
+    lang = await db.get_user_language(message.from_user.id)
     await state.update_data(info_load=message.text)
+    data = await state.get_data()
+    
+    if data.get("category") == "infographic_clothing":
+        await state.set_state(PresetForm.waiting_info_lang)
+        from bot.keyboards import info_lang_keyboard
+        await message.answer(get_string("select_info_lang", lang), reply_markup=info_lang_keyboard(lang))
+    else:
+        # Для infographic_other
+        await state.set_state(PresetForm.waiting_has_person)
+        from bot.keyboards import yes_no_keyboard
+        await message.answer(get_string("has_person_ask", lang), reply_markup=yes_no_keyboard(lang))
+
+@router.callback_query(F.data.startswith("info_lang:"), PresetForm.waiting_info_lang)
+async def on_info_lang_ext(callback: CallbackQuery, state: FSMContext, db: Database):
+    val = callback.data.split(":")[1]
+    lang = await db.get_user_language(callback.from_user.id)
+    if val == "custom":
+        await state.set_state(PresetForm.waiting_info_lang_custom)
+        await callback.message.edit_text(get_string("enter_custom_lang", lang))
+    else:
+        await state.update_data(info_lang=val)
+        await state.set_state(PresetForm.waiting_product_name)
+        await _replace_with_text(callback, get_string("enter_product_name", lang))
+
+@router.message(PresetForm.waiting_info_lang_custom)
+async def on_info_lang_custom(message: Message, state: FSMContext, db: Database):
+    lang = await db.get_user_language(message.from_user.id)
+    await state.update_data(info_lang=message.text)
     await state.set_state(PresetForm.waiting_product_name)
-    await message.answer("Введите название вашего продукта вкратце (какой у вас продукт? до 75 символов):")
+    await message.answer(get_string("enter_product_name", lang))
 
 @router.message(PresetForm.waiting_product_name)
-async def on_product_name(message: Message, state: FSMContext):
+async def on_product_name(message: Message, state: FSMContext, db: Database):
+    lang = await db.get_user_language(message.from_user.id)
     await state.update_data(product_name=message.text[:75])
+    data = await state.get_data()
+    
+    if data.get("category") == "infographic_clothing":
+        await state.set_state(PresetForm.waiting_adv1)
+        from bot.keyboards import skip_step_keyboard
+        await message.answer(get_string("enter_adv1_skip", lang), reply_markup=skip_step_keyboard("adv1", lang))
+    else:
+        # Для infographic_other
+        await state.set_state(PresetForm.waiting_angle)
+        from bot.keyboards import angle_keyboard
+        await message.answer(get_string("select_camera_dist", lang), reply_markup=angle_keyboard(lang))
+
+@router.callback_query(F.data.startswith("angle:"), PresetForm.waiting_angle)
+async def on_preset_angle(callback: CallbackQuery, state: FSMContext, db: Database):
+    val = callback.data.split(":")[1]
+    await state.update_data(angle=val)
     await state.set_state(PresetForm.waiting_width)
+    lang = await db.get_user_language(callback.from_user.id)
     from bot.keyboards import skip_step_keyboard
-    await message.answer("Введите параметры: 1. Ширина (числом) или пропустите:", reply_markup=skip_step_keyboard("width"))
+    await _replace_with_text(callback, get_string("enter_width", lang), reply_markup=skip_step_keyboard("width", lang))
 
 @router.callback_query(F.data == "width:skip", PresetForm.waiting_width)
-async def on_width_skip(callback: CallbackQuery, state: FSMContext):
-    await state.update_data(width=None)
-    await state.set_state(PresetForm.waiting_height)
-    from bot.keyboards import skip_step_keyboard
-    await _replace_with_text(callback, "Введите высоту (числом) или пропустите:", reply_markup=skip_step_keyboard("height"))
-
 @router.message(PresetForm.waiting_width)
-async def on_width_text(message: Message, state: FSMContext):
-    await state.update_data(width=message.text)
+async def on_width_input(event: Message | CallbackQuery, state: FSMContext, db: Database):
+    if isinstance(event, CallbackQuery):
+        await state.update_data(width=None)
+        msg = event.message
+        uid = event.from_user.id
+    else:
+        await state.update_data(width=event.text)
+        msg = event
+        uid = event.from_user.id
+    
+    lang = await db.get_user_language(uid)
     await state.set_state(PresetForm.waiting_height)
     from bot.keyboards import skip_step_keyboard
-    await message.answer("Введите высоту (числом) или пропустите:", reply_markup=skip_step_keyboard("height"))
+    if isinstance(event, CallbackQuery):
+        await _replace_with_text(event, get_string("enter_height_dim", lang), reply_markup=skip_step_keyboard("height", lang))
+    else:
+        await msg.answer(get_string("enter_height_dim", lang), reply_markup=skip_step_keyboard("height", lang))
 
 @router.callback_query(F.data == "height:skip", PresetForm.waiting_height)
-async def on_height_skip(callback: CallbackQuery, state: FSMContext):
-    await state.update_data(height=None)
-    await state.set_state(PresetForm.waiting_length)
-    from bot.keyboards import skip_step_keyboard
-    await _replace_with_text(callback, "Введите длину (числом) или пропустите:", reply_markup=skip_step_keyboard("length"))
-
 @router.message(PresetForm.waiting_height)
-async def on_height_text(message: Message, state: FSMContext):
-    await state.update_data(height=message.text)
+async def on_height_input(event: Message | CallbackQuery, state: FSMContext, db: Database):
+    if isinstance(event, CallbackQuery):
+        await state.update_data(height=None)
+        msg = event.message
+        uid = event.from_user.id
+    else:
+        await state.update_data(height=event.text)
+        msg = event
+        uid = event.from_user.id
+    
+    lang = await db.get_user_language(uid)
     await state.set_state(PresetForm.waiting_length)
     from bot.keyboards import skip_step_keyboard
-    await message.answer("Введите длину (числом) или пропустите:", reply_markup=skip_step_keyboard("length"))
+    if isinstance(event, CallbackQuery):
+        await _replace_with_text(event, get_string("enter_length_dim", lang), reply_markup=skip_step_keyboard("length", lang))
+    else:
+        await msg.answer(get_string("enter_length_dim", lang), reply_markup=skip_step_keyboard("length", lang))
 
 @router.callback_query(F.data == "length:skip", PresetForm.waiting_length)
-async def on_length_skip_info(callback: CallbackQuery, state: FSMContext):
-    await state.update_data(length=None)
-    await state.set_state(PresetForm.waiting_camera_dist)
-    from bot.keyboards import camera_distance_keyboard
-    await _replace_with_text(callback, "Выберите ракурс фотографии:", reply_markup=camera_distance_keyboard())
-
 @router.message(PresetForm.waiting_length)
-async def on_length_text_info(message: Message, state: FSMContext):
-    await state.update_data(length=message.text)
-    await state.set_state(PresetForm.waiting_camera_dist)
-    from bot.keyboards import camera_distance_keyboard
-    await message.answer("Выберите ракурс фотографии:", reply_markup=camera_distance_keyboard())
-
-@router.callback_query(F.data.startswith("camera_dist:"), PresetForm.waiting_camera_dist)
-async def on_camera_dist_info(callback: CallbackQuery, state: FSMContext):
-    await state.update_data(camera_dist=callback.data.split(":")[1])
+async def on_length_input(event: Message | CallbackQuery, state: FSMContext, db: Database):
+    if isinstance(event, CallbackQuery):
+        await state.update_data(length=None)
+        msg = event.message
+        uid = event.from_user.id
+    else:
+        await state.update_data(length=event.text)
+        msg = event
+        uid = event.from_user.id
+    
+    lang = await db.get_user_language(uid)
     await state.set_state(PresetForm.waiting_season)
     from bot.keyboards import random_season_keyboard
-    await _replace_with_text(callback, "Выберите время года:", reply_markup=random_season_keyboard())
+    if isinstance(event, CallbackQuery):
+        await _replace_with_text(event, get_string("select_season", lang), reply_markup=random_season_keyboard(lang))
+    else:
+        await msg.answer(get_string("select_season", lang), reply_markup=random_season_keyboard(lang))
 
 @router.callback_query(F.data.startswith("rand_season:"), PresetForm.waiting_season)
-async def on_season_info_other(callback: CallbackQuery, state: FSMContext):
+async def on_season_input(callback: CallbackQuery, state: FSMContext, db: Database):
     val = callback.data.split(":")[1]
     await state.update_data(season=None if val == "skip" else val)
+    await state.set_state(PresetForm.waiting_info_style)
+    lang = await db.get_user_language(callback.from_user.id)
+    from bot.keyboards import infographic_style_keyboard
+    await _replace_with_text(callback, get_string("select_info_style_other", lang), reply_markup=infographic_style_keyboard(lang))
+
+@router.callback_query(F.data.startswith("info_style:"), PresetForm.waiting_info_style)
+async def on_style_input(callback: CallbackQuery, state: FSMContext, db: Database):
+    val = callback.data.split(":")[1]
+    lang = await db.get_user_language(callback.from_user.id)
+    if val == "custom":
+        await state.set_state(PresetForm.waiting_info_style_custom)
+        await callback.message.edit_text(get_string("enter_custom_style", lang))
+    else:
+        await state.update_data(info_style=None if val == "skip" else val)
+        await state.set_state(PresetForm.waiting_info_load)
+        from bot.keyboards import info_load_keyboard
+        await _replace_with_text(callback, get_string("select_info_load", lang), reply_markup=info_load_keyboard(lang))
+
+@router.message(PresetForm.waiting_info_style_custom)
+async def on_style_custom_input(message: Message, state: FSMContext, db: Database):
+    await state.update_data(info_style=message.text[:20])
+    await state.set_state(PresetForm.waiting_info_load)
+    lang = await db.get_user_language(message.from_user.id)
+    from bot.keyboards import info_load_keyboard
+    await message.answer(get_string("select_info_load", lang), reply_markup=info_load_keyboard(lang))
+
+@router.callback_query(F.data.startswith("info_load:"), PresetForm.waiting_info_load)
+async def on_load_input(callback: CallbackQuery, state: FSMContext, db: Database):
+    val = callback.data.split(":")[1]
+    await state.update_data(info_load=None if val == "skip" else val)
+    await state.set_state(PresetForm.waiting_has_person)
+    lang = await db.get_user_language(callback.from_user.id)
+    from bot.keyboards import yes_no_keyboard
+    await _replace_with_text(callback, get_string("has_person_ask", lang), reply_markup=yes_no_keyboard(lang))
+
+@router.callback_query(F.data.startswith("yes_no:"), PresetForm.waiting_has_person)
+async def on_has_person_input(callback: CallbackQuery, state: FSMContext, db: Database):
+    val = callback.data.split(":")[1]
+    await state.update_data(has_person=val)
+    lang = await db.get_user_language(callback.from_user.id)
+    if val == "yes":
+        await state.set_state(PresetForm.waiting_gender)
+        from bot.keyboards import infographic_gender_keyboard
+        await _replace_with_text(callback, get_string("select_gender", lang), reply_markup=infographic_gender_keyboard(lang))
+    else:
+        await state.update_data(gender=None)
+        await state.set_state(PresetForm.waiting_quality)
+        from bot.keyboards import quality_keyboard
+        await _replace_with_text(callback, get_string("select_quality", lang), reply_markup=quality_keyboard(lang))
+
+@router.callback_query(F.data.startswith("rand_locgroup:"), PresetForm.waiting_loc_group)
+async def on_loc_group_input(callback: CallbackQuery, state: FSMContext, db: Database):
+    group = callback.data.split(":")[1]
+    await state.update_data(loc_group=group)
+    lang = await db.get_user_language(callback.from_user.id)
+    await state.set_state(PresetForm.waiting_location)
+    await _replace_with_text(callback, get_string("enter_loc_style", lang)) # Спрашиваем стиль локации
+
+@router.message(PresetForm.waiting_location)
+async def on_loc_style_input(message: Message, state: FSMContext, db: Database):
+    lang = await db.get_user_language(message.from_user.id)
+    await state.update_data(location=message.text[:120])
+    data = await state.get_data()
+    
+    if data.get("loc_group") == "outdoor":
+        await state.set_state(PresetForm.waiting_season)
+        from bot.keyboards import random_season_keyboard
+        await message.answer(get_string("select_season", lang), reply_markup=random_season_keyboard(lang))
+    else:
+        await state.set_state(PresetForm.waiting_holiday)
+        from bot.keyboards import random_holiday_keyboard
+        await message.answer(get_string("select_holiday", lang), reply_markup=random_holiday_keyboard(lang))
+
+@router.callback_query(F.data.startswith("rand_season:"), PresetForm.waiting_season)
+async def on_season_input(callback: CallbackQuery, state: FSMContext, db: Database):
+    val = callback.data.split(":")[1]
+    await state.update_data(season=None if val == "skip" else val)
+    lang = await db.get_user_language(callback.from_user.id)
     await state.set_state(PresetForm.waiting_holiday)
     from bot.keyboards import random_holiday_keyboard
-    await _replace_with_text(callback, "Выберите праздник:", reply_markup=random_holiday_keyboard())
+    await _replace_with_text(callback, get_string("select_holiday", lang), reply_markup=random_holiday_keyboard(lang))
 
 @router.callback_query(F.data.startswith("rand_holiday:"), PresetForm.waiting_holiday)
-async def on_holiday_info_other(callback: CallbackQuery, state: FSMContext):
+async def on_holiday_input(callback: CallbackQuery, state: FSMContext, db: Database):
     val = callback.data.split(":")[1]
+    lang = await db.get_user_language(callback.from_user.id)
     if val == "custom":
         await state.set_state(PresetForm.waiting_holiday_custom)
-        await callback.message.edit_text("Введите ваш вариант праздника (до 30 символов):")
+        await callback.message.edit_text(get_string("enter_custom_holiday", lang))
     else:
         await state.update_data(holiday=None if val == "skip" else val)
-        await on_after_holiday_info(callback.message, state)
+        await state.set_state(PresetForm.waiting_quality)
+        from bot.keyboards import quality_keyboard
+        await _replace_with_text(callback, get_string("select_quality", lang), reply_markup=quality_keyboard(lang))
 
 @router.message(PresetForm.waiting_holiday_custom)
-async def on_holiday_custom_info(message: Message, state: FSMContext):
+async def on_holiday_custom_input(message: Message, state: FSMContext, db: Database):
     await state.update_data(holiday=message.text[:30])
-    await on_after_holiday_info(message, state)
-
-async def on_after_holiday_info(message: Message, state: FSMContext):
-    await state.set_state(PresetForm.waiting_adv1)
-    await message.answer("Введите первое преимущество словами (до 180 символов):")
+    lang = await db.get_user_language(message.from_user.id)
+    await state.set_state(PresetForm.waiting_quality)
+    from bot.keyboards import quality_keyboard
+    await message.answer(get_string("select_quality", lang), reply_markup=quality_keyboard(lang))
 
 @router.message(PresetForm.waiting_adv1)
-async def on_adv1_text(message: Message, state: FSMContext):
+async def on_adv1_text(message: Message, state: FSMContext, db: Database):
+    lang = await db.get_user_language(message.from_user.id)
     await state.update_data(adv1=message.text[:180])
     await state.set_state(PresetForm.waiting_adv2)
-    await message.answer("Введите второе преимущество словами (до 180 символов):")
+    await message.answer(get_string("enter_adv2", lang))
 
 @router.message(PresetForm.waiting_adv2)
-async def on_adv2_text(message: Message, state: FSMContext):
+async def on_adv2_text(message: Message, state: FSMContext, db: Database):
+    lang = await db.get_user_language(message.from_user.id)
     await state.update_data(adv2=message.text[:180])
     await state.set_state(PresetForm.waiting_adv3)
-    await message.answer("Введите третье преимущество словами (до 180 символов):")
+    await message.answer(get_string("enter_adv3", lang))
 
 @router.message(PresetForm.waiting_adv3)
-async def on_adv3_text(message: Message, state: FSMContext):
+async def on_adv3_text(message: Message, state: FSMContext, db: Database):
+    lang = await db.get_user_language(message.from_user.id)
     await state.update_data(adv3=message.text[:180])
     await state.set_state(PresetForm.waiting_extra_info)
     from bot.keyboards import skip_step_keyboard
-    await message.answer("Введите дополнение если есть какие либо предпочтения (до 100 символов) или пропустите:", reply_markup=skip_step_keyboard("extra"))
+    await message.answer(get_string("enter_additional", lang), reply_markup=skip_step_keyboard("extra", lang))
 
 @router.callback_query(F.data == "extra:skip", PresetForm.waiting_extra_info)
-async def on_extra_skip_info_other(callback: CallbackQuery, state: FSMContext):
+async def on_extra_skip_info_other(callback: CallbackQuery, state: FSMContext, db: Database):
+    lang = await db.get_user_language(callback.from_user.id)
     await state.update_data(extra_info=None)
-    await state.set_state(PresetForm.waiting_gender)
-    from bot.keyboards import infographic_gender_extended_keyboard
-    await _replace_with_text(callback, "К какому полу относится данный продукт:", reply_markup=infographic_gender_extended_keyboard())
+    data = await state.get_data()
+    
+    if data.get("category") == "infographic_clothing":
+        await state.set_state(PresetForm.waiting_model_size)
+        from bot.keyboards import skip_step_keyboard
+        await _replace_with_text(callback, get_string("enter_model_size", lang), reply_markup=skip_step_keyboard("size", lang))
+    else:
+        await state.set_state(PresetForm.waiting_gender)
+        from bot.keyboards import infographic_gender_keyboard
+        await _replace_with_text(callback, get_string("select_gender", lang), reply_markup=infographic_gender_keyboard(lang))
 
 @router.message(PresetForm.waiting_extra_info)
-async def on_extra_text_info_other(message: Message, state: FSMContext):
+async def on_extra_text_info_other(message: Message, state: FSMContext, db: Database):
+    lang = await db.get_user_language(message.from_user.id)
     await state.update_data(extra_info=message.text[:100])
-    await state.set_state(PresetForm.waiting_gender)
-    from bot.keyboards import infographic_gender_extended_keyboard
-    await message.answer("К какому полу относится данный продукт:", reply_markup=infographic_gender_extended_keyboard())
+    data = await state.get_data()
+    
+    if data.get("category") == "infographic_clothing":
+        await state.set_state(PresetForm.waiting_model_size)
+        from bot.keyboards import skip_step_keyboard
+        await message.answer(get_string("enter_model_size", lang), reply_markup=skip_step_keyboard("size", lang))
+    else:
+        await state.set_state(PresetForm.waiting_gender)
+        from bot.keyboards import infographic_gender_keyboard
+        await message.answer(get_string("select_gender", lang), reply_markup=infographic_gender_keyboard(lang))
 
-@router.callback_query(F.data.startswith("info_gender:"), PresetForm.waiting_gender)
-async def on_info_gender_ext(callback: CallbackQuery, state: FSMContext):
-    await state.update_data(gender=callback.data.split(":")[1])
-    await state.set_state(PresetForm.waiting_info_style)
-    from bot.keyboards import infographic_style_keyboard
-    await _replace_with_text(callback, "Выберите стиль инфографики:", reply_markup=infographic_style_keyboard())
+@router.callback_query(F.data.startswith("rand_gender:"), PresetForm.waiting_model_gender)
+async def on_model_gender_input(callback: CallbackQuery, state: FSMContext, db: Database):
+    gender = callback.data.split(":")[1]
+    await state.update_data(model_gender=gender)
+    lang = await db.get_user_language(callback.from_user.id)
+    
+    if gender in ["boy", "girl"]:
+        await state.set_state(PresetForm.waiting_pose)
+        from bot.keyboards import pose_keyboard
+        await _replace_with_text(callback, get_string("select_pose", lang), reply_markup=pose_keyboard(lang))
+    else:
+        await state.set_state(PresetForm.waiting_age)
+        await _replace_with_text(callback, get_string("enter_age_num", lang))
 
 @router.callback_query(F.data.startswith("info_style:"), PresetForm.waiting_info_style)
-async def on_info_style(callback: CallbackQuery, state: FSMContext):
+async def on_info_style(callback: CallbackQuery, state: FSMContext, db: Database):
     val = callback.data.split(":")[1]
+    lang = await db.get_user_language(callback.from_user.id)
     if val == "skip":
         await state.update_data(info_style=None)
         await state.set_state(PresetForm.waiting_font_type)
         from bot.keyboards import font_type_keyboard
-        await _replace_with_text(callback, "Выберите тип шрифта:", reply_markup=font_type_keyboard())
+        await _replace_with_text(callback, get_string("select_font_type", lang), reply_markup=font_type_keyboard(lang))
     elif val == "custom":
         await state.set_state(PresetForm.waiting_info_style_custom)
-        await callback.message.edit_text("Введите свой вариант стиля (до 20 символов):")
+        await callback.message.edit_text(get_string("enter_custom_style", lang))
     else:
         await state.update_data(info_style=val)
         await state.set_state(PresetForm.waiting_font_type)
         from bot.keyboards import font_type_keyboard
-        await _replace_with_text(callback, "Выберите тип шрифта:", reply_markup=font_type_keyboard())
+        await _replace_with_text(callback, get_string("select_font_type", lang), reply_markup=font_type_keyboard(lang))
 
 @router.message(PresetForm.waiting_info_style_custom)
-async def on_info_style_custom(message: Message, state: FSMContext):
+async def on_info_style_custom(message: Message, state: FSMContext, db: Database):
+    lang = await db.get_user_language(message.from_user.id)
     await state.update_data(info_style=message.text[:20])
     await state.set_state(PresetForm.waiting_font_type)
     from bot.keyboards import font_type_keyboard
-    await message.answer("Выберите тип шрифта:", reply_markup=font_type_keyboard())
+    await message.answer(get_string("select_font_type", lang), reply_markup=font_type_keyboard(lang))
 
 @router.callback_query(F.data.startswith("font_type:"), PresetForm.waiting_font_type)
-async def on_font_type(callback: CallbackQuery, state: FSMContext):
+async def on_font_type(callback: CallbackQuery, state: FSMContext, db: Database):
     val = callback.data.split(":")[1]
+    lang = await db.get_user_language(callback.from_user.id)
     if val == "skip":
         await state.update_data(font_type=None)
         await state.set_state(PresetForm.waiting_info_lang)
-        from bot.keyboards import info_lang_keyboard_extended
-        await _replace_with_text(callback, "Выберите язык инфографики:", reply_markup=info_lang_keyboard_extended())
+        from bot.keyboards import info_lang_keyboard
+        await _replace_with_text(callback, get_string("select_info_lang", lang), reply_markup=info_lang_keyboard(lang))
     elif val == "custom":
         await state.set_state(PresetForm.waiting_font_type_custom)
-        await callback.message.edit_text("Введите свой вариант шрифта (до 20 символов):")
+        await callback.message.edit_text(get_string("enter_custom_font", lang))
     else:
         await state.update_data(font_type=val)
         await state.set_state(PresetForm.waiting_info_lang)
-        from bot.keyboards import info_lang_keyboard_extended
-        await _replace_with_text(callback, "Выберите язык инфографики:", reply_markup=info_lang_keyboard_extended())
+        from bot.keyboards import info_lang_keyboard
+        await _replace_with_text(callback, get_string("select_info_lang", lang), reply_markup=info_lang_keyboard(lang))
 
 @router.message(PresetForm.waiting_font_type_custom)
-async def on_font_type_custom(message: Message, state: FSMContext):
+async def on_font_type_custom(message: Message, state: FSMContext, db: Database):
+    lang = await db.get_user_language(message.from_user.id)
     await state.update_data(font_type=message.text[:20])
     await state.set_state(PresetForm.waiting_info_lang)
-    from bot.keyboards import info_lang_keyboard_extended
-    await message.answer("Выберите язык инфографики:", reply_markup=info_lang_keyboard_extended())
+    from bot.keyboards import info_lang_keyboard
+    await message.answer(get_string("select_info_lang", lang), reply_markup=info_lang_keyboard(lang))
 
 @router.callback_query(F.data.startswith("info_lang:"), PresetForm.waiting_info_lang)
-async def on_info_lang_ext(callback: CallbackQuery, state: FSMContext):
+async def on_info_lang_ext(callback: CallbackQuery, state: FSMContext, db: Database):
     val = callback.data.split(":")[1]
+    lang = await db.get_user_language(callback.from_user.id)
     if val == "custom":
         await state.set_state(PresetForm.waiting_info_lang_custom)
-        await callback.message.edit_text("Введите свой вариант языка:")
+        await callback.message.edit_text(get_string("enter_custom_lang", lang))
     else:
         await state.update_data(info_lang=val)
         await state.set_state(PresetForm.waiting_aspect)
         from bot.keyboards import aspect_ratio_keyboard
-        await _replace_with_text(callback, "Выберите формат фото:", reply_markup=aspect_ratio_keyboard())
+        await _replace_with_text(callback, get_string("select_photo_format", lang), reply_markup=aspect_ratio_keyboard(lang))
 
 @router.message(PresetForm.waiting_info_lang_custom)
-async def on_info_lang_custom(message: Message, state: FSMContext):
+async def on_info_lang_custom(message: Message, state: FSMContext, db: Database):
+    lang = await db.get_user_language(message.from_user.id)
     await state.update_data(info_lang=message.text)
     await state.set_state(PresetForm.waiting_aspect)
     from bot.keyboards import aspect_ratio_keyboard
-    await message.answer("Выберите формат фото:", reply_markup=aspect_ratio_keyboard())
+    await message.answer(get_string("select_photo_format", lang), reply_markup=aspect_ratio_keyboard(lang))
 
 @router.callback_query(F.data == "create_normal_gen")
 async def on_create_normal_gen(callback: CallbackQuery, db: Database, state: FSMContext):
     await state.clear()
+    lang = await db.get_user_language(callback.from_user.id)
     await state.set_state(CreateForm.waiting_photos)
     await state.update_data(photos=[])
-    await _replace_with_text(callback, "Обычная генерация: Пришлите от 1 до 3-х фотографий. Когда закончите, нажмите кнопку ниже.", 
+    await _replace_with_text(callback, get_string("normal_gen_prompt", lang), 
                              reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                                 [InlineKeyboardButton(text="✅ Готово, к тексту", callback_data="photos_done")],
-                                 [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_main")]
+                                 [InlineKeyboardButton(text=get_string("done_to_text", lang), callback_data="photos_done")],
+                                 [InlineKeyboardButton(text=get_string("back", lang), callback_data="back_main")]
                              ]))
 
 @router.message(CreateForm.waiting_photos, F.photo)
-async def on_normal_photos(message: Message, state: FSMContext):
+async def on_normal_photos(message: Message, state: FSMContext, db: Database):
+    lang = await db.get_user_language(message.from_user.id)
     data = await state.get_data()
     photos = data.get("photos", [])
-    if len(photos) >= 3:
-        await message.answer("Максимум 3 фото. Нажмите 'Готово', чтобы продолжить.")
+    if len(photos) >= 4:
+        await message.answer(get_string("max_photos_alert", lang))
         return
     
     photos.append(message.photo[-1].file_id)
     await state.update_data(photos=photos)
     
-    if len(photos) < 3:
-        await message.answer(f"Фото получено ({len(photos)}/3). Пришлите еще или нажмите 'Готово'.", 
+    if len(photos) < 4:
+        await message.answer(get_string("photo_received_count", lang, count=len(photos)), 
                              reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                                 [InlineKeyboardButton(text="✅ Готово, к тексту", callback_data="photos_done")]
+                                 [InlineKeyboardButton(text=get_string("done_to_text", lang), callback_data="photos_done")]
                              ]))
     else:
-        await message.answer("Получено 3 фото. Теперь введите текст описания (до 1000 символов):")
+        await message.answer(get_string("photos_received_four", lang))
         await state.set_state(CreateForm.waiting_text)
 
 @router.callback_query(F.data == "photos_done", CreateForm.waiting_photos)
-async def on_photos_done(callback: CallbackQuery, state: FSMContext):
+async def on_photos_done(callback: CallbackQuery, state: FSMContext, db: Database):
+    lang = await db.get_user_language(callback.from_user.id)
     data = await state.get_data()
     if not data.get("photos"):
-        await callback.answer("Пришлите хотя бы одно фото!", show_alert=True)
-        return
+        await callback.answer(get_string("at_least_one_photo", lang), show_alert=True)
+            return
     
     await state.set_state(CreateForm.waiting_text)
-    await _replace_with_text(callback, "Теперь введите текст описания (до 1000 символов):")
+    await _replace_with_text(callback, get_string("enter_normal_text", lang))
 
 @router.message(CreateForm.waiting_text)
-async def on_normal_text(message: Message, state: FSMContext):
+async def on_normal_text(message: Message, state: FSMContext, db: Database):
+    lang = await db.get_user_language(message.from_user.id)
     await state.update_data(market_prompt=message.text[:1000]) # Используем market_prompt для совместимости с on_form_generate
     await state.set_state(CreateForm.waiting_aspect)
     from bot.keyboards import aspect_ratio_keyboard
-    await message.answer("Выберите формат фото:", reply_markup=aspect_ratio_keyboard())
+    await message.answer(get_string("select_photo_format", lang), reply_markup=aspect_ratio_keyboard(lang))
 
 @router.callback_query(F.data.startswith("form_aspect:"), CreateForm.waiting_aspect)
-async def on_normal_aspect(callback: CallbackQuery, state: FSMContext):
+async def on_normal_aspect(callback: CallbackQuery, state: FSMContext, db: Database):
+    lang = await db.get_user_language(callback.from_user.id)
     await state.update_data(form_aspect=callback.data.split(":")[1])
     await state.set_state(CreateForm.result_ready)
     from bot.keyboards import confirm_generation_keyboard
-    await _replace_with_text(callback, "Все готово! Начать генерацию?", reply_markup=confirm_generation_keyboard())
+    await _replace_with_text(callback, get_string("generation_confirm", lang), reply_markup=confirm_generation_keyboard(lang))
 
 @router.callback_query(F.data.startswith("info_gender:"), PresetForm.waiting_gender)
 async def on_info_gender(callback: CallbackQuery, state: FSMContext, db: Database):
@@ -571,7 +877,7 @@ async def on_info_gender(callback: CallbackQuery, state: FSMContext, db: Databas
     
     total = await db.count_models(category, gender)
     if total == 0:
-        await callback.answer(f"В категории {gender} пока нет моделей", show_alert=True)
+        await callback.answer(get_string("no_gender_models_alert", lang, gender=gender), show_alert=True)
         return
         
     model = await db.get_model_by_index(category, gender, 0)
@@ -579,7 +885,7 @@ async def on_info_gender(callback: CallbackQuery, state: FSMContext, db: Databas
     kb = model_select_keyboard_presets(category, gender, 0, total, lang)
     
     await callback.message.delete()
-    await _send_model_photo(callback, model[3], f"Прессеты для {gender}\n\nМодель: {model[1]} (1/{total})", kb)
+    await _send_model_photo(callback, model[3], get_string("gender_presets_title", lang, gender=gender, name=model[1], index=1, total=total), kb)
 
 async def _safe_answer(callback: CallbackQuery, text: str | None = None, show_alert: bool = False) -> None:
     try:
@@ -606,15 +912,17 @@ async def cmd_start(message: Message, state: FSMContext, db: Database, bot: Bot)
     # Проверка техработ
     maint = await db.get_app_setting("maintenance")
     if maint == "1":
-        await message.answer("🛠 В боте проводятся технические работы. Пожалуйста, попробуйте позже.\nВремя вашей подписки будет продлено на время техработ.")
+        await message.answer(get_string("maintenance", lang))
         return
     
     # Регистрация пользователя
     await db.upsert_user(user_id, message.from_user.username, message.from_user.first_name, message.from_user.last_name)
-    lang = await db.get_user_language(user_id)
     
     # 1. Обязательная подписка
     if not await check_user_subscription(user_id, bot, db):
+        channel_id = await db.get_app_setting("channel_id") or "-1003224356583"
+        channel_url = f"https://t.me/c/{channel_id[4:]}" if channel_id.startswith("-100") else f"https://t.me/{channel_id}"
+        # Пользователь предоставил ссылку: https://t.me/+fOA5fiDstVdlMzIy
         channel_url = "https://t.me/+fOA5fiDstVdlMzIy"
         await message.answer(get_string("subscribe_channel", lang), reply_markup=subscription_check_keyboard(channel_url, lang))
         return
@@ -631,7 +939,7 @@ async def cmd_start(message: Message, state: FSMContext, db: Database, bot: Bot)
             if row and not row[0]:
                 agreement_text = await db.get_agreement_text()
                 await message.answer(f"<b>{get_string('agreement', lang)}</b>\n\n{agreement_text}", reply_markup=terms_keyboard(lang))
-                return
+        return
 
     await message.answer(get_string("start_welcome", lang), reply_markup=main_menu_keyboard(lang))
 
@@ -659,12 +967,17 @@ async def on_menu_profile(callback: CallbackQuery, db: Database):
         plan, expires, limit, usage = sub
         rem = max(0, limit - usage)
         sub_text = get_string("sub_active", lang, plan=plan.upper(), date=expires)
-    else:
+            else:
         sub_text = get_string("sub_none", lang)
         rem = 0
     
     text = get_string("profile_info", lang, id=user_id, sub=sub_text, daily_rem=rem)
     await _replace_with_text(callback, text, reply_markup=profile_keyboard(lang))
+
+@router.callback_query(F.data == "menu_settings")
+async def on_menu_settings(callback: CallbackQuery, db: Database):
+    lang = await db.get_user_language(callback.from_user.id)
+    await _replace_with_text(callback, get_string("menu_settings", lang), reply_markup=settings_keyboard(lang))
 
 @router.callback_query(F.data == "settings_lang")
 async def on_settings_lang(callback: CallbackQuery, db: Database):
@@ -675,7 +988,7 @@ async def on_settings_lang(callback: CallbackQuery, db: Database):
 async def on_set_lang(callback: CallbackQuery, db: Database):
     new_lang = callback.data.split(":")[1]
     await db.set_user_language(callback.from_user.id, new_lang)
-    await on_menu_profile(callback, db)
+    await on_menu_settings(callback, db)
 
 async def _send_model_photo(callback: CallbackQuery, photo_id: str, caption: str, reply_markup: InlineKeyboardMarkup):
     """Универсальная функция для отправки фото модели (file_id или локальный путь)"""
@@ -685,14 +998,14 @@ async def _send_model_photo(callback: CallbackQuery, photo_id: str, caption: str
                 from aiogram.types import FSInputFile
                 photo = FSInputFile(photo_id)
                 await callback.message.answer_photo(photo, caption=caption, reply_markup=reply_markup)
-            else:
+    else:
                 await callback.message.answer(caption, reply_markup=reply_markup)
         elif photo_id:
             await callback.message.answer_photo(photo_id, caption=caption, reply_markup=reply_markup)
         else:
             await callback.message.answer(caption, reply_markup=reply_markup)
     except Exception as e:
-        await callback.message.answer(f"{caption}\n\n(Ошибка фото: {e})", reply_markup=reply_markup)
+        await callback.message.answer(f"{caption}\n\n({get_string('error_api', lang)}: {e})", reply_markup=reply_markup)
 
 @router.callback_query(F.data == "menu_market")
 async def on_menu_market(callback: CallbackQuery, db: Database, state: FSMContext):
@@ -702,7 +1015,7 @@ async def on_menu_market(callback: CallbackQuery, db: Database, state: FSMContex
     # Проверка техработ
     maint = await db.get_app_setting("maintenance")
     if maint == "1":
-        await callback.answer("🛠 Технические работы. Подписка будет продлена.", show_alert=True)
+        await callback.answer(get_string("maintenance_alert", lang), show_alert=True)
         return
 
     enabled = await db.get_all_app_settings()
@@ -716,9 +1029,9 @@ async def on_menu_market(callback: CallbackQuery, db: Database, state: FSMContex
         prices[cat] = int(enabled.get(f"category_price_{cat}", "10"))
 
     # Текст с картинки 2: Обратите внимание...
-    disclaimer = "Текст: обратите внимание внешность или другие параметры могут отличаться в зависимости от заданных параметров."
+    disclaimer = get_string("disclaimer_text", lang)
     from bot.keyboards import create_product_keyboard_dynamic
-    await _replace_with_text(callback, disclaimer, reply_markup=create_product_keyboard_dynamic(cat_status, prices))
+    await _replace_with_text(callback, disclaimer, reply_markup=create_product_keyboard_dynamic(cat_status, lang))
 
 @router.callback_query(F.data.startswith("create_cat:"))
 async def on_create_cat(callback: CallbackQuery, db: Database, state: FSMContext):
@@ -732,14 +1045,15 @@ async def on_create_cat(callback: CallbackQuery, db: Database, state: FSMContext
     # Показываем выбор модели (пресета)
     total = await db.count_models(category, "default")
     if total == 0:
-        await callback.answer("В этой категории пока нет моделей", show_alert=True)
+        await callback.answer(get_string("no_models_in_category_alert", lang), show_alert=True)
         return
         
     model = await db.get_model_by_index(category, "default", 0)
+    from bot.keyboards import model_select_keyboard_presets
     kb = model_select_keyboard_presets(category, "default", 0, total, lang)
     
     await callback.message.delete()
-    await _send_model_photo(callback, model[3], f"Прессеты для одежды\n\nМодель: {model[1]} (1/{total})", kb)
+    await _send_model_photo(callback, model[3], get_string("model_presets_title", lang, name=model[1], index=1, total=total), kb)
 
 @router.callback_query(F.data.startswith("preset_nav:"))
 async def on_preset_nav(callback: CallbackQuery, db: Database, state: FSMContext):
@@ -752,10 +1066,11 @@ async def on_preset_nav(callback: CallbackQuery, db: Database, state: FSMContext
     
     model = await db.get_model_by_index(category, cloth, index)
     lang = await db.get_user_language(callback.from_user.id)
+    from bot.keyboards import model_select_keyboard_presets
     kb = model_select_keyboard_presets(category, cloth, index, total, lang)
     
     await callback.message.delete()
-    await _send_model_photo(callback, model[3], f"Прессеты для одежды\n\nМодель: {model[1]} ({index+1}/{total})", kb)
+    await _send_model_photo(callback, model[3], get_string("model_presets_title", lang, name=model[1], index=index+1, total=total), kb)
 
 @router.callback_query(F.data.startswith("preset_pick:"), PresetForm.waiting_model_pick)
 async def on_preset_pick(callback: CallbackQuery, db: Database, state: FSMContext):
@@ -766,121 +1081,136 @@ async def on_preset_pick(callback: CallbackQuery, db: Database, state: FSMContex
     await state.update_data(model_id=model[0], prompt_id=model[2], category=category, cloth=cloth)
     
     if category == "infographic_other":
-        # Для прочих товаров пропускаем рост/возраст/тело и идем к инфографическим параметрам
-        await state.set_state(PresetForm.waiting_holiday)
-        from bot.keyboards import info_holiday_keyboard
-        await callback.message.answer("Выберите праздник (или пропустите):", reply_markup=info_holiday_keyboard())
+        await state.set_state(PresetForm.waiting_product_name)
+        await callback.message.answer(get_string("enter_product_name", lang))
     elif category == "child":
         await state.set_state(PresetForm.waiting_height)
-        await callback.message.answer("Введите рост модели в числах на пример 170.")
+        await callback.message.answer(get_string("enter_height_example", lang))
     else:
         await state.set_state(PresetForm.waiting_body_type)
-        await callback.message.answer("Выберите телосложение или введите числом:")
+        await callback.message.answer(get_string("enter_body_type", lang))
 
 @router.message(PresetForm.waiting_body_type)
-async def on_preset_body_type(message: Message, state: FSMContext):
+async def on_preset_body_type(message: Message, state: FSMContext, db: Database):
+    lang = await db.get_user_language(message.from_user.id)
     await state.update_data(body_type=message.text)
     await state.set_state(PresetForm.waiting_height)
-    await message.answer("Введите рост модели в числах на пример 170.")
+    await message.answer(get_string("enter_height_example", lang))
 
 @router.message(PresetForm.waiting_height)
-async def on_preset_height(message: Message, state: FSMContext):
+async def on_preset_height(message: Message, state: FSMContext, db: Database):
+    lang = await db.get_user_language(message.from_user.id)
     if not message.text.isdigit():
-        await message.answer("Пожалуйста, введите число.")
+        await message.answer(get_string("enter_height_example", lang)) # Use same string for re-asking
         return
     await state.update_data(height=message.text)
     await state.set_state(PresetForm.waiting_age)
-    await message.answer("Введите возраст модели числом:")
+    await message.answer(get_string("enter_age_num", lang))
 
 @router.message(PresetForm.waiting_age)
-async def on_preset_age(message: Message, state: FSMContext):
+async def on_preset_age(message: Message, state: FSMContext, db: Database):
+    lang = await db.get_user_language(message.from_user.id)
     if not message.text.isdigit():
-        await message.answer("Пожалуйста, введите число.")
+        await message.answer(get_string("enter_age_num", lang))
         return
     await state.update_data(age=message.text)
     await state.set_state(PresetForm.waiting_pants_style)
-    await message.answer("Выберите тип кроя штанов:", reply_markup=pants_style_keyboard())
+    from bot.keyboards import pants_style_keyboard
+    await message.answer(get_string("select_pants_style_btn", lang), reply_markup=pants_style_keyboard(lang))
 
 @router.callback_query(F.data.startswith("pants_style:"), PresetForm.waiting_pants_style)
-async def on_preset_pants_style(callback: CallbackQuery, state: FSMContext):
+async def on_preset_pants_style(callback: CallbackQuery, state: FSMContext, db: Database):
     style = callback.data.split(":")[1]
+    lang = await db.get_user_language(callback.from_user.id)
     if style == "skip":
         await state.update_data(pants_style=None)
-    else:
+        else:
         await state.update_data(pants_style=style)
     await state.set_state(PresetForm.waiting_sleeve_length)
-    await callback.message.edit_text("Выберите тип рукавов:", reply_markup=sleeve_length_keyboard())
+    from bot.keyboards import sleeve_length_keyboard
+    await callback.message.edit_text(get_string("select_sleeve_length_btn", lang), reply_markup=sleeve_length_keyboard(lang))
 
 @router.callback_query(F.data.startswith("form_sleeve:"), PresetForm.waiting_sleeve_length)
-async def on_preset_sleeve_length(callback: CallbackQuery, state: FSMContext):
+async def on_preset_sleeve_length(callback: CallbackQuery, state: FSMContext, db: Database):
     length = callback.data.split(":")[1]
+    lang = await db.get_user_language(callback.from_user.id)
     if length == "skip":
         await state.update_data(sleeve_length=None)
-    else:
+        else:
         await state.update_data(sleeve_length=length)
     await state.set_state(PresetForm.waiting_length)
-    text = "Выберите длину изделия. Текст: Внимание! если ваш продукт Костюм 2-к, 3-к то длину можно не указывать."
-    await callback.message.edit_text(text, reply_markup=garment_length_with_custom_keyboard())
+    text = get_string("garment_length_notice", lang)
+    from bot.keyboards import garment_length_with_custom_keyboard
+    await callback.message.edit_text(text, reply_markup=garment_length_with_custom_keyboard(lang))
 
 @router.callback_query(F.data == "garment_len:skip", PresetForm.waiting_length)
-async def on_preset_length_skip(callback: CallbackQuery, state: FSMContext):
+async def on_preset_length_skip(callback: CallbackQuery, state: FSMContext, db: Database):
     await state.update_data(length=None)
-    await preset_ask_photo_type(callback.message, state)
+    await preset_ask_photo_type(callback.message, state, db)
 
 @router.callback_query(F.data.startswith("garment_len:"), PresetForm.waiting_length)
-async def on_preset_length_btn(callback: CallbackQuery, state: FSMContext):
+async def on_preset_length_btn(callback: CallbackQuery, state: FSMContext, db: Database):
     val = callback.data.split(":")[1]
     await state.update_data(length=val)
-    await preset_ask_photo_type(callback.message, state)
+    await preset_ask_photo_type(callback.message, state, db)
 
 @router.callback_query(F.data == "garment_len_custom", PresetForm.waiting_length)
-async def on_preset_length_custom(callback: CallbackQuery, state: FSMContext):
-    await callback.message.answer("Введите длину изделия текстом:")
+async def on_preset_length_custom(callback: CallbackQuery, state: FSMContext, db: Database):
+    lang = await db.get_user_language(callback.from_user.id)
+    await callback.message.answer(get_string("enter_length_custom", lang))
 
 @router.message(PresetForm.waiting_length)
-async def on_preset_length_text(message: Message, state: FSMContext):
+async def on_preset_length_text(message: Message, state: FSMContext, db: Database):
     await state.update_data(length=message.text)
-    await preset_ask_photo_type(message, state)
+    await preset_ask_photo_type(message, state, db)
 
-async def preset_ask_photo_type(message: Message, state: FSMContext):
+async def preset_ask_photo_type(message: Message, state: FSMContext, db: Database):
+    lang = await db.get_user_language(message.from_user.id)
     await state.set_state(PresetForm.waiting_photo_type)
-    await message.answer("Выберите тип фотографии:", reply_markup=form_view_keyboard())
+    from bot.keyboards import form_view_keyboard
+    await message.answer(get_string("select_photo_type", lang), reply_markup=form_view_keyboard(lang))
 
 @router.callback_query(F.data.startswith("form_view:"), PresetForm.waiting_photo_type)
-async def on_preset_photo_type(callback: CallbackQuery, state: FSMContext):
+async def on_preset_photo_type(callback: CallbackQuery, state: FSMContext, db: Database):
     val = callback.data.split(":")[1]
     await state.update_data(photo_type=val)
+    lang = await db.get_user_language(callback.from_user.id)
     
     data = await state.get_data()
     category = data.get("category")
     
     if category == "own_variant":
-        # Сценарий 'Свой вариант ФОНА' - после ракурса сразу генерация
-        await state.set_state(PresetForm.result_ready)
-        from bot.keyboards import confirm_generation_keyboard
-        await callback.message.edit_text("Все готово! Создать фото?", reply_markup=confirm_generation_keyboard())
+        # Сценарий 'Свой вариант ФОНА' - после ракурса выбор формата
+        await state.set_state(PresetForm.waiting_aspect)
+        from bot.keyboards import aspect_ratio_keyboard
+        await callback.message.edit_text(get_string("select_photo_format", lang), reply_markup=aspect_ratio_keyboard(lang))
     else:
         await state.set_state(PresetForm.waiting_pose)
         from bot.keyboards import pose_keyboard
-        await callback.message.edit_text("Выберите позу:", reply_markup=pose_keyboard())
+        await callback.message.edit_text(get_string("select_pose", lang), reply_markup=pose_keyboard(lang))
 
 @router.callback_query(F.data.startswith("pose:"), PresetForm.waiting_pose)
-async def on_preset_pose(callback: CallbackQuery, state: FSMContext):
+async def on_preset_pose(callback: CallbackQuery, state: FSMContext, db: Database):
     val = callback.data.split(":")[1]
     await state.update_data(pose=val)
     await state.set_state(PresetForm.waiting_angle)
-    await callback.message.edit_text("Выберите ракурс фотографии:", reply_markup=angle_keyboard())
+    lang = await db.get_user_language(callback.from_user.id)
+    from bot.keyboards import angle_keyboard
+    await callback.message.edit_text(get_string("select_view", lang), reply_markup=angle_keyboard(lang))
 
 @router.callback_query(F.data.startswith("angle:"), PresetForm.waiting_angle)
-async def on_preset_angle(callback: CallbackQuery, state: FSMContext):
+async def on_preset_angle(callback: CallbackQuery, state: FSMContext, db: Database):
     val = callback.data.split(":")[1]
     await state.update_data(angle=val)
     await state.set_state(PresetForm.waiting_season)
-    await callback.message.edit_text("Выберите сезон:", reply_markup=plus_season_keyboard())
+    lang = await db.get_user_language(callback.from_user.id)
+    from bot.keyboards import random_season_keyboard
+    await callback.message.edit_text(get_string("select_season", lang), reply_markup=random_season_keyboard(lang))
 
-@router.callback_query(F.data.startswith("plus_season:"), PresetForm.waiting_season)
-async def on_preset_season(callback: CallbackQuery, state: FSMContext):
+@router.callback_query(F.data.startswith("rand_season:"), PresetForm.waiting_season)
+async def on_preset_season(callback: CallbackQuery, state: FSMContext, db: Database):
     val = callback.data.split(":")[1]
+    lang = await db.get_user_language(callback.from_user.id)
     if val == "skip":
         await state.update_data(season=None)
     else:
@@ -892,220 +1222,285 @@ async def on_preset_season(callback: CallbackQuery, state: FSMContext):
     if category and category.startswith("infographic"):
         await state.set_state(PresetForm.waiting_holiday)
         from bot.keyboards import info_holiday_keyboard
-        await callback.message.edit_text("Выберите праздник:", reply_markup=info_holiday_keyboard())
+        await callback.message.edit_text(get_string("select_holiday", lang), reply_markup=info_holiday_keyboard(lang))
     else:
         await state.set_state(PresetForm.waiting_quality)
-        await callback.message.edit_text("Выберите формат (качество):", reply_markup=quality_keyboard_with_back())
+        from bot.keyboards import quality_keyboard
+        await callback.message.edit_text(get_string("select_quality", lang), reply_markup=quality_keyboard(lang))
 
 @router.callback_query(F.data.startswith("info_holiday:"), PresetForm.waiting_holiday)
-async def on_preset_holiday(callback: CallbackQuery, state: FSMContext):
+async def on_preset_holiday(callback: CallbackQuery, state: FSMContext, db: Database):
     val = callback.data.split(":")[1]
+    lang = await db.get_user_language(callback.from_user.id)
     await state.update_data(holiday=None if val == "skip" else val)
     await state.set_state(PresetForm.waiting_info_load)
     from bot.keyboards import info_load_keyboard
-    await callback.message.edit_text("Выберите нагруженность инфографики:", reply_markup=info_load_keyboard())
+    await callback.message.edit_text(get_string("select_info_load", lang), reply_markup=info_load_keyboard(lang))
 
 @router.callback_query(F.data.startswith("info_load:"), PresetForm.waiting_info_load)
-async def on_preset_info_load(callback: CallbackQuery, state: FSMContext):
+async def on_preset_info_load(callback: CallbackQuery, state: FSMContext, db: Database):
     val = callback.data.split(":")[1]
+    lang = await db.get_user_language(callback.from_user.id)
     await state.update_data(info_load=None if val == "skip" else val)
     await state.set_state(PresetForm.waiting_info_lang)
     from bot.keyboards import info_lang_keyboard
-    await callback.message.edit_text("Выберите язык инфографики:", reply_markup=info_lang_keyboard())
+    await callback.message.edit_text(get_string("select_info_lang", lang), reply_markup=info_lang_keyboard(lang))
 
 @router.callback_query(F.data.startswith("info_lang:"), PresetForm.waiting_info_lang)
-async def on_preset_info_lang(callback: CallbackQuery, state: FSMContext):
+async def on_preset_info_lang(callback: CallbackQuery, state: FSMContext, db: Database):
     val = callback.data.split(":")[1]
+    lang = await db.get_user_language(callback.from_user.id)
     await state.update_data(info_lang=None if val == "skip" else val)
     await state.set_state(PresetForm.waiting_adv1)
     from bot.keyboards import skip_step_keyboard
-    await callback.message.edit_text("Введите Преимущество 1 (текстом) или пропустите:", reply_markup=skip_step_keyboard("adv1"))
+    await callback.message.edit_text(get_string("enter_adv1_skip", lang), reply_markup=skip_step_keyboard("adv1", lang))
 
 @router.message(PresetForm.waiting_adv1)
-async def on_preset_adv1_text(message: Message, state: FSMContext):
+async def on_preset_adv1_text(message: Message, state: FSMContext, db: Database):
+    lang = await db.get_user_language(message.from_user.id)
     await state.update_data(adv1=message.text)
     await state.set_state(PresetForm.waiting_adv2)
     from bot.keyboards import skip_step_keyboard
-    await message.answer("Введите Преимущество 2 (текстом) или пропустите:", reply_markup=skip_step_keyboard("adv2"))
+    await message.answer(get_string("enter_adv2_skip", lang), reply_markup=skip_step_keyboard("adv2", lang))
 
 @router.callback_query(F.data == "adv1:skip", PresetForm.waiting_adv1)
-async def on_preset_adv1_skip(callback: CallbackQuery, state: FSMContext):
+async def on_preset_adv1_skip(callback: CallbackQuery, state: FSMContext, db: Database):
+    lang = await db.get_user_language(callback.from_user.id)
     await state.update_data(adv1=None)
     await state.set_state(PresetForm.waiting_adv2)
     from bot.keyboards import skip_step_keyboard
-    await callback.message.edit_text("Введите Преимущество 2 (текстом) или пропустите:", reply_markup=skip_step_keyboard("adv2"))
+    await callback.message.edit_text(get_string("enter_adv2_skip", lang), reply_markup=skip_step_keyboard("adv2", lang))
 
 @router.message(PresetForm.waiting_adv2)
-async def on_preset_adv2_text(message: Message, state: FSMContext):
+async def on_preset_adv2_text(message: Message, state: FSMContext, db: Database):
+    lang = await db.get_user_language(message.from_user.id)
     await state.update_data(adv2=message.text)
     await state.set_state(PresetForm.waiting_adv3)
     from bot.keyboards import skip_step_keyboard
-    await message.answer("Введите Преимущество 3 (текстом) или пропустите:", reply_markup=skip_step_keyboard("adv3"))
+    await message.answer(get_string("enter_adv3_skip", lang), reply_markup=skip_step_keyboard("adv3", lang))
 
 @router.callback_query(F.data == "adv2:skip", PresetForm.waiting_adv2)
-async def on_preset_adv2_skip(callback: CallbackQuery, state: FSMContext):
+async def on_preset_adv2_skip(callback: CallbackQuery, state: FSMContext, db: Database):
+    lang = await db.get_user_language(callback.from_user.id)
     await state.update_data(adv2=None)
     await state.set_state(PresetForm.waiting_adv3)
     from bot.keyboards import skip_step_keyboard
-    await callback.message.edit_text("Введите Преимущество 3 (текстом) или пропустите:", reply_markup=skip_step_keyboard("adv3"))
+    await callback.message.edit_text(get_string("enter_adv3_skip", lang), reply_markup=skip_step_keyboard("adv3", lang))
 
 @router.message(PresetForm.waiting_adv3)
-async def on_preset_adv3_text(message: Message, state: FSMContext):
+async def on_preset_adv3_text(message: Message, state: FSMContext, db: Database):
+    lang = await db.get_user_language(message.from_user.id)
     await state.update_data(adv3=message.text)
     await state.set_state(PresetForm.waiting_extra_info)
     from bot.keyboards import skip_step_keyboard
-    await message.answer("Введите ДОП ИНФОРМАЦИЮ (до 75 символов) или пропустите:", reply_markup=skip_step_keyboard("extra_info"))
+    await message.answer(get_string("enter_extra_info_skip", lang), reply_markup=skip_step_keyboard("extra_info", lang))
 
 @router.callback_query(F.data == "adv3:skip", PresetForm.waiting_adv3)
-async def on_preset_adv3_skip(callback: CallbackQuery, state: FSMContext):
+async def on_preset_adv3_skip(callback: CallbackQuery, state: FSMContext, db: Database):
+    lang = await db.get_user_language(callback.from_user.id)
     await state.update_data(adv3=None)
     await state.set_state(PresetForm.waiting_extra_info)
     from bot.keyboards import skip_step_keyboard
-    await callback.message.edit_text("Введите ДОП ИНФОРМАЦИЮ (до 75 символов) или пропустите:", reply_markup=skip_step_keyboard("extra_info"))
+    await callback.message.edit_text(get_string("enter_extra_info_skip", lang), reply_markup=skip_step_keyboard("extra_info", lang))
 
 @router.message(PresetForm.waiting_extra_info)
-async def on_preset_extra_info_text(message: Message, state: FSMContext):
+async def on_preset_extra_info_text(message: Message, state: FSMContext, db: Database):
+    lang = await db.get_user_language(message.from_user.id)
     await state.update_data(extra_info=message.text[:75])
     await state.set_state(PresetForm.waiting_quality)
-    await message.answer("Выберите формат (качество):", reply_markup=quality_keyboard_with_back())
+    from bot.keyboards import quality_keyboard
+    await message.answer(get_string("select_quality", lang), reply_markup=quality_keyboard(lang))
 
 @router.callback_query(F.data == "extra_info:skip", PresetForm.waiting_extra_info)
-async def on_preset_extra_info_skip(callback: CallbackQuery, state: FSMContext):
+async def on_preset_extra_info_skip(callback: CallbackQuery, state: FSMContext, db: Database):
+    lang = await db.get_user_language(callback.from_user.id)
     await state.update_data(extra_info=None)
     await state.set_state(PresetForm.waiting_quality)
-    await callback.message.edit_text("Выберите формат (качество):", reply_markup=quality_keyboard_with_back())
+    from bot.keyboards import quality_keyboard
+    await callback.message.edit_text(get_string("select_quality", lang), reply_markup=quality_keyboard(lang))
 
 @router.callback_query(F.data.startswith("quality:"), PresetForm.waiting_quality)
-async def on_preset_quality(callback: CallbackQuery, state: FSMContext):
+async def on_preset_quality(callback: CallbackQuery, state: FSMContext, db: Database):
+    lang = await db.get_user_language(callback.from_user.id)
     val = callback.data.split(":")[1]
     await state.update_data(quality=val)
-    await state.set_state(PresetForm.result_ready)
-    await callback.message.edit_text("Подтвердите параметры и создайте фото:", reply_markup=confirm_generation_keyboard())
+    await state.set_state(PresetForm.waiting_aspect)
+    from bot.keyboards import aspect_ratio_keyboard
+    await callback.message.edit_text(get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
 
 @router.callback_query(F.data == "back_step", PresetForm.waiting_height)
 async def on_back_to_body_type(callback: CallbackQuery, state: FSMContext, db: Database):
     data = await state.get_data()
+    lang = await db.get_user_language(callback.from_user.id)
     if data.get("category") == "child":
         await on_preset_pick(callback, db, state)
     else:
         await state.set_state(PresetForm.waiting_body_type)
-        await callback.message.edit_text("Выберите телосложение или введите числом:")
+        await callback.message.edit_text(get_string("enter_body_type", lang))
 
 @router.callback_query(F.data == "back_step", PresetForm.waiting_age)
-async def on_back_to_height(callback: CallbackQuery, state: FSMContext):
+async def on_back_to_height(callback: CallbackQuery, state: FSMContext, db: Database):
+    lang = await db.get_user_language(callback.from_user.id)
     await state.set_state(PresetForm.waiting_height)
-    await callback.message.edit_text("Введите рост модели в числах на пример 170.")
+    await callback.message.edit_text(get_string("enter_height_example", lang))
 
 @router.callback_query(F.data == "back_step", PresetForm.waiting_pants_style)
-async def on_back_to_age(callback: CallbackQuery, state: FSMContext):
+async def on_back_to_age(callback: CallbackQuery, state: FSMContext, db: Database):
+    lang = await db.get_user_language(callback.from_user.id)
     await state.set_state(PresetForm.waiting_age)
-    await callback.message.edit_text("Введите возраст модели числом:")
+    await callback.message.edit_text(get_string("enter_age_num", lang))
 
 @router.callback_query(F.data == "back_step", PresetForm.waiting_sleeve_length)
-async def on_back_to_pants_style(callback: CallbackQuery, state: FSMContext):
+async def on_back_to_pants_style(callback: CallbackQuery, state: FSMContext, db: Database):
+    lang = await db.get_user_language(callback.from_user.id)
+    data = await state.get_data()
+    if data.get("category") == "own":
+        await state.set_state(PresetForm.waiting_product_photo)
+        await callback.message.edit_text(get_string("upload_product", lang))
+            return
     await state.set_state(PresetForm.waiting_pants_style)
-    await callback.message.edit_text("Выберите тип кроя штанов:", reply_markup=pants_style_keyboard())
+    from bot.keyboards import pants_style_keyboard
+    await callback.message.edit_text(get_string("select_pants_style_btn", lang), reply_markup=pants_style_keyboard(lang))
 
 @router.callback_query(F.data == "back_step", PresetForm.waiting_length)
-async def on_back_to_sleeve_length(callback: CallbackQuery, state: FSMContext):
+async def on_back_to_sleeve_length(callback: CallbackQuery, state: FSMContext, db: Database):
+    lang = await db.get_user_language(callback.from_user.id)
     await state.set_state(PresetForm.waiting_sleeve_length)
-    await callback.message.edit_text("Выберите тип рукавов:", reply_markup=sleeve_length_keyboard())
+    from bot.keyboards import sleeve_length_keyboard
+    await callback.message.edit_text(get_string("select_sleeve_length_btn", lang), reply_markup=sleeve_length_keyboard(lang))
 
 @router.callback_query(F.data == "back_step", PresetForm.waiting_photo_type)
-async def on_back_to_length(callback: CallbackQuery, state: FSMContext):
+async def on_back_to_length(callback: CallbackQuery, state: FSMContext, db: Database):
+    lang = await db.get_user_language(callback.from_user.id)
+    data = await state.get_data()
+    if data.get("category") == "own_variant":
+        await state.set_state(PresetForm.waiting_product_photo)
+        await callback.message.edit_text(get_string("upload_product", lang))
+        return
     await state.set_state(PresetForm.waiting_length)
-    text = "Выберите длину изделия. Текст: Внимание! если ваш продукт Костюм 2-к, 3-к то длину можно не указывать. Длину мы делаем кнопками как у нас ранее в разделе Свой вариант и кнопку нужно добавить свой вариант чтобы человек сам смог написать длину"
-    await callback.message.edit_text(text, reply_markup=garment_length_with_custom_keyboard())
+    text = get_string("garment_length_notice", lang)
+    from bot.keyboards import garment_length_with_custom_keyboard
+    await callback.message.edit_text(text, reply_markup=garment_length_with_custom_keyboard(lang))
 
 @router.callback_query(F.data == "back_step", PresetForm.waiting_pose)
-async def on_back_to_photo_type(callback: CallbackQuery, state: FSMContext):
-    await preset_ask_photo_type(callback.message, state)
+async def on_back_to_photo_type(callback: CallbackQuery, state: FSMContext, db: Database):
+    await preset_ask_photo_type(callback.message, state, db)
 
 @router.callback_query(F.data == "back_step", PresetForm.waiting_angle)
-async def on_back_to_pose(callback: CallbackQuery, state: FSMContext):
+async def on_back_to_pose(callback: CallbackQuery, state: FSMContext, db: Database):
+    lang = await db.get_user_language(callback.from_user.id)
     await state.set_state(PresetForm.waiting_pose)
-    await callback.message.edit_text("Выберите позу:", reply_markup=pose_keyboard())
+    from bot.keyboards import pose_keyboard
+    await callback.message.edit_text(get_string("select_pose", lang), reply_markup=pose_keyboard(lang))
 
 @router.callback_query(F.data == "back_step", PresetForm.waiting_season)
-async def on_back_to_angle(callback: CallbackQuery, state: FSMContext):
+async def on_back_to_angle(callback: CallbackQuery, state: FSMContext, db: Database):
+    lang = await db.get_user_language(callback.from_user.id)
     await state.set_state(PresetForm.waiting_angle)
-    await callback.message.edit_text("Выберите ракурс фотографии:", reply_markup=angle_keyboard())
+    from bot.keyboards import angle_keyboard
+    await callback.message.edit_text(get_string("select_view", lang), reply_markup=angle_keyboard(lang))
 
 @router.callback_query(F.data == "back_step", PresetForm.waiting_quality)
-async def on_back_to_season(callback: CallbackQuery, state: FSMContext):
+async def on_back_to_season(callback: CallbackQuery, state: FSMContext, db: Database):
+    lang = await db.get_user_language(callback.from_user.id)
     await state.set_state(PresetForm.waiting_season)
-    await callback.message.edit_text("Выберите сезон:", reply_markup=plus_season_keyboard())
+    from bot.keyboards import plus_season_keyboard
+    await callback.message.edit_text(get_string("select_season", lang), reply_markup=plus_season_keyboard(lang))
 
 @router.callback_query(F.data == "back_step", PresetForm.waiting_holiday)
-async def on_back_to_season_info(callback: CallbackQuery, state: FSMContext):
+async def on_back_to_season_info(callback: CallbackQuery, state: FSMContext, db: Database):
+    lang = await db.get_user_language(callback.from_user.id)
     await state.set_state(PresetForm.waiting_season)
-    await callback.message.edit_text("Выберите сезон:", reply_markup=plus_season_keyboard())
+    from bot.keyboards import plus_season_keyboard
+    await callback.message.edit_text(get_string("select_season", lang), reply_markup=plus_season_keyboard(lang))
 
 @router.callback_query(F.data == "back_step", PresetForm.waiting_info_load)
-async def on_back_to_holiday(callback: CallbackQuery, state: FSMContext):
+async def on_back_to_holiday(callback: CallbackQuery, state: FSMContext, db: Database):
+    lang = await db.get_user_language(callback.from_user.id)
     await state.set_state(PresetForm.waiting_holiday)
     from bot.keyboards import info_holiday_keyboard
-    await callback.message.edit_text("Выберите праздник:", reply_markup=info_holiday_keyboard())
+    await callback.message.edit_text(get_string("select_holiday", lang), reply_markup=info_holiday_keyboard(lang))
 
 @router.callback_query(F.data == "back_step", PresetForm.waiting_info_lang)
-async def on_back_to_info_load(callback: CallbackQuery, state: FSMContext):
+async def on_back_to_info_load(callback: CallbackQuery, state: FSMContext, db: Database):
+    lang = await db.get_user_language(callback.from_user.id)
     await state.set_state(PresetForm.waiting_info_load)
     from bot.keyboards import info_load_keyboard
-    await callback.message.edit_text("Выберите нагруженность инфографики:", reply_markup=info_load_keyboard())
+    await callback.message.edit_text(get_string("select_info_load", lang), reply_markup=info_load_keyboard(lang))
 
 @router.callback_query(F.data == "back_step", PresetForm.waiting_adv1)
-async def on_back_to_info_lang(callback: CallbackQuery, state: FSMContext):
+async def on_back_to_info_lang(callback: CallbackQuery, state: FSMContext, db: Database):
+    lang = await db.get_user_language(callback.from_user.id)
     await state.set_state(PresetForm.waiting_info_lang)
     from bot.keyboards import info_lang_keyboard
-    await callback.message.edit_text("Выберите язык инфографики:", reply_markup=info_lang_keyboard())
+    await callback.message.edit_text(get_string("select_info_lang", lang), reply_markup=info_lang_keyboard(lang))
 
 @router.callback_query(F.data == "back_step", PresetForm.waiting_adv2)
-async def on_back_to_adv1(callback: CallbackQuery, state: FSMContext):
+async def on_back_to_adv1(callback: CallbackQuery, state: FSMContext, db: Database):
+    lang = await db.get_user_language(callback.from_user.id)
     await state.set_state(PresetForm.waiting_adv1)
     from bot.keyboards import skip_step_keyboard
-    await callback.message.edit_text("Введите Преимущество 1 (текстом) или пропустите:", reply_markup=skip_step_keyboard("adv1"))
+    await callback.message.edit_text(get_string("enter_adv1_skip", lang), reply_markup=skip_step_keyboard("adv1", lang))
 
 @router.callback_query(F.data == "back_step", PresetForm.waiting_adv3)
-async def on_back_to_adv2(callback: CallbackQuery, state: FSMContext):
+async def on_back_to_adv2(callback: CallbackQuery, state: FSMContext, db: Database):
+    lang = await db.get_user_language(callback.from_user.id)
     await state.set_state(PresetForm.waiting_adv2)
     from bot.keyboards import skip_step_keyboard
-    await callback.message.edit_text("Введите Преимущество 2 (текстом) или пропустите:", reply_markup=skip_step_keyboard("adv2"))
+    await callback.message.edit_text(get_string("enter_adv2_skip", lang), reply_markup=skip_step_keyboard("adv2", lang))
 
 @router.callback_query(F.data == "back_step", PresetForm.waiting_extra_info)
-async def on_back_to_adv3(callback: CallbackQuery, state: FSMContext):
+async def on_back_to_adv3(callback: CallbackQuery, state: FSMContext, db: Database):
+    lang = await db.get_user_language(callback.from_user.id)
     await state.set_state(PresetForm.waiting_adv3)
     from bot.keyboards import skip_step_keyboard
-    await callback.message.edit_text("Введите Преимущество 3 (текстом) или пропустите:", reply_markup=skip_step_keyboard("adv3"))
+    await callback.message.edit_text(get_string("enter_adv3_skip", lang), reply_markup=skip_step_keyboard("adv3", lang))
 
 @router.callback_query(F.data == "back_step", PresetForm.waiting_loc_group)
 async def on_back_to_gender(callback: CallbackQuery, state: FSMContext, db: Database):
+    lang = await db.get_user_language(callback.from_user.id)
     await state.set_state(PresetForm.waiting_gender)
     from bot.keyboards import random_gender_keyboard
-    await callback.message.edit_text("Выберите пол модели:", reply_markup=random_gender_keyboard())
+    await callback.message.edit_text(get_string("select_gender", lang), reply_markup=random_gender_keyboard(lang))
 
 @router.callback_query(F.data == "back_step", PresetForm.waiting_location)
-async def on_back_to_loc_group(callback: CallbackQuery, state: FSMContext):
+async def on_back_to_loc_group(callback: CallbackQuery, state: FSMContext, db: Database):
+    lang = await db.get_user_language(callback.from_user.id)
     await state.set_state(PresetForm.waiting_loc_group)
     from bot.keyboards import random_loc_group_keyboard
-    await callback.message.edit_text("Где будет проходить съемка?", reply_markup=random_loc_group_keyboard())
+    await callback.message.edit_text(get_string("select_loc_group", lang), reply_markup=random_loc_group_keyboard(lang))
 
 @router.callback_query(F.data == "back_step", PresetForm.waiting_model_size)
-async def on_back_to_pose_info(callback: CallbackQuery, state: FSMContext):
+async def on_back_to_pose_info(callback: CallbackQuery, state: FSMContext, db: Database):
+    lang = await db.get_user_language(callback.from_user.id)
     await state.set_state(PresetForm.waiting_pose)
     from bot.keyboards import pose_keyboard
-    await callback.message.edit_text("Выберите позу:", reply_markup=pose_keyboard())
+    await callback.message.edit_text(get_string("select_pose", lang), reply_markup=pose_keyboard(lang))
 
 @router.callback_query(F.data == "back_step", PresetForm.waiting_camera_dist)
-async def on_back_to_photo_type_info(callback: CallbackQuery, state: FSMContext):
+async def on_back_to_photo_type_info(callback: CallbackQuery, state: FSMContext, db: Database):
+    lang = await db.get_user_language(callback.from_user.id)
     await state.set_state(PresetForm.waiting_photo_type)
     from bot.keyboards import form_view_keyboard
-    await callback.message.edit_text("Выберите ракурс фотографии:", reply_markup=form_view_keyboard())
+    await callback.message.edit_text(get_string("select_photo_type", lang), reply_markup=form_view_keyboard(lang))
 
 @router.callback_query(F.data == "back_step", PresetForm.waiting_aspect)
-async def on_back_to_camera_dist(callback: CallbackQuery, state: FSMContext):
+async def on_back_to_camera_dist(callback: CallbackQuery, state: FSMContext, db: Database):
+    lang = await db.get_user_language(callback.from_user.id)
+    data = await state.get_data()
+    if data.get("category") == "own":
+        await state.set_state(PresetForm.waiting_length)
+        from bot.keyboards import garment_length_with_custom_keyboard
+        await callback.message.edit_text(get_string("garment_length_notice", lang), reply_markup=garment_length_with_custom_keyboard(lang))
+        return
+    elif data.get("category") == "own_variant":
+        await state.set_state(PresetForm.waiting_photo_type)
+        from bot.keyboards import form_view_keyboard
+        await callback.message.edit_text(get_string("select_view", lang), reply_markup=form_view_keyboard(lang))
+        return
     await state.set_state(PresetForm.waiting_camera_dist)
     from bot.keyboards import camera_distance_keyboard
-    await callback.message.edit_text("Выберите ракурс (удаленность):", reply_markup=camera_distance_keyboard())
+    await callback.message.edit_text(get_string("select_camera_dist", lang), reply_markup=camera_distance_keyboard(lang))
 
 @router.callback_query(F.data == "form_generate")
 async def on_form_generate(callback: CallbackQuery, state: FSMContext, db: Database):
@@ -1116,20 +1511,20 @@ async def on_form_generate(callback: CallbackQuery, state: FSMContext, db: Datab
     # Проверка техработ
     maint = await db.get_app_setting("maintenance")
     if maint == "1":
-        await callback.answer("🛠 В боте техработы. Генерация временно недоступна.", show_alert=True)
-        return
+        await callback.answer(get_string("maintenance_alert", lang), show_alert=True)
+            return
 
     async with active_generations_lock:
         if active_generations >= 20:
             await callback.answer(get_string("rate_limit", lang), show_alert=True)
-            return
+        return
         active_generations += 1
 
     try:
         sub = await db.get_user_subscription(user_id)
         if not sub or sub[3] >= sub[2]:
-            await callback.answer("Лимит фото на сегодня исчерпан или у вас нет активной подписки.", show_alert=True)
-            return
+            await callback.answer(get_string("limit_rem_zero", lang), show_alert=True)
+        return
 
         data = await state.get_data()
         current_state = await state.get_state()
@@ -1147,7 +1542,7 @@ async def on_form_generate(callback: CallbackQuery, state: FSMContext, db: Datab
             # Подстановка переменных
             replacements = {
                 "{Пол}": data.get("gender") or "None",
-                "{Пол модели}": data.get("gender") or "None",
+                "{Пол модели}": data.get("model_gender") or data.get("gender") or "None",
                 "{Длина изделия}": data.get("length") or "None",
                 "{Тип рукав}": data.get("sleeve_length") or "None",
                 "{Тип рукава}": data.get("sleeve_length") or "None",
@@ -1191,7 +1586,7 @@ async def on_form_generate(callback: CallbackQuery, state: FSMContext, db: Datab
                 "{Стиль инфографики}": data.get("info_style") or "None",
                 "{Стиль}": data.get("info_style") or "None",
                 "{Тип шрифта}": data.get("font_type") or "None",
-                "{Присутствие человека на фото}": data.get("has_person") or "Yes",
+                "{Присутствие человека на фото}": "Yes" if data.get("has_person") == "yes" else "No",
             }
             
             final_prompt = base_prompt
@@ -1231,7 +1626,7 @@ async def on_form_generate(callback: CallbackQuery, state: FSMContext, db: Datab
                     if os.path.exists(model_photo):
                         with open(model_photo, "rb") as f:
                             input_image_bytes = f.read()
-                else:
+    else:
                     file = await callback.bot.get_file(model_photo)
                     f_bytes = await callback.bot.download_file(file.file_path)
                     input_image_bytes = f_bytes.read()
@@ -1260,17 +1655,33 @@ async def on_form_generate(callback: CallbackQuery, state: FSMContext, db: Datab
 
         await _replace_with_text(callback, get_string("generation_started", lang), reply_markup=None)
         
-        keys = await db.list_api_keys()
+        # Выбор ключа: индивидуальный для 4K или общие для остальных
+        plan_type = sub[0]
+        individual_key = sub[4]
+        
+        target_keys = []
+        if "4K" in plan_type.upper():
+            if not individual_key:
+                await callback.message.answer(get_string("missing_4k_key", lang))
+        return
+            target_keys = [(0, individual_key, 1, 0, 0, 0, None, None, None)] # Mock structure
+        else:
+            target_keys = await db.list_api_keys()
+
         result_bytes = None
-        for kid, token, active, priority, daily, total, last_reset, created, updated in keys:
+        for kid, token, active, priority, daily, total, last_reset, created, updated in target_keys:
             if not active: continue
-            allowed, _ = await db.check_api_key_limits(kid)
-            if not allowed: continue
+            
+            # Для индивидуальных ключей лимиты пока не проверяем по БД (они на совести юзера или внешнего сервиса)
+            if kid != 0:
+                allowed, _ = await db.check_api_key_limits(kid)
+                if not allowed: continue
             
             try:
                 result_bytes = await generate_image(token, final_prompt, input_image_bytes, bg_image_bytes, "gemini-3-pro-image-preview")
                 if result_bytes:
-                    await db.record_api_usage(kid)
+                    if kid != 0:
+                        await db.record_api_usage(kid)
                     break
             except Exception as e:
                 logger.error(f"Error generating image with key {kid}: {e}")
@@ -1278,7 +1689,7 @@ async def on_form_generate(callback: CallbackQuery, state: FSMContext, db: Datab
 
         if not result_bytes:
             await callback.message.answer(get_string("error_api", lang))
-            return
+        return
 
         await db.update_daily_usage(user_id)
         pid = await db.generate_pid()
@@ -1303,7 +1714,7 @@ async def on_history(callback: CallbackQuery, db: Database):
     lang = await db.get_user_language(callback.from_user.id)
     gens = await db.list_user_generations(callback.from_user.id, limit=20)
     if not gens:
-        await callback.answer("История пуста", show_alert=True)
+        await callback.answer(get_string("history_empty", lang), show_alert=True)
         return
     
     text = get_string("history_title", lang) + "\n\n"
@@ -1334,10 +1745,10 @@ async def on_sub_menu(callback: CallbackQuery, db: Database):
     if sub:
         plan_name, expires, limit, usage = sub
         rem = max(0, limit - usage)
-        text = get_string("subscription_info_active", lang, plan=plan_name.upper(), expires=expires, usage=usage, limit=limit)
+        text = get_string("profile_info", lang, id=user_id, sub=get_string("sub_active", lang, plan=plan_name.upper(), date=expires), daily_rem=rem)
         await _replace_with_text(callback, text, reply_markup=plans_keyboard(plans, lang))
     else:
-        await _replace_with_text(callback, get_string("subscription_info_none", lang), reply_markup=plans_keyboard(plans, lang))
+        await _replace_with_text(callback, get_string("buy_plan", lang), reply_markup=plans_keyboard(plans, lang))
 
 @router.callback_query(F.data.startswith("buy_plan:"))
 async def on_buy_plan(callback: CallbackQuery, db: Database):
@@ -1352,10 +1763,10 @@ async def on_buy_plan(callback: CallbackQuery, db: Database):
     desc = plan[4] if lang == "ru" else (plan[5] if lang == "en" else plan[6])
     price = plan[7]
     
-    text = f"<b>💎 Тариф {name}</b>\n\n{desc}\n\n<b>Цена: {price} ₽</b>\n\nВы уверены, что хотите оформить подписку?"
+    text = get_string("buy_sub_text", lang, name=name, desc=desc, price=price)
     
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Подтвердить", callback_data=f"confirm_buy:{plan_id}")],
+        [InlineKeyboardButton(text=get_string("confirm_btn", lang), callback_data=f"confirm_buy:{plan_id}")],
         [InlineKeyboardButton(text=get_string("back", lang), callback_data="menu_subscription")]
     ])
     
@@ -1370,8 +1781,11 @@ async def on_confirm_buy(callback: CallbackQuery, db: Database):
     plan = await db.get_subscription_plan(plan_id)
     if not plan: return
     
-    await db.increment_user_balance(user_id, -await db.get_user_balance(user_id))
     await db.grant_subscription(user_id, plan_id, plan[1], plan[8], plan[9])
     
-    await callback.answer("✅ Подписка успешно оформлена!", show_alert=True)
+    msg_key = "sub_success_alert"
+    if "4K" in plan[1].upper():
+        msg_key = "sub_success_4k"
+        
+    await callback.answer(get_string(msg_key, lang), show_alert=True)
     await on_menu_profile(callback, db)

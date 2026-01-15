@@ -1,32 +1,25 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="row g-3 text-center">
-    <div class="col-6 col-md-3">
+    <div class="col-6 col-md-4">
         <div class="card p-3 h-100 shadow-sm border-0">
             <div class="text-muted small fw-bold text-uppercase">Всего подписчиков</div>
             <div class="h2 mb-0 py-2">{{ total_users }}</div>
             <div class="text-success small"><i class="bi bi-people me-1"></i> в базе данных</div>
         </div>
     </div>
-    <div class="col-6 col-md-3">
+    <div class="col-6 col-md-4">
         <div class="card p-3 h-100 shadow-sm border-0">
             <div class="text-muted small fw-bold text-uppercase">Новые сегодня</div>
             <div class="h2 mb-0 py-2">{{ today_users }}</div>
             <div class="text-primary small"><i class="bi bi-person-plus me-1"></i> за 24 часа</div>
         </div>
     </div>
-    <div class="col-6 col-md-3">
+    <div class="col-6 col-md-4">
         <div class="card p-3 h-100 shadow-sm border-0">
             <div class="text-muted small fw-bold text-uppercase">Генераций сегодня</div>
             <div class="h2 mb-0 py-2">{{ today_gens }}</div>
             <div class="text-info small"><i class="bi bi-image me-1"></i> фото создано</div>
-        </div>
-    </div>
-    <div class="col-6 col-md-3">
-        <div class="card p-3 h-100 shadow-sm border-0">
-            <div class="text-muted small fw-bold text-uppercase">Общий баланс</div>
-            <div class="h2 mb-0 py-2">{{ total_balance }}</div>
-            <div class="text-muted small"><i class="bi bi-lightning-charge me-1"></i> лимиты активных</div>
         </div>
     </div>
     

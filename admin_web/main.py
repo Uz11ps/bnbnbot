@@ -447,10 +447,10 @@ async def toggle_category(key: str = Form(...), db: aiosqlite.Connection = Depen
     await db.commit()
     return RedirectResponse(url="/prices", status_code=303)
 
-@app.post("/plans/edit")
+@app.post("/edit_subscription")
 async def edit_subscription(
     user_id: int = Form(...), 
-    plan_id: str = Form(...),
+    plan_id: str = Form(None),
     days: int = Form(...), 
     limit: int = Form(...), 
     api_key: str = Form(None),

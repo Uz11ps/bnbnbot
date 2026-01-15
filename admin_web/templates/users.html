@@ -19,7 +19,7 @@
             </div>
             <hr class="my-2">
             <h6 class="small fw-bold">Управление подпиской:</h6>
-            <form action="/users/edit_subscription" method="post" class="row g-2">
+            <form action="/edit_subscription" method="post" class="row g-2">
                 <input type="hidden" name="user_id" value="{{ user.id }}">
                 <div class="col-12">
                     <select name="plan_id" class="form-select form-select-sm mb-2" onchange="updateFields(this)">

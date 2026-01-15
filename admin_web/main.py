@@ -129,6 +129,24 @@ async def delete_model(model_id: int, db: aiosqlite.Connection = Depends(get_db)
             await db.commit()
     return RedirectResponse(url="/prompts", status_code=303)
 
+@app.post("/models/delete_bulk")
+async def delete_bulk_models(model_ids: str = Form(...), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    ids = [int(x) for x in model_ids.split(",") if x.isdigit()]
+    for model_id in ids:
+        async with db.execute("SELECT prompt_id, photo_file_id FROM models WHERE id=?", (model_id,)) as cur:
+            row = await cur.fetchone()
+            if row:
+                prompt_id, photo_path = row
+                await db.execute("DELETE FROM models WHERE id=?", (model_id,))
+                await db.execute("DELETE FROM prompts WHERE id=?", (prompt_id,))
+                if photo_path and photo_path.startswith("data/"):
+                    full_path = os.path.join(BASE_DIR, photo_path)
+                    if os.path.exists(full_path):
+                        try: os.remove(full_path)
+                        except Exception: pass
+    await db.commit()
+    return RedirectResponse(url="/prompts", status_code=303)
+
 # --- Вспомогательные функции ---
 async def get_proxy_url(db: aiosqlite.Connection = None):
     if db:

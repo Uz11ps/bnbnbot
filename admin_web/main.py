@@ -173,15 +173,26 @@ async def run_broadcast(message_text: str):
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
     try:
+        # Всего пользователей
         async with db.execute("SELECT COUNT(*) FROM users") as cur:
             total_users = (await cur.fetchone())[0]
+        
+        # Новые сегодня
         async with db.execute("SELECT COUNT(*) FROM users WHERE date(created_at) = date('now')") as cur:
             today_users = (await cur.fetchone())[0]
-        async with db.execute("SELECT COUNT(*) FROM generation_history") as cur:
-            total_gens = (await cur.fetchone())[0]
+        
+        # Генераций сегодня
         async with db.execute("SELECT COUNT(*) FROM generation_history WHERE date(created_at) = date('now')") as cur:
             today_gens = (await cur.fetchone())[0]
-    except Exception: total_users = today_users = total_gens = today_gens = 0
+            
+        # Общий баланс (суммарный лимит активных подписок)
+        async with db.execute("SELECT SUM(daily_limit) FROM subscriptions WHERE expires_at > CURRENT_TIMESTAMP") as cur:
+            row = await cur.fetchone()
+            total_balance = row[0] if row and row[0] else 0
+            
+    except Exception as e:
+        print(f"Stats error: {e}")
+        total_users = today_users = today_gens = total_balance = 0
 
     maintenance = False
     try:
@@ -375,16 +386,41 @@ async def list_history(request: Request, q: str = "", db: aiosqlite.Connection =
 async def list_prices(request: Request, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
     prices_data = []
     for cat in CATEGORIES:
-        key = f"category_price_{cat}"
-        async with db.execute("SELECT value FROM app_settings WHERE key=?", (key,)) as cur:
+        price_key = f"category_price_{cat}"
+        status_key = f"{cat}" # Ключ статуса в БД: female, male и т.д.
+        
+        async with db.execute("SELECT value FROM app_settings WHERE key=?", (price_key,)) as cur:
             row = await cur.fetchone()
-            val = row[0] if row else "10"
-            prices_data.append({"key": key, "cat": cat, "value": val})
+            price_val = row[0] if row else "10"
+            
+        async with db.execute("SELECT value FROM app_settings WHERE key=?", (status_key,)) as cur:
+            row = await cur.fetchone()
+            # По умолчанию все включены (1), если не задано иное
+            status_val = row[0] if row else "1"
+            
+        prices_data.append({
+            "key": price_key, 
+            "status_key": status_key,
+            "cat": cat, 
+            "value": price_val, 
+            "is_enabled": status_val == "1"
+        })
             
     async with db.execute("SELECT * FROM subscription_plans") as cur:
         plans = await cur.fetchall()
         
     return templates.TemplateResponse("prices.html", {"request": request, "category_prices": prices_data, "plans": plans})
+
+@app.post("/categories/toggle")
+async def toggle_category(key: str = Form(...), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    async with db.execute("SELECT value FROM app_settings WHERE key=?", (key,)) as cur:
+        row = await cur.fetchone()
+        current = row[0] if row else "1"
+    
+    new_val = "0" if current == "1" else "1"
+    await db.execute("INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, new_val))
+    await db.commit()
+    return RedirectResponse(url="/prices", status_code=303)
 
 @app.post("/plans/edit")
 async def edit_plan(

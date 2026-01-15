@@ -601,6 +601,13 @@ async def _replace_with_text(callback: CallbackQuery, text: str, reply_markup=No
 async def cmd_start(message: Message, state: FSMContext, db: Database, bot: Bot) -> None:
     await state.clear()
     user_id = message.from_user.id
+    lang = await db.get_user_language(user_id)
+
+    # Проверка техработ
+    maint = await db.get_app_setting("maintenance")
+    if maint == "1":
+        await message.answer("🛠 В боте проводятся технические работы. Пожалуйста, попробуйте позже.\nВремя вашей подписки будет продлено на время техработ.")
+        return
     
     # Регистрация пользователя
     await db.upsert_user(user_id, message.from_user.username, message.from_user.first_name, message.from_user.last_name)
@@ -691,12 +698,27 @@ async def _send_model_photo(callback: CallbackQuery, photo_id: str, caption: str
 async def on_menu_market(callback: CallbackQuery, db: Database, state: FSMContext):
     await state.clear()
     lang = await db.get_user_language(callback.from_user.id)
+
+    # Проверка техработ
+    maint = await db.get_app_setting("maintenance")
+    if maint == "1":
+        await callback.answer("🛠 Технические работы. Подписка будет продлена.", show_alert=True)
+        return
+
     enabled = await db.get_all_app_settings()
-    cat_status = {k: (v == "1") for k, v in enabled.items() if k in ["female", "male", "child", "storefront", "whitebg", "random", "own", "own_variant"]}
+    cats = ["female", "male", "child", "storefront", "whitebg", "random", "own", "own_variant", "infographic_clothing", "infographic_other"]
+    # По умолчанию категории включены ("1"), если статус не задан
+    cat_status = {k: (enabled.get(k, "1") == "1") for k in cats}
     
+    # Получаем цены из настроек
+    prices = {}
+    for cat in cats:
+        prices[cat] = int(enabled.get(f"category_price_{cat}", "10"))
+
     # Текст с картинки 2: Обратите внимание...
     disclaimer = "Текст: обратите внимание внешность или другие параметры могут отличаться в зависимости от заданных параметров."
-    await _replace_with_text(callback, disclaimer, reply_markup=create_product_keyboard_dynamic(cat_status))
+    from bot.keyboards import create_product_keyboard_dynamic
+    await _replace_with_text(callback, disclaimer, reply_markup=create_product_keyboard_dynamic(cat_status, prices))
 
 @router.callback_query(F.data.startswith("create_cat:"))
 async def on_create_cat(callback: CallbackQuery, db: Database, state: FSMContext):
@@ -1091,6 +1113,12 @@ async def on_form_generate(callback: CallbackQuery, state: FSMContext, db: Datab
     user_id = callback.from_user.id
     lang = await db.get_user_language(user_id)
     
+    # Проверка техработ
+    maint = await db.get_app_setting("maintenance")
+    if maint == "1":
+        await callback.answer("🛠 В боте техработы. Генерация временно недоступна.", show_alert=True)
+        return
+
     async with active_generations_lock:
         if active_generations >= 20:
             await callback.answer(get_string("rate_limit", lang), show_alert=True)

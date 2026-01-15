@@ -530,29 +530,30 @@ def create_product_keyboard_dynamic(enabled: dict[str, bool], prices: dict[str, 
     rows: list[list[InlineKeyboardButton]] = []
 
     row1: list[InlineKeyboardButton] = []
-    if enabled.get("female") is not False:
+    if enabled.get("female") is True:
         row1.append(InlineKeyboardButton(text=f"👱‍♀️ Женская • {format_price('female', 10)}", callback_data="create_cat:female"))
-    if enabled.get("male") is not False:
+    if enabled.get("male") is True:
         row1.append(InlineKeyboardButton(text=f"👨 Мужская • {format_price('male', 10)}", callback_data="create_cat:male"))
     if row1:
         rows.append(row1)
-    if enabled.get("child") is not False:
+    
+    if enabled.get("child") is True:
         rows.append([InlineKeyboardButton(text=f"🧒 Детская одежда • {format_price('child', 10)}", callback_data="create_cat:child")])
     
     row_rand: list[InlineKeyboardButton] = []
-    if enabled.get("random") is not False:
+    if enabled.get("random") is True:
         row_rand.append(InlineKeyboardButton(text=f"👕 Обувь и Одежда (Рандом) • {format_price('random', 10)}", callback_data="create_random"))
     if row_rand:
         rows.append(row_rand)
 
-    if enabled.get("infographic_clothing") is not False:
+    if enabled.get("infographic_clothing") is True:
         rows.append([InlineKeyboardButton(text=f"🖼️ Инфогр: Одежда • {format_price('infographic_clothing', 15)}", callback_data="create_cat:infographic_clothing")])
-    if enabled.get("infographic_other") is not False:
+    if enabled.get("infographic_other") is True:
         rows.append([InlineKeyboardButton(text=f"📦 Инфогр: Прочее • {format_price('infographic_other', 15)}", callback_data="create_cat:infographic_other")])
     
-    if enabled.get("own") is not False:
+    if enabled.get("own") is True:
         rows.append([InlineKeyboardButton(text=f"💃 Свой вариант МОДЕЛИ • {format_price('own', 12)}", callback_data="create_cat:own")])
-    if enabled.get("own_variant") is not False:
+    if enabled.get("own_variant") is True:
         rows.append([InlineKeyboardButton(text=f"🖼️ Свой вариант ФОНА • {format_price('own_variant', 20)}", callback_data="create_cat:own_variant")])
     
     rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="back_main")])

@@ -1727,7 +1727,7 @@ async def on_form_generate(callback: CallbackQuery, state: FSMContext, db: Datab
                     f_bytes = await callback.bot.download_file(file.file_path)
                     input_image_bytes = [f_bytes.read()]
 
-        await _replace_with_text(callback, get_string("generation_started", lang), reply_markup=None)
+        await _replace_with_text(callback, get_string("gen_in_progress", lang), reply_markup=None)
         
         # Выбор ключа: индивидуальный для 4K или общие для остальных
         plan_type = sub[0]

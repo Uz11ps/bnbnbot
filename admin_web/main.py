@@ -237,17 +237,35 @@ async def index(request: Request, db: aiosqlite.Connection = Depends(get_db), us
 @app.get("/users", response_class=HTMLResponse)
 async def list_users(request: Request, q: str = "", db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
     if q:
-        query = "SELECT id, username, blocked FROM users WHERE id LIKE ? OR username LIKE ? ORDER BY created_at DESC LIMIT 100"
+        query = """
+            SELECT u.id, u.username, u.blocked, s.plan_id, s.expires_at 
+            FROM users u 
+            LEFT JOIN subscriptions s ON u.id = s.user_id 
+            WHERE u.id LIKE ? OR u.username LIKE ? 
+            ORDER BY u.created_at DESC LIMIT 100
+        """
         async with db.execute(query, (f"%{q}%", f"%{q}%")) as cur:
             users = await cur.fetchall()
     else:
-        async with db.execute("SELECT id, username, blocked FROM users ORDER BY created_at DESC LIMIT 50") as cur:
+        query = """
+            SELECT u.id, u.username, u.blocked, s.plan_id, s.expires_at 
+            FROM users u 
+            LEFT JOIN subscriptions s ON u.id = s.user_id 
+            ORDER BY u.created_at DESC LIMIT 50
+        """
+        async with db.execute(query) as cur:
             users = await cur.fetchall()
             
     async with db.execute("SELECT id, name_ru, duration_days, daily_limit FROM subscription_plans WHERE is_active=1") as cur:
         plans = await cur.fetchall()
         
-    return templates.TemplateResponse("users.html", {"request": request, "users": users, "q": q, "plans": plans})
+    return templates.TemplateResponse("users.html", {
+        "request": request, 
+        "users": users, 
+        "q": q, 
+        "plans": plans,
+        "now": datetime.now().isoformat()
+    })
 
 @app.get("/mailing", response_class=HTMLResponse)
 async def mailing_page(request: Request, user: str = Depends(get_current_username)):
@@ -467,7 +485,7 @@ async def edit_subscription(
                 if row:
                     plan_type = row[0]
         
-        plan_id_val = int(plan_id) if plan_id.isdigit() else None
+        plan_id_val = int(plan_id) if plan_id and plan_id.isdigit() else None
         safe_api_key = api_key.strip() if api_key else None
         
         # Проверяем, есть ли уже подписка у этого пользователя
@@ -476,12 +494,12 @@ async def edit_subscription(
             
         if existing:
             await db.execute(
-                "UPDATE subscriptions SET plan_id=?, plan_type=?, expires_at=?, daily_limit=?, individual_api_key=? WHERE user_id=?",
+                "UPDATE subscriptions SET plan_id=?, plan_type=?, expires_at=?, daily_limit=?, daily_usage=0, last_usage_reset=CURRENT_TIMESTAMP, individual_api_key=? WHERE user_id=?",
                 (plan_id_val, plan_type, expires_at.isoformat(), limit, safe_api_key, user_id)
             )
         else:
             await db.execute(
-                "INSERT INTO subscriptions (user_id, plan_id, plan_type, expires_at, daily_limit, individual_api_key) VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO subscriptions (user_id, plan_id, plan_type, expires_at, daily_limit, daily_usage, last_usage_reset, individual_api_key) VALUES (?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP, ?)",
                 (user_id, plan_id_val, plan_type, expires_at.isoformat(), limit, safe_api_key)
             )
         

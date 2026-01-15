@@ -25,7 +25,7 @@
                     <select name="plan_id" class="form-select form-select-sm mb-2" onchange="updateFields(this)">
                         <option value="">-- Выберите план --</option>
                         {% for plan in plans %}
-                        <option value="{{ plan.id }}" data-days="{{ plan.duration_days }}" data-limit="{{ plan.daily_limit }}">{{ plan.name_ru }}</option>
+                        <option value="{{ plan.id }}" data-days="{{ plan.duration_days }}" data-limit="{{ plan.daily_limit }}" {% if user.plan_id == plan.id and user.expires_at > now %}selected{% endif %}>{{ plan.name_ru }}</option>
                         {% endfor %}
                         <option value="custom">Свой вариант</option>
                     </select>

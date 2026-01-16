@@ -25,6 +25,7 @@ from bot.keyboards import (
     result_actions_own_keyboard,
     pants_style_keyboard,
     aspect_ratio_keyboard,
+    form_generate_keyboard,
     sleeve_length_keyboard,
     random_gender_keyboard,
     random_loc_group_keyboard,

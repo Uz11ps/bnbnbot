@@ -45,6 +45,7 @@ from bot.keyboards import (
     plus_gender_keyboard,
 )
 from bot.db import Database
+from bot.strings import get_string
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from bot.config import load_settings

@@ -197,6 +197,23 @@ def back_main_keyboard(lang="ru") -> InlineKeyboardMarkup:
         inline_keyboard=[[InlineKeyboardButton(text=get_string("back_main", lang), callback_data="back_main")]]
     )
 
+def result_actions_keyboard(lang="ru") -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=get_string("btn_repeat", lang), callback_data="result_repeat")],
+            [InlineKeyboardButton(text=get_string("btn_edit", lang), callback_data="result_edit")],
+            [InlineKeyboardButton(text=get_string("back_main", lang), callback_data="back_main")],
+        ]
+    )
+
+def result_actions_own_keyboard(lang="ru") -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=get_string("btn_repeat", lang), callback_data="result_repeat")],
+            [InlineKeyboardButton(text=get_string("back_main", lang), callback_data="back_main")],
+        ]
+    )
+
 def yes_no_keyboard(lang="ru") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[

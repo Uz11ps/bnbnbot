@@ -70,6 +70,7 @@ class CreateForm(StatesGroup):
     waiting_aspect = State()
     waiting_sleeve = State()
     waiting_foot = State()
+    waiting_pants_style = State()
     waiting_edit_text = State()
     result_ready = State()
     # Random mode custom steps reuse existing where possible
@@ -536,7 +537,63 @@ async def on_infographic_load_skip(callback: CallbackQuery, state: FSMContext, d
 @router.callback_query(F.data == "back_step", CreateForm.waiting_info_load)
 async def on_back_from_info_load(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     lang = await db.get_user_language(callback.from_user.id)
-    await _replace_with_text(callback, get_string("select_info_style", lang), reply_markup=infographic_style_keyboard(lang))
+    data = await state.get_data()
+    cat = data.get("category")
+    if cat == "infographic_clothing":
+        await _replace_with_text(callback, get_string("select_gender", lang), reply_markup=infographic_gender_keyboard(lang, back_data="create_cat:infographics"))
+    else:
+        await on_infographics_menu(callback, db)
+    await _safe_answer(callback)
+
+@router.callback_query(F.data == "back_step", CreateForm.waiting_info_lang_custom)
+@router.callback_query(F.data == "back_step", CreateForm.waiting_info_brand)
+async def on_back_from_info_brand(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    lang = await db.get_user_language(callback.from_user.id)
+    from bot.keyboards import info_lang_keyboard
+    await _replace_with_text(callback, get_string("select_info_lang", lang), reply_markup=info_lang_keyboard(lang))
+    await state.set_state(None) # Callback handles state transition
+    await _safe_answer(callback)
+
+@router.callback_query(F.data == "back_step", CreateForm.waiting_info_adv1)
+async def on_back_from_info_adv1(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    lang = await db.get_user_language(callback.from_user.id)
+    await _replace_with_text(callback, get_string("enter_info_brand", lang), reply_markup=back_step_keyboard(lang))
+    await state.set_state(CreateForm.waiting_info_brand)
+    await _safe_answer(callback)
+
+@router.callback_query(F.data == "back_step", CreateForm.waiting_info_adv2)
+async def on_back_from_info_adv2(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    lang = await db.get_user_language(callback.from_user.id)
+    await _replace_with_text(callback, get_string("enter_adv1_skip", lang), reply_markup=skip_step_keyboard("info_adv1", lang))
+    await state.set_state(CreateForm.waiting_info_adv1)
+    await _safe_answer(callback)
+
+@router.callback_query(F.data == "back_step", CreateForm.waiting_info_adv3)
+async def on_back_from_info_adv3(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    lang = await db.get_user_language(callback.from_user.id)
+    await _replace_with_text(callback, get_string("enter_adv2_skip", lang), reply_markup=skip_step_keyboard("info_adv2", lang))
+    await state.set_state(CreateForm.waiting_info_adv2)
+    await _safe_answer(callback)
+
+@router.callback_query(F.data == "back_step", CreateForm.waiting_info_extra)
+async def on_back_from_info_extra(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    lang = await db.get_user_language(callback.from_user.id)
+    await _replace_with_text(callback, get_string("enter_adv3_skip", lang), reply_markup=skip_step_keyboard("info_adv3", lang))
+    await state.set_state(CreateForm.waiting_info_adv3)
+    await _safe_answer(callback)
+
+@router.callback_query(F.data == "back_step", CreateForm.waiting_info_angle)
+async def on_back_from_info_angle(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    lang = await db.get_user_language(callback.from_user.id)
+    await _replace_with_text(callback, get_string("enter_info_extra_skip", lang), reply_markup=skip_step_keyboard("info_extra", lang))
+    await state.set_state(CreateForm.waiting_info_extra)
+    await _safe_answer(callback)
+
+@router.callback_query(F.data == "back_step", CreateForm.waiting_info_pose)
+async def on_back_from_info_pose(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    lang = await db.get_user_language(callback.from_user.id)
+    await _replace_with_text(callback, "Выберите угол камеры (Спереди/Сзади):", reply_markup=form_view_keyboard(lang))
+    await state.set_state(CreateForm.waiting_info_angle)
     await _safe_answer(callback)
 
 
@@ -1155,7 +1212,7 @@ async def on_model_pick(callback: CallbackQuery, db: Database, state: FSMContext
     await state.update_data(category=category, cloth=cloth, index=index, model_id=model_id, prompt_id=prompt_id, plus_mode=plus_mode_flag)
     if cloth == "pants":
         await _replace_with_text(callback, "Выберите фасон брюк:", reply_markup=pants_style_keyboard())
-        await state.set_state(State('waiting_pants_style'))
+        await state.set_state(CreateForm.waiting_pants_style)
     else:
         if category == "child":
             # Сначала выбираем пол ребёнка
@@ -1450,7 +1507,7 @@ async def on_garment_len_callback(callback: CallbackQuery, state: FSMContext, db
         await state.set_state(CreateForm.waiting_sleeve)
         await _replace_with_text(callback, "Clothing Sleeve Length: выберите длину рукава или пропустите", reply_markup=sleeve_length_keyboard())
     elif plus_mode and cloth == "pants":
-        await state.set_state(State('waiting_pants_style'))
+        await state.set_state(CreateForm.waiting_pants_style)
         await _replace_with_text(callback, "Тип кроя штанов (опционально):", reply_markup=pants_style_keyboard())
     else:
         await state.set_state(CreateForm.waiting_view)
@@ -1484,7 +1541,7 @@ async def form_set_length(message: Message, state: FSMContext, db: Database) -> 
         await message.answer("Clothing Sleeve Length: выберите длину рукава или пропустите", reply_markup=sleeve_length_keyboard())
     elif plus_mode and cloth == "pants":
         # В Большом размере спросим крой брюк
-        await state.set_state(State('waiting_pants_style'))
+        await state.set_state(CreateForm.waiting_pants_style)
         await message.answer("Тип кроя штанов (опционально):", reply_markup=pants_style_keyboard())
     else:
         await state.set_state(CreateForm.waiting_view)
@@ -1531,7 +1588,7 @@ async def form_set_sleeve(callback: CallbackQuery, state: FSMContext) -> None:
 
     if data.get("random_mode"):
         await _replace_with_text(callback, "Тип кроя штанов (опционально):", reply_markup=pants_style_keyboard())
-        await state.set_state(State('waiting_pants_style'))
+        await state.set_state(CreateForm.waiting_pants_style)
     else:
         await _replace_with_text(callback, "👀 Пожалуйста выберите ракурс:", reply_markup=form_view_keyboard())
         await state.set_state(CreateForm.waiting_view)
@@ -1700,6 +1757,132 @@ async def handle_user_photo(message: Message, state: FSMContext, db: Database) -
     await state.set_state(CreateForm.waiting_aspect)
 
 
+@router.callback_query(F.data == "back_step", CreateForm.waiting_size)
+async def on_back_from_size(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    data = await state.get_data()
+    category = data.get("category")
+    cloth = data.get("cloth")
+    index = data.get("index", 0)
+    await on_model_nav(callback, db) # Re-use model navigation
+
+@router.callback_query(F.data == "back_step", CreateForm.waiting_age)
+async def on_back_from_age(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    data = await state.get_data()
+    category = data.get("category")
+    lang = await db.get_user_language(callback.from_user.id)
+    if data.get("plus_mode"):
+        await _replace_with_text(callback, "Выберите вайб:", reply_markup=plus_vibe_keyboard(lang))
+        await state.set_state(CreateForm.plus_vibe)
+    else:
+        await _replace_with_text(callback, "Выберите телосложение:", reply_markup=form_size_keyboard(category, lang))
+        await state.set_state(CreateForm.waiting_size)
+    await _safe_answer(callback)
+
+@router.callback_query(F.data == "back_step", CreateForm.waiting_height)
+async def on_back_from_height(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    data = await state.get_data()
+    lang = await db.get_user_language(callback.from_user.id)
+    if data.get("category") == "child":
+        await _replace_with_text(callback, "Введите возраст ребенка (в годах):")
+        await state.set_state(CreateForm.waiting_age)
+    else:
+        await _replace_with_text(callback, "🎂 Пожалуйста выберите возраст модели:", reply_markup=form_age_keyboard(lang))
+        await state.set_state(CreateForm.waiting_age)
+    await _safe_answer(callback)
+
+@router.callback_query(F.data == "back_step", CreateForm.waiting_length)
+async def on_back_from_length(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    data = await state.get_data()
+    lang = await db.get_user_language(callback.from_user.id)
+    if data.get("category") == "storefront":
+        await on_marketplace_menu(callback, db)
+    else:
+        await _replace_with_text(callback, "📏 Введите рост модели в см (например: 170):")
+        await state.set_state(CreateForm.waiting_height)
+    await _safe_answer(callback)
+
+@router.callback_query(F.data == "back_step", CreateForm.waiting_sleeve)
+async def on_back_from_sleeve(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    await _ask_garment_length(callback, state, db)
+    await _safe_answer(callback)
+
+@router.callback_query(F.data == "back_step", CreateForm.waiting_view)
+async def on_back_from_view(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    data = await state.get_data()
+    lang = await db.get_user_language(callback.from_user.id)
+    if data.get("infographic_mode"):
+        await _replace_with_text(callback, get_string("select_camera_dist", lang), reply_markup=angle_keyboard(lang))
+        await state.set_state(CreateForm.waiting_view) # Used for distance selection
+    elif data.get("random_mode") or data.get("cloth") == "shoes":
+        # Check previous steps for random/shoes
+        if data.get("category") == "child" and data.get("cloth") == "shoes":
+            await _replace_with_text(callback, "Введите размер ноги ребенка (например: 31) или отправьте 'Пропустить':")
+            await state.set_state(CreateForm.waiting_foot)
+        else:
+            await _ask_garment_length(callback, state, db)
+    else:
+        await state.set_state(CreateForm.waiting_sleeve)
+        await _replace_with_text(callback, "Выберите тип рукава (или пропустите):", reply_markup=sleeve_length_keyboard(lang))
+    await _safe_answer(callback)
+
+@router.callback_query(F.data == "back_step", CreateForm.waiting_foot)
+async def on_back_from_foot(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    await _replace_with_text(callback, "📏 Введите рост модели в см (например: 170):")
+    await state.set_state(CreateForm.waiting_height)
+    await _safe_answer(callback)
+
+@router.callback_query(F.data == "back_step", CreateForm.plus_loc)
+async def on_back_from_plus_loc(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    await on_model_nav(callback, db)
+
+@router.callback_query(F.data == "back_step", CreateForm.plus_season)
+async def on_back_from_plus_season(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    lang = await db.get_user_language(callback.from_user.id)
+    await _replace_with_text(callback, "Выберите локацию:", reply_markup=plus_location_keyboard(lang))
+    await state.set_state(CreateForm.plus_loc)
+    await _safe_answer(callback)
+
+@router.callback_query(F.data == "back_step", CreateForm.plus_vibe)
+async def on_back_from_plus_vibe(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    lang = await db.get_user_language(callback.from_user.id)
+    await _replace_with_text(callback, "Выберите время года:", reply_markup=plus_season_keyboard(lang))
+    await state.set_state(CreateForm.plus_season)
+    await _safe_answer(callback)
+
+@router.callback_query(F.data == "back_step", CreateForm.waiting_custom_location)
+async def on_back_from_custom_loc(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    lang = await db.get_user_language(callback.from_user.id)
+    await _replace_with_text(callback, "Где будет находиться товар?", reply_markup=random_loc_group_keyboard(lang))
+    await state.set_state(None)
+    await _safe_answer(callback)
+
+@router.callback_query(F.data == "back_step", CreateForm.waiting_has_person)
+async def on_back_from_has_person(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    await on_create_photo(callback, db)
+
+@router.callback_query(F.data == "back_step", CreateForm.waiting_child_gender)
+async def on_back_from_child_gender(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    await on_model_nav(callback, db)
+
+@router.callback_query(F.data == "back_step", CreateForm.waiting_pants_style)
+async def on_back_from_pants_style(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    data = await state.get_data()
+    if data.get("random_mode"):
+        await state.set_state(CreateForm.waiting_sleeve)
+        lang = await db.get_user_language(callback.from_user.id)
+        await _replace_with_text(callback, "Выберите длину рукава:", reply_markup=sleeve_length_keyboard(lang))
+    else:
+        await on_model_nav(callback, db)
+    await _safe_answer(callback)
+
+@router.callback_query(F.data == "back_step", CreateForm.waiting_info_lang_custom)
+async def on_back_from_info_lang_custom(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    lang = await db.get_user_language(callback.from_user.id)
+    from bot.keyboards import info_lang_keyboard
+    await _replace_with_text(callback, get_string("select_info_lang", lang), reply_markup=info_lang_keyboard(lang))
+    await state.set_state(None)
+    await _safe_answer(callback)
+
 @router.callback_query(F.data == "back_step", CreateForm.waiting_own_bg_photo)
 async def on_back_from_own_bg(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     await on_marketplace_menu(callback, db)
@@ -1735,6 +1918,46 @@ async def on_back_from_own_cut(callback: CallbackQuery, state: FSMContext, db: D
     await _safe_answer(callback)
 
 @router.callback_query(F.data == "back_step", CreateForm.waiting_aspect)
+async def on_back_from_own_aspect(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    data = await state.get_data()
+    lang = await db.get_user_language(callback.from_user.id)
+    if data.get("category") == "own_variant":
+        await _replace_with_text(callback, get_string("upload_product", lang), reply_markup=back_step_keyboard(lang))
+        await state.set_state(CreateForm.waiting_own_product_photo)
+    elif data.get("own_mode"):
+        # Для own_mode возвращаемся к рукаву
+        await state.set_state(CreateForm.waiting_own_sleeve)
+        await _replace_with_text(callback, get_string("select_sleeve_length", lang), reply_markup=sleeve_length_keyboard(lang))
+    else:
+        # fallback for other flows
+        await on_create_photo(callback, db)
+    await _safe_answer(callback)
+
+@router.callback_query(F.data == "back_step", CreateForm.waiting_edit_text)
+async def on_back_from_edit_text(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    # Возвращаемся к просмотру результата
+    await state.set_state(CreateForm.result_ready)
+    lang = await db.get_user_language(callback.from_user.id)
+    # Показываем кнопки действий с результатом
+    data = await state.get_data()
+    if data.get("own_mode") or data.get("category") == "own_variant":
+        kb = result_actions_own_keyboard(lang)
+    else:
+        kb = result_actions_keyboard(lang)
+    await _replace_with_text(callback, get_string("gen_ready", lang), reply_markup=kb)
+    await _safe_answer(callback)
+
+@router.callback_query(F.data == "back_step", CreateForm.result_ready)
+async def on_back_from_result(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    lang = await db.get_user_language(callback.from_user.id)
+    await _replace_with_text(callback, get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
+    await state.set_state(CreateForm.waiting_aspect)
+    await _safe_answer(callback)
+
+@router.callback_query(F.data == "back_step")
+async def on_back_step_fallback(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    # Если ни один стейт-специфичный хендлер не сработал
+    await on_back_main(callback, state, db)
 async def on_back_from_own_aspect(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     data = await state.get_data()
     lang = await db.get_user_language(callback.from_user.id)

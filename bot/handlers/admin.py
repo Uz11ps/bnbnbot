@@ -232,9 +232,9 @@ async def admin_user_search_finish(message: Message, state: FSMContext, db: Data
     txt = (message.text or "").strip()
     try:
         uid = int(txt)
-            except Exception:
+    except Exception:
         await message.answer(get_string("admin_enter_id_error", lang))
-            return
+        return
     blocked = await db.get_user_blocked(uid)
     state_txt = get_string("admin_block", lang) if blocked else get_string("admin_unblock", lang)
     text = get_string("admin_user_title", lang, uid=uid) + f"\n{get_string('admin_user_status', lang, status=state_txt)}"

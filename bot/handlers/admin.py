@@ -1390,9 +1390,9 @@ async def admin_api_key_add_priority(message: Message, state: FSMContext, db: Da
         keys = await db.list_own_variant_api_keys()
         await message.answer(get_string("admin_gemini_key_added", lang), reply_markup=admin_own_variant_api_keys_keyboard(keys, lang))
     else:
-    await db.add_api_key(token, priority)
-    await state.clear()
-    keys = await db.list_api_keys()
+        await db.add_api_key(token, priority)
+        await state.clear()
+        keys = await db.list_api_keys()
         await message.answer(get_string("admin_gemini_key_added", lang), reply_markup=admin_api_keys_keyboard(keys, lang))
 
 

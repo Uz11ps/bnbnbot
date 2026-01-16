@@ -149,7 +149,7 @@ async def _replace_with_text(callback: CallbackQuery, text: str, reply_markup=No
 async def _ask_garment_length(message_or_callback: Message | CallbackQuery, state: FSMContext, db: Database) -> None:
     """Вспомогательная функция для запроса длины изделия с фото-гайдом"""
     lang = await db.get_user_language(message_or_callback.from_user.id)
-    photo_path = "WhatsApp Image 2025-11-25 at 00.40.21.jpeg"
+    photo_path = "garment_length_guide.jpeg"
     text = get_string("select_garment_length", lang)
     kb = garment_length_keyboard(lang)
     

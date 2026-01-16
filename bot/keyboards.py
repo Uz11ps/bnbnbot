@@ -54,12 +54,25 @@ def language_keyboard(lang="ru") -> InlineKeyboardMarkup:
         ]
     )
 
-def marketplace_menu_keyboard(lang="ru") -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=get_string("back_main", lang), callback_data="back_main")]
-        ]
-    )
+def marketplace_menu_keyboard(enabled: dict[str, bool], lang="ru") -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    
+    if enabled.get("infographic_clothing") is True or enabled.get("infographic_other") is True:
+        rows.append([InlineKeyboardButton(text=get_string("cat_infographics", lang), callback_data="create_cat:infographics")])
+    
+    if enabled.get("storefront") is True:
+        rows.append([InlineKeyboardButton(text=get_string("cat_storefront", lang), callback_data="create_cat:storefront")])
+        
+    if enabled.get("whitebg") is True:
+        rows.append([InlineKeyboardButton(text=get_string("cat_whitebg", lang), callback_data="create_cat:whitebg")])
+    
+    if enabled.get("own") is True:
+        rows.append([InlineKeyboardButton(text=get_string("cat_own", lang), callback_data="create_cat:own")])
+    if enabled.get("own_variant") is True:
+        rows.append([InlineKeyboardButton(text=get_string("cat_own_variant", lang), callback_data="create_cat:own_variant")])
+    
+    rows.append([InlineKeyboardButton(text=get_string("back", lang), callback_data="back_main")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 def plans_keyboard(plans: list[tuple], lang="ru") -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
@@ -160,7 +173,7 @@ def admin_categories_keyboard(status: dict[str, bool], lang="ru") -> InlineKeybo
     )
 
 def create_product_keyboard_dynamic(enabled: dict[str, bool], lang="ru") -> InlineKeyboardMarkup:
-    """Создает клавиатуру выбора категории с учетом отключенных разделов"""
+    """Создает клавиатуру выбора категории для 'Генерации фото' (Пресеты и Рандом)"""
     rows: list[list[InlineKeyboardButton]] = []
 
     # Готовые пресеты (объединяем female, male, child)
@@ -172,14 +185,6 @@ def create_product_keyboard_dynamic(enabled: dict[str, bool], lang="ru") -> Inli
         rows.append([InlineKeyboardButton(text=get_string("cat_random", lang), callback_data="create_random")])
     if enabled.get("random_other") is True:
         rows.append([InlineKeyboardButton(text=get_string("cat_random_other", lang), callback_data="create_random_other")])
-
-    if enabled.get("infographic_clothing") is True or enabled.get("infographic_other") is True:
-        rows.append([InlineKeyboardButton(text=get_string("cat_infographics", lang), callback_data="create_cat:infographics")])
-
-    if enabled.get("own") is True:
-        rows.append([InlineKeyboardButton(text=get_string("cat_own", lang), callback_data="create_cat:own")])
-    if enabled.get("own_variant") is True:
-        rows.append([InlineKeyboardButton(text=get_string("cat_own_variant", lang), callback_data="create_cat:own_variant")])
 
     rows.append([InlineKeyboardButton(text=get_string("back", lang), callback_data="back_main")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -522,7 +527,7 @@ def infographic_selection_keyboard(enabled: dict[str, bool], lang="ru") -> Inlin
         rows.append([InlineKeyboardButton(text=get_string("cat_infographic_clothing", lang), callback_data="create_cat:infographic_clothing")])
     if enabled.get("infographic_other") is True:
         rows.append([InlineKeyboardButton(text=get_string("cat_infographic_other", lang), callback_data="create_cat:infographic_other")])
-    rows.append([InlineKeyboardButton(text=get_string("back", lang), callback_data="menu_create")])
+    rows.append([InlineKeyboardButton(text=get_string("back", lang), callback_data="menu_market")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 def info_holiday_keyboard(lang="ru") -> InlineKeyboardMarkup:
@@ -639,7 +644,7 @@ def random_location_keyboard(group: str, lang="ru") -> InlineKeyboardMarkup:
     rows.append([InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
-def female_clothes_keyboard(lang="ru") -> InlineKeyboardMarkup:
+def female_clothes_keyboard(lang="ru", back_data="create_cat:presets") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="🧥 " + get_string("cloth_coat", lang), callback_data="female_cloth:coat"), InlineKeyboardButton(text="👗 " + get_string("cloth_dress", lang), callback_data="female_cloth:dress")],
@@ -647,7 +652,7 @@ def female_clothes_keyboard(lang="ru") -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="👚 " + get_string("subcat_top", lang), callback_data="female_cloth:top"), InlineKeyboardButton(text="🏠 " + get_string("cloth_loungewear", lang), callback_data="female_cloth:loungewear")],
             [InlineKeyboardButton(text="🥼 " + get_string("cloth_suit", lang), callback_data="female_cloth:suit"), InlineKeyboardButton(text="🦺 " + get_string("cloth_overall", lang), callback_data="female_cloth:overall")],
             [InlineKeyboardButton(text="👗 " + get_string("cloth_skirt", lang), callback_data="female_cloth:skirt"), InlineKeyboardButton(text="👠 " + get_string("cloth_shoes", lang), callback_data="female_cloth:shoes")],
-            [InlineKeyboardButton(text=get_string("back", lang), callback_data="create_cat:presets")],
+            [InlineKeyboardButton(text=get_string("back", lang), callback_data=back_data)],
         ]
     )
 

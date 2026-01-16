@@ -274,7 +274,6 @@ async def on_create_photo(callback: CallbackQuery, db: Database) -> None:
     if await db.get_user_blocked(callback.from_user.id):
         await _safe_answer(callback, get_string("maintenance_alert", lang), show_alert=True)
         return
-    lang = await db.get_user_language(callback.from_user.id)
     if balance <= 0:
         await _safe_answer(callback, get_string("limit_rem_zero", lang), show_alert=True)
         return
@@ -282,20 +281,30 @@ async def on_create_photo(callback: CallbackQuery, db: Database) -> None:
     if callback.message and callback.message.text == text:
         await _safe_answer(callback)
         return
-    # динамически скрываем отключённые категории
-    try:
-        statuses = await db.list_categories_enabled()
-        if not any(statuses.values()):
-            await _replace_with_text(
-                callback,
-                get_string("maintenance_alert", lang),
-                reply_markup=back_main_keyboard(lang),
-            )
-        else:
-            await _replace_with_text(callback, text, reply_markup=create_product_keyboard_dynamic(statuses, lang))
-    except Exception:
-        # на случай отсутствия настроек — показать стандартное меню
-        await _replace_with_text(callback, text, reply_markup=create_product_keyboard(lang))
+    
+    statuses = await db.list_categories_enabled()
+    from bot.keyboards import create_product_keyboard_dynamic
+    await _replace_with_text(callback, text, reply_markup=create_product_keyboard_dynamic(statuses, lang))
+    await _safe_answer(callback)
+
+
+@router.callback_query(F.data == "menu_market")
+async def on_marketplace_menu(callback: CallbackQuery, db: Database) -> None:
+    lang = await db.get_user_language(callback.from_user.id)
+    # Техработы
+    if await db.get_maintenance():
+        settings = load_settings()
+        if callback.from_user.id not in (settings.admin_ids or []):
+            await _safe_answer(callback, get_string("maintenance_alert", lang), show_alert=True)
+            return
+    balance = await db.get_user_balance(callback.from_user.id)
+    if balance <= 0:
+        await _safe_answer(callback, get_string("limit_rem_zero", lang), show_alert=True)
+        return
+    
+    statuses = await db.list_categories_enabled()
+    from bot.keyboards import marketplace_menu_keyboard
+    await _replace_with_text(callback, get_string("marketplace_menu", lang), reply_markup=marketplace_menu_keyboard(statuses, lang))
     await _safe_answer(callback)
 
 
@@ -387,6 +396,39 @@ async def on_create_random_other(callback: CallbackQuery, state: FSMContext, db:
     await state.set_state(CreateForm.waiting_has_person)
     await _safe_answer(callback)
 
+
+@router.callback_query(F.data == "create_cat:storefront")
+async def on_storefront_category(callback: CallbackQuery, db: Database, state: FSMContext) -> None:
+    if await db.get_maintenance():
+        settings = load_settings()
+        if callback.from_user.id not in (settings.admin_ids or []):
+            await _safe_answer(callback, get_string("maintenance_alert", await db.get_user_language(callback.from_user.id)), show_alert=True)
+            return
+    if not await db.get_category_enabled("storefront"):
+        await _safe_answer(callback, get_string("no_models_in_category_alert", await db.get_user_language(callback.from_user.id)), show_alert=True)
+        return
+    await state.clear()
+    await state.update_data(category="storefront")
+    lang = await db.get_user_language(callback.from_user.id)
+    await _replace_with_text(callback, get_string("select_gender", lang), reply_markup=female_clothes_keyboard(lang, back_data="menu_market"))
+    await _safe_answer(callback)
+
+
+@router.callback_query(F.data == "create_cat:whitebg")
+async def on_whitebg_category(callback: CallbackQuery, db: Database, state: FSMContext) -> None:
+    if await db.get_maintenance():
+        settings = load_settings()
+        if callback.from_user.id not in (settings.admin_ids or []):
+            await _safe_answer(callback, get_string("maintenance_alert", await db.get_user_language(callback.from_user.id)), show_alert=True)
+            return
+    if not await db.get_category_enabled("whitebg"):
+        await _safe_answer(callback, get_string("no_models_in_category_alert", await db.get_user_language(callback.from_user.id)), show_alert=True)
+        return
+    await state.clear()
+    await state.update_data(category="whitebg")
+    lang = await db.get_user_language(callback.from_user.id)
+    await _replace_with_text(callback, get_string("select_gender", lang), reply_markup=female_clothes_keyboard(lang, back_data="menu_market"))
+    await _safe_answer(callback)
 
 # --- РАЗДЕЛ ИНФОГРАФИКА ---
 
@@ -1660,7 +1702,7 @@ async def handle_user_photo(message: Message, state: FSMContext, db: Database) -
 
 @router.callback_query(F.data == "back_step", CreateForm.waiting_own_bg_photo)
 async def on_back_from_own_bg(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
-    await on_create_photo(callback, db)
+    await on_marketplace_menu(callback, db)
 
 @router.callback_query(F.data == "back_step", CreateForm.waiting_own_product_photo)
 async def on_back_from_own_product(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
@@ -1670,7 +1712,7 @@ async def on_back_from_own_product(callback: CallbackQuery, state: FSMContext, d
 async def on_back_from_ref_photo(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     data = await state.get_data()
     if data.get("own_mode"):
-        await on_create_own(callback, state, db)
+        await on_marketplace_menu(callback, db)
     else:
         await on_create_photo(callback, db)
 

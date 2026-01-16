@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS users (
     referrer_id INTEGER,
     language TEXT NOT NULL DEFAULT 'ru',
     trial_used INTEGER NOT NULL DEFAULT 0,
+    balance INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -51,6 +52,19 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(user_id) REFERENCES users(id),
     FOREIGN KEY(plan_id) REFERENCES subscription_plans(id)
+);
+"""
+
+CREATE_PAYMENTS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS payments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    plan_id INTEGER,
+    amount INTEGER NOT NULL,
+    currency TEXT DEFAULT 'RUB',
+    status TEXT DEFAULT 'completed',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(user_id) REFERENCES users(id)
 );
 """
 
@@ -124,6 +138,20 @@ CREATE TABLE IF NOT EXISTS api_usage_log (
 );
 """
 
+CREATE_API_ERRORS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS api_key_errors (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    key_id INTEGER,
+    api_key_preview TEXT,  -- Первые 10 символов ключа для идентификации
+    error_type TEXT NOT NULL,  -- '429', 'quota', 'proxy', etc.
+    error_message TEXT,
+    status_code INTEGER,
+    is_proxy_error INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(key_id) REFERENCES api_keys(id)
+);
+"""
+
 CREATE_OWN_VARIANT_API_KEYS_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS own_variant_api_keys (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -192,11 +220,13 @@ class Database:
             await db.execute(CREATE_MODELS_TABLE_SQL)
             await db.execute(CREATE_API_KEYS_TABLE_SQL)
             await db.execute(CREATE_API_USAGE_LOG_TABLE_SQL)
+            await db.execute(CREATE_API_ERRORS_TABLE_SQL)
             await db.execute(CREATE_OWN_VARIANT_API_KEYS_TABLE_SQL)
             await db.execute(CREATE_OWN_VARIANT_RATE_LIMIT_TABLE_SQL)
             await db.execute(CREATE_OWN_VARIANT_RATE_LIMIT_INDEX_SQL)
             await db.execute(CREATE_APP_SETTINGS_TABLE_SQL)
             await db.execute(CREATE_TRANSACTIONS_TABLE_SQL)
+            await db.execute(CREATE_PAYMENTS_TABLE_SQL)
             await db.execute(CREATE_SUBSCRIPTIONS_TABLE_SQL)
             await db.execute(CREATE_GENERATION_HISTORY_TABLE_SQL)
             await db.execute(CREATE_PROMPT_TEMPLATES_TABLE_SQL)
@@ -233,6 +263,8 @@ class Database:
                 cols = [row[1] for row in await cur.fetchall()]
             if "trial_used" not in cols:
                 await db.execute("ALTER TABLE users ADD COLUMN trial_used INTEGER NOT NULL DEFAULT 0")
+            if "balance" not in cols:
+                await db.execute("ALTER TABLE users ADD COLUMN balance INTEGER NOT NULL DEFAULT 0")
             
             async with db.execute("PRAGMA table_info(api_keys)") as cur:
                 cols = [row[1] for row in await cur.fetchall()]
@@ -788,6 +820,17 @@ class Database:
                 row = await cur.fetchone()
                 return str(row[0]) if row else "ru"
 
+    async def get_user_balance(self, user_id: int) -> int:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT balance FROM users WHERE id=?", (user_id,)) as cur:
+                row = await cur.fetchone()
+                return int(row[0]) if row else 0
+
+    async def increment_user_balance(self, user_id: int, amount: int) -> None:
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute("UPDATE users SET balance = balance + ? WHERE id=?", (amount, user_id))
+            await db.commit()
+
     async def add_generation_history(self, pid: str, user_id: int, category: str, params: str, input_photos: str, result_photo_id: str) -> None:
         async with aiosqlite.connect(self._db_path) as db:
             await db.execute(
@@ -1068,7 +1111,7 @@ class Database:
                 return await cur.fetchone()
 
     # Subscription Management
-    async def grant_subscription(self, user_id: int, plan_id: int | None, plan_type: str, duration_days: int, daily_limit: int) -> None:
+    async def grant_subscription(self, user_id: int, plan_id: int | None, plan_type: str, duration_days: int, daily_limit: int, amount: int = 0) -> None:
         from datetime import datetime, timedelta
         expires_at = datetime.now() + timedelta(days=duration_days)
         async with aiosqlite.connect(self._db_path) as db:
@@ -1077,6 +1120,14 @@ class Database:
                 "INSERT INTO subscriptions (user_id, plan_id, plan_type, expires_at, daily_limit) VALUES (?, ?, ?, ?, ?)",
                 (user_id, plan_id, plan_type, expires_at.isoformat(), daily_limit)
             )
+            
+            # Записываем платеж
+            if amount > 0:
+                await db.execute(
+                    "INSERT INTO payments (user_id, plan_id, amount) VALUES (?, ?, ?)",
+                    (user_id, plan_id, amount)
+                )
+
             # Если это не триал, помечаем что триал использован
             if plan_type != 'trial':
                 await db.execute("UPDATE users SET trial_used=1 WHERE id=?", (user_id,))
@@ -1114,14 +1165,22 @@ class Database:
     # API Key usage tracking
     async def check_api_key_limits(self, key_id: int) -> tuple[bool, str]:
         from datetime import datetime
+        MAX_TOTAL_USAGE = 235  # Максимальное количество использований ключа
         async with aiosqlite.connect(self._db_path) as db:
-            async with db.execute("SELECT daily_usage, last_usage_reset FROM api_keys WHERE id=?", (key_id,)) as cur:
+            async with db.execute("SELECT daily_usage, total_usage, last_usage_reset FROM api_keys WHERE id=?", (key_id,)) as cur:
                 row = await cur.fetchone()
                 if not row: return False, "Key not found"
-                daily_usage, last_reset = row
+                daily_usage, total_usage, last_reset = row
+                
+                # Проверка общего лимита (235 фото)
+                if total_usage is not None and total_usage >= MAX_TOTAL_USAGE:
+                    # Автоматически деактивируем ключ при достижении лимита
+                    await db.execute("UPDATE api_keys SET is_active=0 WHERE id=?", (key_id,))
+                    await db.commit()
+                    return False, f"Total limit {MAX_TOTAL_USAGE} reached"
                 
                 # Reset daily if needed
-                if not last_reset or last_reset[:10] != datetime.now().isoformat()[:10]:
+                if not last_reset or (isinstance(last_reset, str) and last_reset[:10] != datetime.now().isoformat()[:10]):
                     await db.execute("UPDATE api_keys SET daily_usage=0, last_usage_reset=CURRENT_TIMESTAMP WHERE id=?", (key_id,))
                     await db.commit()
                     daily_usage = 0
@@ -1145,6 +1204,34 @@ class Database:
             await db.execute("INSERT INTO api_usage_log (key_id) VALUES (?)", (key_id,))
             await db.execute("UPDATE api_keys SET daily_usage = daily_usage + 1, total_usage = total_usage + 1 WHERE id=?", (key_id,))
             await db.commit()
+
+    async def record_api_error(self, key_id: int | None, api_key_preview: str, error_type: str, error_message: str, status_code: int | None = None, is_proxy_error: bool = False) -> None:
+        """Записывает ошибку API ключа в базу данных"""
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute(
+                "INSERT INTO api_key_errors (key_id, api_key_preview, error_type, error_message, status_code, is_proxy_error) VALUES (?, ?, ?, ?, ?, ?)",
+                (key_id, api_key_preview[:20], error_type, error_message[:500], status_code, 1 if is_proxy_error else 0)
+            )
+            await db.commit()
+
+    async def get_recent_api_errors(self, limit: int = 10) -> list[tuple]:
+        """Получает последние ошибки API ключей"""
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute(
+                "SELECT key_id, api_key_preview, error_type, error_message, status_code, is_proxy_error, created_at FROM api_key_errors ORDER BY created_at DESC LIMIT ?",
+                (limit,)
+            ) as cur:
+                return await cur.fetchall()
+
+    async def get_proxy_errors_count(self, hours: int = 24) -> int:
+        """Получает количество ошибок прокси за последние N часов"""
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute(
+                "SELECT COUNT(*) FROM api_key_errors WHERE is_proxy_error=1 AND created_at > datetime('now', '-' || ? || ' hours')",
+                (hours,)
+            ) as cur:
+                row = await cur.fetchone()
+                return int(row[0]) if row else 0
 
     # Agreement and Instructions
     async def get_app_setting(self, key: str, default: str | None = None) -> str | None:

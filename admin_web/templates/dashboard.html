@@ -34,6 +34,11 @@
         <div class="card p-3 h-100 shadow-sm border-0">
             <div class="text-muted small fw-bold text-uppercase mb-2">Статус прокси</div>
             <div class="fw-bold">{{ proxy_status }}</div>
+            {% if proxy_errors_count > 0 %}
+            <div class="alert alert-warning mt-2 mb-0 p-2 small">
+                <i class="bi bi-exclamation-triangle"></i> Обнаружено {{ proxy_errors_count }} ошибок прокси за последние 24 часа
+            </div>
+            {% endif %}
         </div>
     </div>
 
@@ -48,6 +53,56 @@
         </div>
     </div>
 </div>
+
+{% if recent_errors %}
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card shadow-sm border-warning border-2">
+            <div class="card-header bg-warning bg-opacity-10">
+                <h5 class="mb-0"><i class="bi bi-exclamation-triangle text-warning"></i> Последние ошибки API ключей</h5>
+            </div>
+            <div class="card-body p-2">
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>Key ID</th>
+                                <th>Key Preview</th>
+                                <th>Тип ошибки</th>
+                                <th>Статус</th>
+                                <th>Сообщение</th>
+                                <th>Время</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for err in recent_errors %}
+                            <tr class="{% if err[5] == 1 %}table-warning{% elif err[2] == '429' or err[2] == 'quota' %}table-danger{% endif %}">
+                                <td>{{ err[0] or 'N/A' }}</td>
+                                <td><code>{{ err[1] }}</code></td>
+                                <td>
+                                    {% if err[2] == '429' %}
+                                        <span class="badge bg-danger">429 Rate Limit</span>
+                                    {% elif err[2] == 'quota' %}
+                                        <span class="badge bg-danger">Quota</span>
+                                    {% elif err[2] == 'proxy' %}
+                                        <span class="badge bg-warning">Proxy</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">{{ err[2] }}</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ err[4] or 'N/A' }}</td>
+                                <td><small>{{ err[3][:100] }}{% if err[3]|length > 100 %}...{% endif %}</small></td>
+                                <td><small>{{ err[6][:16].replace('T', ' ') if err[6] else 'N/A' }}</small></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
 
 <div class="mt-4">
     <h4>Быстрые действия</h4>

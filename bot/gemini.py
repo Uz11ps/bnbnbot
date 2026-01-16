@@ -38,6 +38,9 @@ def _generate_sync(
     images: list[bytes] | bytes,
     ref_image_bytes: bytes | None = None,
     model_name: str | None = None,
+    aspect_ratio: str | None = None,
+    key_id: int | None = None,
+    db_instance = None,
 ) -> Optional[bytes]:
     # Используем gemini-3-pro-image-preview для всех категорий
     if model_name == "gemini-3-pro-preview" or model_name == "gemini-3-pro-image-preview":
@@ -81,6 +84,9 @@ def _generate_sync(
         "maxOutputTokens": 4096,
     }
     
+    if aspect_ratio:
+        generation_config["aspectRatio"] = aspect_ratio
+    
     # Добавляем поддержку 4K и аспектов через промпт если модель поддерживает или через параметры
     # В текущей версии API Gemini Image Preview мы управляем этим через промпт
     if "4k" in (prompt or "").lower() or "ultra" in (prompt or "").lower():
@@ -112,6 +118,8 @@ def _generate_sync(
 
     resp = None
     last_text = None
+    last_exception = None
+    is_proxy_error = False
     for attempt in range(1, 4):
         try:
             resp = session.post(endpoint, headers=headers, json=payload, timeout=90, proxies=proxies or None)
@@ -122,30 +130,69 @@ def _generate_sync(
                 _t.sleep(2 * attempt)
                 continue
             break
+        except (requests.exceptions.ProxyError, requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+            last_exception = e
+            last_text = str(e)
+            is_proxy_error = True
+            logger.warning("[Gemini] proxy/network error on attempt %d: %s", attempt, e)
+            import time as _t
+            _t.sleep(2 * attempt)
         except requests.RequestException as e:
+            last_exception = e
             last_text = str(e)
             logger.warning("[Gemini] network error on attempt %d: %s", attempt, e)
             import time as _t
             _t.sleep(2 * attempt)
+    
     if resp is None or resp.status_code != 200:
         # Detailed diagnostics for non-200 responses
+        status_code = getattr(resp, 'status_code', None) if resp else None
         body_text = (getattr(resp, 'text', None) or last_text or '')
         snippet = (body_text or '')[:1000]
-        headers = {}
+        response_headers = {}
         try:
             # Log useful rate-limit headers when present
             h = getattr(resp, 'headers', {}) or {}
             for k in h.keys():
                 lk = str(k).lower()
                 if lk.startswith('x-ratelimit') or lk in ('retry-after', 'www-authenticate'):
-                    headers[k] = h.get(k)
+                    response_headers[k] = h.get(k)
         except Exception:
             pass
+        
+        # Определяем тип ошибки
+        error_type = "unknown"
+        error_message = snippet
+        if status_code == 429:
+            error_type = "429"
+            error_message = f"Rate limit exceeded. Проверьте ключ, возможно закончился баланс. {snippet[:200]}"
+        elif status_code == 400:
+            error_type = "400"
+            error_message = f"Bad request. Проверьте ключ. {snippet[:200]}"
+        elif "quota" in snippet.lower() or "quota" in str(last_exception).lower():
+            error_type = "quota"
+            error_message = f"Quota exceeded. Проверьте ключ, возможно закончился баланс. {snippet[:200]}"
+        elif is_proxy_error or status_code is None:
+            error_type = "proxy"
+            error_message = f"Proxy/Network error: {snippet[:200]}"
+        
+        api_key_preview = api_key[:10] + "..." if len(api_key) > 10 else api_key
+        
+        # Логируем ошибку с информацией о ключе
         logger.error(
-            "[Gemini] error status=%s headers=%s body=%s",
-            getattr(resp, 'status_code', 'n/a'), headers, snippet,
+            "[Gemini] ERROR - Key ID: %s, Key Preview: %s, Status: %s, Type: %s, Message: %s, Headers: %s",
+            key_id or "N/A", api_key_preview, status_code or "N/A", error_type, error_message[:200], response_headers,
         )
-        raise RuntimeError(f"Gemini API error {getattr(resp,'status_code', 'n/a')}: {snippet}")
+        
+        # Записываем ошибку в базу данных если есть db_instance
+        # Примечание: record_api_error вызывается из async контекста в handlers/start.py
+        # Здесь мы только логируем, запись в БД происходит в обработчике
+        
+        error_obj = RuntimeError(f"Gemini API error {status_code or 'network'}: {error_message}")
+        error_obj.is_proxy_error = is_proxy_error
+        error_obj.status_code = status_code
+        error_obj.error_type = error_type
+        raise error_obj
 
     data = resp.json()
     # Извлечение inlineData из ответа
@@ -175,8 +222,11 @@ async def generate_image(
     images: list[bytes] | bytes,
     ref_image_bytes: bytes | None = None,
     model_name: str | None = None,
+    aspect_ratio: str | None = None,
+    key_id: int | None = None,
+    db_instance = None,
 ) -> Optional[bytes]:
-    return await asyncio.to_thread(_generate_sync, api_key, prompt, images, ref_image_bytes, model_name)
+    return await asyncio.to_thread(_generate_sync, api_key, prompt, images, ref_image_bytes, model_name, aspect_ratio, key_id, db_instance)
 
 
 def _generate_text_sync(

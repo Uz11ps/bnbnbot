@@ -227,20 +227,43 @@ async def index(request: Request, db: aiosqlite.Connection = Depends(get_db), us
     except Exception: pass
 
     proxy_status = await check_proxy(db)
+    
+    # Получаем последние ошибки API ключей
+    recent_errors = []
+    proxy_errors_count = 0
+    try:
+        async with db.execute(
+            "SELECT key_id, api_key_preview, error_type, error_message, status_code, is_proxy_error, created_at FROM api_key_errors ORDER BY created_at DESC LIMIT 10"
+        ) as cur:
+            recent_errors = await cur.fetchall()
+        
+        async with db.execute(
+            "SELECT COUNT(*) FROM api_key_errors WHERE is_proxy_error=1 AND created_at > datetime('now', '-24 hours')"
+        ) as cur:
+            row = await cur.fetchone()
+            proxy_errors_count = int(row[0]) if row else 0
+    except Exception as e:
+        print(f"Error fetching API errors: {e}")
+    
     return templates.TemplateResponse("dashboard.html", {
         "request": request, 
         "total_users": total_users, "today_users": today_users,
         "today_gens": today_gens, "total_balance": total_balance,
-        "maintenance": maintenance, "proxy_status": proxy_status
+        "maintenance": maintenance, "proxy_status": proxy_status,
+        "recent_errors": recent_errors, "proxy_errors_count": proxy_errors_count
     })
 
 @app.get("/users", response_class=HTMLResponse)
 async def list_users(request: Request, q: str = "", db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
     if q:
         query = """
-            SELECT u.id, u.username, u.blocked, s.plan_id, s.expires_at 
+            SELECT u.id, u.username, u.blocked, s.plan_id, s.plan_type, s.expires_at, s.daily_limit, s.daily_usage, s.individual_api_key
             FROM users u 
-            LEFT JOIN subscriptions s ON u.id = s.user_id 
+            LEFT JOIN (
+                SELECT * FROM subscriptions 
+                GROUP BY user_id 
+                HAVING MAX(expires_at)
+            ) s ON u.id = s.user_id 
             WHERE u.id LIKE ? OR u.username LIKE ? 
             ORDER BY u.created_at DESC LIMIT 100
         """
@@ -248,9 +271,13 @@ async def list_users(request: Request, q: str = "", db: aiosqlite.Connection = D
             users = await cur.fetchall()
     else:
         query = """
-            SELECT u.id, u.username, u.blocked, s.plan_id, s.expires_at 
+            SELECT u.id, u.username, u.blocked, s.plan_id, s.plan_type, s.expires_at, s.daily_limit, s.daily_usage, s.individual_api_key
             FROM users u 
-            LEFT JOIN subscriptions s ON u.id = s.user_id 
+            LEFT JOIN (
+                SELECT * FROM subscriptions 
+                GROUP BY user_id 
+                HAVING MAX(expires_at)
+            ) s ON u.id = s.user_id 
             ORDER BY u.created_at DESC LIMIT 50
         """
         async with db.execute(query) as cur:
@@ -266,6 +293,12 @@ async def list_users(request: Request, q: str = "", db: aiosqlite.Connection = D
         "plans": plans,
         "now": datetime.now().isoformat()
     })
+
+@app.post("/cancel_subscription")
+async def cancel_subscription(user_id: int = Form(...), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    await db.execute("DELETE FROM subscriptions WHERE user_id = ?", (user_id,))
+    await db.commit()
+    return RedirectResponse(url=f"/users?q={user_id}", status_code=303)
 
 @app.get("/mailing", response_class=HTMLResponse)
 async def mailing_page(request: Request, user: str = Depends(get_current_username)):
@@ -432,6 +465,34 @@ async def list_history(request: Request, q: str = "", db: aiosqlite.Connection =
     except Exception: history = []
     return templates.TemplateResponse("history.html", {"request": request, "history": history, "q": q})
 
+@app.get("/payments", response_class=HTMLResponse)
+async def list_payments(request: Request, q: str = "", db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    try:
+        if q:
+            query = """
+                SELECT p.*, sp.name_ru as plan_name 
+                FROM payments p 
+                LEFT JOIN subscription_plans sp ON p.plan_id = sp.id 
+                WHERE p.user_id LIKE ? 
+                ORDER BY p.created_at DESC LIMIT 100
+            """
+            async with db.execute(query, (f"%{q}%",)) as cur:
+                payments = await cur.fetchall()
+        else:
+            query = """
+                SELECT p.*, sp.name_ru as plan_name 
+                FROM payments p 
+                LEFT JOIN subscription_plans sp ON p.plan_id = sp.id 
+                ORDER BY p.created_at DESC LIMIT 100
+            """
+            async with db.execute(query) as cur:
+                payments = await cur.fetchall()
+    except Exception as e:
+        print(f"Payments error: {e}")
+        payments = []
+        
+    return templates.TemplateResponse("payments.html", {"request": request, "payments": payments, "q": q})
+
 @app.get("/prices", response_class=HTMLResponse)
 async def list_prices(request: Request, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
     status_data = []
@@ -479,14 +540,17 @@ async def edit_subscription(
         expires_at = datetime.now() + timedelta(days=days)
         plan_type = "custom"
         
-        if plan_id.isdigit():
-            async with db.execute("SELECT name_ru FROM subscription_plans WHERE id=?", (int(plan_id),)) as cur:
+        plan_id_val = None
+        if plan_id and plan_id.isdigit():
+            plan_id_val = int(plan_id)
+            async with db.execute("SELECT name_ru FROM subscription_plans WHERE id=?", (plan_id_val,)) as cur:
                 row = await cur.fetchone()
                 if row:
                     plan_type = row[0]
+        elif plan_id == "custom":
+            plan_type = "custom"
         
-        plan_id_val = int(plan_id) if plan_id and plan_id.isdigit() else None
-        safe_api_key = api_key.strip() if api_key else None
+        safe_api_key = api_key.strip() if api_key and api_key.strip() else None
         
         # Проверяем, есть ли уже подписка у этого пользователя
         async with db.execute("SELECT id FROM subscriptions WHERE user_id = ?", (user_id,)) as cur:
@@ -504,18 +568,26 @@ async def edit_subscription(
             )
         
         # Сбрасываем флаг триала при выдаче подписки
-        # Сначала проверим, есть ли колонка trial_used (на всякий случай)
-        async with db.execute("PRAGMA table_info(users)") as cur:
-            user_cols = [row[1] for row in await cur.fetchall()]
+        await db.execute("UPDATE users SET trial_used=1 WHERE id=?", (user_id,))
         
-        if 'trial_used' in user_cols and plan_type != 'trial':
-            await db.execute("UPDATE users SET trial_used=1 WHERE id=?", (user_id,))
+        # Добавляем запись в историю платежей
+        amount = 0
+        if plan_id_val:
+            async with db.execute("SELECT price FROM subscription_plans WHERE id=?", (plan_id_val,)) as cur:
+                row = await cur.fetchone()
+                if row:
+                    amount = row[0]
+        
+        await db.execute(
+            "INSERT INTO payments (user_id, plan_id, amount, status) VALUES (?, ?, ?, 'admin_granted')",
+            (user_id, plan_id_val, amount)
+        )
             
         await db.commit()
         return RedirectResponse(url=f"/users?q={user_id}", status_code=303)
     except Exception as e:
         print(f"Error in edit_subscription: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        return JSONResponse(status_code=500, content={"detail": str(e)})
 
 @app.get("/proxy", response_class=HTMLResponse)
 async def proxy_page(request: Request, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):

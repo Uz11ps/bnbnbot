@@ -201,6 +201,7 @@ async def admin_price_edit_start(callback: CallbackQuery, state: FSMContext, db:
         "storefront": get_string("cat_storefront", lang),
         "whitebg": get_string("cat_whitebg", lang),
         "random": get_string("cat_random", lang),
+        "random_other": get_string("cat_random_other", lang),
         "own": get_string("cat_own", lang),
         "own_variant": get_string("cat_own_variant", lang),
     }
@@ -231,9 +232,9 @@ async def admin_user_search_finish(message: Message, state: FSMContext, db: Data
     txt = (message.text or "").strip()
     try:
         uid = int(txt)
-    except Exception:
+            except Exception:
         await message.answer(get_string("admin_enter_id_error", lang))
-        return
+            return
     blocked = await db.get_user_blocked(uid)
     state_txt = get_string("admin_block", lang) if blocked else get_string("admin_unblock", lang)
     text = get_string("admin_user_title", lang, uid=uid) + f"\n{get_string('admin_user_status', lang, status=state_txt)}"
@@ -1389,9 +1390,9 @@ async def admin_api_key_add_priority(message: Message, state: FSMContext, db: Da
         keys = await db.list_own_variant_api_keys()
         await message.answer(get_string("admin_gemini_key_added", lang), reply_markup=admin_own_variant_api_keys_keyboard(keys, lang))
     else:
-        await db.add_api_key(token, priority)
-        await state.clear()
-        keys = await db.list_api_keys()
+    await db.add_api_key(token, priority)
+    await state.clear()
+    keys = await db.list_api_keys()
         await message.answer(get_string("admin_gemini_key_added", lang), reply_markup=admin_api_keys_keyboard(keys, lang))
 
 

@@ -724,7 +724,7 @@ class Database:
             await db.commit()
 
     async def list_categories_enabled(self) -> dict[str, bool]:
-        names = ["female", "male", "child", "storefront", "whitebg", "random", "own", "own_variant"]
+        names = ["female", "male", "child", "storefront", "whitebg", "random", "random_other", "own", "own_variant", "infographic_clothing", "infographic_other"]
         result: dict[str, bool] = {}
         for n in names:
             result[n] = await self.get_category_enabled(n)

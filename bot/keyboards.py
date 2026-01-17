@@ -58,7 +58,7 @@ def marketplace_menu_keyboard(enabled: dict[str, bool], lang="ru") -> InlineKeyb
     rows: list[list[InlineKeyboardButton]] = []
     
     # Готовые пресеты
-    if enabled.get("female") or enabled.get("male") or enabled.get("child"):
+    if enabled.get("female") is not False or enabled.get("male") is not False or enabled.get("child") is not False:
         rows.append([InlineKeyboardButton(text=get_string("cat_presets", lang), callback_data="create_cat:presets")])
 
     # Разделы Рандом

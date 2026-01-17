@@ -57,8 +57,9 @@ def language_keyboard(lang="ru") -> InlineKeyboardMarkup:
 def marketplace_menu_keyboard(enabled: dict[str, bool], lang="ru") -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
     
-    # Готовые пресеты
-    if enabled.get("female", True) or enabled.get("male", True) or enabled.get("child", True):
+    # Готовые пресеты (показываем, если не отключены явно все три)
+    is_presets_enabled = enabled.get("female", True) or enabled.get("male", True) or enabled.get("child", True)
+    if is_presets_enabled:
         rows.append([InlineKeyboardButton(text=get_string("cat_presets", lang), callback_data="create_cat:presets")])
 
     # Разделы Рандом
@@ -67,15 +68,19 @@ def marketplace_menu_keyboard(enabled: dict[str, bool], lang="ru") -> InlineKeyb
     if enabled.get("random_other", True):
         rows.append([InlineKeyboardButton(text=get_string("cat_random_other", lang), callback_data="create_random_other")])
 
+    # Инфографика
     if enabled.get("infographic_clothing", True) or enabled.get("infographic_other", True):
         rows.append([InlineKeyboardButton(text=get_string("cat_infographics", lang), callback_data="create_cat:infographics")])
     
+    # Витринное фото
     if enabled.get("storefront", True):
         rows.append([InlineKeyboardButton(text=get_string("cat_storefront", lang), callback_data="create_cat:storefront")])
         
+    # На белом фоне
     if enabled.get("whitebg", True):
         rows.append([InlineKeyboardButton(text=get_string("cat_whitebg", lang), callback_data="create_cat:whitebg")])
     
+    # Свой вариант
     if enabled.get("own", True):
         rows.append([InlineKeyboardButton(text=get_string("cat_own", lang), callback_data="create_cat:own")])
     if enabled.get("own_variant", True):

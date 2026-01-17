@@ -794,7 +794,8 @@ def admin_model_created_keyboard(category: str, cloth: str, lang="ru") -> Inline
 
 def admin_api_keys_keyboard(keys: list, lang="ru") -> InlineKeyboardMarkup:
     rows = []
-    for kid, token, is_active in keys:
+    for key_tuple in keys:
+        kid, token, is_active = key_tuple[0], key_tuple[1], key_tuple[2]
         status = "✅" if is_active else "⛔"
         rows.append([
             InlineKeyboardButton(text=f"{status} #{kid} {token[:10]}...", callback_data=f"api_key_show:{kid}"),
@@ -842,7 +843,8 @@ def admin_own_variant_prompts_keyboard(lang="ru") -> InlineKeyboardMarkup:
 
 def admin_own_variant_api_keys_keyboard(keys: list, lang="ru") -> InlineKeyboardMarkup:
     rows = []
-    for kid, token, is_active in keys:
+    for key_tuple in keys:
+        kid, token, is_active = key_tuple[0], key_tuple[1], key_tuple[2]
         status = "✅" if is_active else "⛔"
         rows.append([
             InlineKeyboardButton(text=f"{status} #{kid} {token[:10]}...", callback_data=f"own_variant_api_key_show:{kid}"),

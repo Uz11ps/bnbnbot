@@ -581,7 +581,23 @@ async def edit_subscription(
         elif plan_id == "custom":
             plan_type = "custom"
         
-        safe_api_key = api_key.strip() if api_key and api_key.strip() else None
+        # Строгая очистка индивидуального API ключа
+        safe_api_key = None
+        if api_key and api_key.strip():
+            # 1. Убираем пробелы, табы, переносы строк
+            token = "".join(api_key.split())
+            # 2. Исправляем кириллицу
+            cyr_to_lat = {
+                'А': 'A', 'В': 'B', 'Е': 'E', 'К': 'K', 'М': 'M', 'Н': 'H', 
+                'О': 'O', 'Р': 'P', 'С': 'C', 'Т': 'T', 'У': 'y', 'Х': 'X',
+                'а': 'a', 'е': 'e', 'о': 'o', 'р': 'p', 'с': 'c', 'у': 'y', 'х': 'x'
+            }
+            new_token = ""
+            for char in token:
+                new_token += cyr_to_lat.get(char, char)
+            # 3. Только допустимые символы
+            import re
+            safe_api_key = re.sub(r'[^A-Za-z0-9_\-]', '', new_token)
         
         # Очищаем все старые подписки пользователя перед выдачей новой, 
         # чтобы избежать дублей и конфликтов

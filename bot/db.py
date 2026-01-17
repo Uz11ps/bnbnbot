@@ -1173,7 +1173,10 @@ class Database:
     # API Key usage tracking
     async def check_api_key_limits(self, key_id: int) -> tuple[bool, str]:
         from datetime import datetime
-        MAX_TOTAL_USAGE = 235  # Максимальное количество использований ключа
+        MAX_TOTAL_USAGE = 235  # Жесткий общий лимит на ключ
+        MAX_DAILY_USAGE = 235  # Лимит в день (согласно запросу)
+        MAX_MINUTE_USAGE = 20  # Лимит в минуту (согласно запросу)
+        
         async with aiosqlite.connect(self._db_path) as db:
             async with db.execute("SELECT daily_usage, total_usage, last_usage_reset FROM api_keys WHERE id=?", (key_id,)) as cur:
                 row = await cur.fetchone()
@@ -1193,17 +1196,18 @@ class Database:
                     await db.commit()
                     daily_usage = 0
                 
-                if daily_usage >= 250:
-                    return False, "Daily limit 250 reached"
+                # Проверка дневного лимита (235 фото в день)
+                if daily_usage >= MAX_DAILY_USAGE:
+                    return False, f"Daily limit {MAX_DAILY_USAGE} reached"
                 
-                # Minute limit (20 per minute)
+                # Проверка минутного лимита (20 в минуту)
                 async with db.execute(
                     "SELECT COUNT(*) FROM api_usage_log WHERE key_id=? AND timestamp > datetime('now', '-1 minute')",
                     (key_id,)
                 ) as cur_log:
                     minute_usage = (await cur_log.fetchone())[0]
-                    if minute_usage >= 20:
-                        return False, "Minute limit 20 reached"
+                    if minute_usage >= MAX_MINUTE_USAGE:
+                        return False, f"Minute limit {MAX_MINUTE_USAGE} reached"
             
             return True, ""
 

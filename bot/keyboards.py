@@ -564,9 +564,9 @@ def info_lang_keyboard(lang="ru") -> InlineKeyboardMarkup:
 
 def infographic_selection_keyboard(enabled: dict[str, bool], lang="ru") -> InlineKeyboardMarkup:
     rows = []
-    if enabled.get("infographic_clothing") is True:
+    if enabled.get("infographic_clothing", True):
         rows.append([InlineKeyboardButton(text=get_string("cat_infographic_clothing", lang), callback_data="create_cat:infographic_clothing")])
-    if enabled.get("infographic_other") is True:
+    if enabled.get("infographic_other", True):
         rows.append([InlineKeyboardButton(text=get_string("cat_infographic_other", lang), callback_data="create_cat:infographic_other")])
     rows.append([InlineKeyboardButton(text=get_string("back", lang), callback_data="menu_market")])
     return InlineKeyboardMarkup(inline_keyboard=rows)

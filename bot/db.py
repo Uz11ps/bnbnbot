@@ -711,8 +711,10 @@ class Database:
         async with aiosqlite.connect(self._db_path) as db:
             async with db.execute("SELECT value FROM app_settings WHERE key=?", (key,)) as cur:
                 row = await cur.fetchone()
-                # По умолчанию категории включены
-                return (str(row[0]) == '1') if row else True
+                # По умолчанию категории включены, если нет записи '0'
+                if not row:
+                    return True
+                return str(row[0]) != '0'
 
     async def set_category_enabled(self, name: str, enabled: bool) -> None:
         key = f"cat_enabled_{name}"

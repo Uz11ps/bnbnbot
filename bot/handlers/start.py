@@ -335,7 +335,9 @@ async def on_marketplace_menu(callback: CallbackQuery, db: Database) -> None:
 @router.callback_query(F.data == "create_cat:presets")
 async def on_ready_presets(callback: CallbackQuery, db: Database) -> None:
     enabled = await db.list_categories_enabled()
+    logger.info(f"Presets menu accessed. Categories status: {enabled}") # Отладочный лог
     lang = await db.get_user_language(callback.from_user.id)
+    from bot.keyboards import ready_presets_keyboard
     await _replace_with_text(callback, get_string("cat_presets", lang), reply_markup=ready_presets_keyboard(enabled, lang))
     await _safe_answer(callback)
 

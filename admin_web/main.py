@@ -515,6 +515,36 @@ async def list_prices(request: Request, db: aiosqlite.Connection = Depends(get_d
         
     return templates.TemplateResponse("prices.html", {"request": request, "category_status": status_data, "plans": plans})
 
+@app.post("/plans/edit")
+async def edit_plan(
+    plan_id: int = Form(...),
+    name_ru: str = Form(...),
+    name_en: str = Form(...),
+    name_vi: str = Form(...),
+    price: int = Form(...),
+    duration: int = Form(...),
+    limit: int = Form(...),
+    desc_ru: str = Form(None),
+    desc_en: str = Form(None),
+    desc_vi: str = Form(None),
+    db: aiosqlite.Connection = Depends(get_db),
+    user: str = Depends(get_current_username)
+):
+    try:
+        await db.execute(
+            """UPDATE subscription_plans 
+               SET name_ru=?, name_en=?, name_vi=?, price=?, duration_days=?, daily_limit=?, 
+                   description_ru=?, description_en=?, description_vi=? 
+               WHERE id=?""",
+            (name_ru, name_en, name_vi, price, duration, limit, 
+             desc_ru, desc_en, desc_vi, plan_id)
+        )
+        await db.commit()
+        return RedirectResponse(url="/prices", status_code=303)
+    except Exception as e:
+        print(f"Error in edit_plan: {e}")
+        return JSONResponse(status_code=500, content={"detail": str(e)})
+
 @app.post("/categories/toggle")
 async def toggle_category(key: str = Form(...), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
     async with db.execute("SELECT value FROM app_settings WHERE key=?", (key,)) as cur:

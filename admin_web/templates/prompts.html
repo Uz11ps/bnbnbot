@@ -26,9 +26,24 @@
     </div>
 
     <ul class="nav nav-tabs mb-3" id="catTabs" role="tablist">
+        {% set cat_names = {
+            'female': 'Женская',
+            'male': 'Мужская',
+            'child': 'Детская',
+            'storefront': 'Витрина',
+            'whitebg': 'Белый фон',
+            'random': 'Одежда РАНДОМ',
+            'random_other': 'Рандом прочее',
+            'own': 'Свой вариант (одежда)',
+            'own_variant': 'Свой вариант (фон)',
+            'infographic_clothing': 'Инфографика (одежда)',
+            'infographic_other': 'Инфографика (прочее)'
+        } %}
         {% for cat in categories %}
         <li class="nav-item">
-            <button class="nav-link {% if loop.first %}active{% endif %}" id="{{ cat }}-tab" data-bs-toggle="tab" data-bs-target="#{{ cat }}-pane" type="button">{{ cat | capitalize }}</button>
+            <button class="nav-link {% if loop.first %}active{% endif %}" id="{{ cat }}-tab" data-bs-toggle="tab" data-bs-target="#{{ cat }}-pane" type="button">
+                {{ cat_names.get(cat, cat | capitalize) }}
+            </button>
         </li>
         {% endfor %}
     </ul>
@@ -38,7 +53,7 @@
         <div class="tab-pane fade {% if loop.first %}show active{% endif %}" id="{{ cat }}-pane">
             
             <div class="card p-3 mb-4 bg-light border-dashed">
-                <h6 class="mb-3">➕ Добавить модель в категорию {{ cat | capitalize }}</h6>
+                <h6 class="mb-3">➕ Добавить модель в категорию {{ cat_names.get(cat, cat | capitalize) }}</h6>
                 <form action="/models/add_full" method="post" enctype="multipart/form-data" class="row g-2">
                     <input type="hidden" name="category" value="{{ cat }}">
                     <div class="col-md-4">

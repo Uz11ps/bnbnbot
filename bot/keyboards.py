@@ -201,11 +201,52 @@ def ready_presets_keyboard(enabled: dict[str, bool], lang="ru") -> InlineKeyboar
     if row1:
         rows.append(row1)
 
+    row2: list[InlineKeyboardButton] = []
     if enabled.get("child") is True:
-        rows.append([InlineKeyboardButton(text=get_string("cat_child", lang), callback_data="create_cat:child")])
+        row2.append(InlineKeyboardButton(text=get_string("gender_boy", lang), callback_data="child_gender:boy"))
+        row2.append(InlineKeyboardButton(text=get_string("gender_girl", lang), callback_data="child_gender:girl"))
+    if row2:
+        rows.append(row2)
 
-    rows.append([InlineKeyboardButton(text=get_string("back", lang), callback_data="menu_create")])
+    rows.append([InlineKeyboardButton(text=get_string("back", lang), callback_data="menu_market")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+def yes_no_keyboard(lang="ru") -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=get_string("yes", lang), callback_data="choice:yes"), InlineKeyboardButton(text=get_string("no", lang), callback_data="choice:no")],
+            [InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")]
+        ]
+    )
+
+def random_other_gender_keyboard(lang="ru") -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=get_string("gender_male", lang), callback_data="rand_other_gender:male"), InlineKeyboardButton(text=get_string("gender_female", lang), callback_data="rand_other_gender:female")],
+            [InlineKeyboardButton(text=get_string("gender_boy", lang), callback_data="rand_other_gender:boy"), InlineKeyboardButton(text=get_string("gender_girl", lang), callback_data="rand_other_gender:girl")],
+            [InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")]
+        ]
+    )
+
+def style_keyboard(lang="ru") -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=get_string("style_modern", lang), callback_data="style:modern"), InlineKeyboardButton(text=get_string("style_brutal", lang), callback_data="style:brutal")],
+            [InlineKeyboardButton(text=get_string("style_techno", lang), callback_data="style:techno"), InlineKeyboardButton(text=get_string("style_art", lang), callback_data="style:art")],
+            [InlineKeyboardButton(text=get_string("style_design", lang), callback_data="style:design"), InlineKeyboardButton(text=get_string("style_festive", lang), callback_data="style:festive")],
+            [InlineKeyboardButton(text=get_string("custom_variant", lang), callback_data="style:custom")],
+            [InlineKeyboardButton(text=get_string("skip", lang), callback_data="style:skip")],
+            [InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")]
+        ]
+    )
+
+def skip_step_keyboard(step_name: str, lang="ru") -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=get_string("skip", lang), callback_data=f"{step_name}:skip")],
+            [InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")]
+        ]
+    )
 
 def back_step_keyboard(lang="ru") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(

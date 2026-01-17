@@ -104,6 +104,19 @@ class CreateForm(StatesGroup):
     waiting_info_extra = State()
     waiting_info_angle = State()
     waiting_info_pose = State()
+    # Random Other flow
+    waiting_rand_other_has_person = State()
+    waiting_rand_other_gender = State()
+    waiting_rand_other_load = State()
+    waiting_rand_other_name = State()
+    waiting_rand_other_angle = State()
+    waiting_rand_other_dist = State()
+    waiting_rand_other_height = State()
+    waiting_rand_other_width = State()
+    waiting_rand_other_length = State()
+    waiting_rand_other_season = State()
+    waiting_rand_other_style = State()
+    waiting_rand_other_style_custom = State()
     index = State()
     model_id = State()
     prompt_id = State()
@@ -215,7 +228,7 @@ async def _answer_model_photo(callback: CallbackQuery, file_id: str, caption: st
 @router.callback_query(F.data.startswith("child_gender:"))
 async def on_child_gender_select(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     gender = callback.data.split(":")[1]
-    await state.update_data(child_gender=gender)
+    await state.update_data(child_gender=gender, category="child")
     lang = await db.get_user_language(callback.from_user.id)
     if gender == "boy":
         await _replace_with_text(callback, get_string("select_gender", lang), reply_markup=boy_clothes_keyboard(lang))
@@ -402,9 +415,154 @@ async def on_create_random_other(callback: CallbackQuery, state: FSMContext, db:
     await state.update_data(random_other_mode=True, category="random_other")
     lang = await db.get_user_language(callback.from_user.id)
     # В рандоме для прочих товаров сначала спрашиваем о присутствии человека
+    from bot.keyboards import yes_no_keyboard
     await _replace_with_text(callback, get_string("has_person_ask", lang), reply_markup=yes_no_keyboard(lang))
-    await state.set_state(CreateForm.waiting_has_person)
+    await state.set_state(CreateForm.waiting_rand_other_has_person)
     await _safe_answer(callback)
+
+@router.callback_query(CreateForm.waiting_rand_other_has_person, F.data.startswith("choice:"))
+async def on_rand_other_has_person(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    choice = callback.data.split(":")[1]
+    has_person = (choice == "yes")
+    await state.update_data(has_person=has_person)
+    lang = await db.get_user_language(callback.from_user.id)
+    
+    if has_person:
+        # Если есть человек — спрашиваем пол
+        from bot.keyboards import random_other_gender_keyboard
+        await _replace_with_text(callback, get_string("select_gender", lang), reply_markup=random_other_gender_keyboard(lang))
+        await state.set_state(CreateForm.waiting_rand_other_gender)
+    else:
+        # Если нет — переходим к нагруженности инфографики (шаг 3 в списке пользователя, но по логике шаг 2 без человека)
+        await _replace_with_text(callback, get_string("enter_info_load", lang), reply_markup=back_step_keyboard(lang))
+        await state.set_state(CreateForm.waiting_rand_other_load)
+    await _safe_answer(callback)
+
+@router.callback_query(CreateForm.waiting_rand_other_gender, F.data.startswith("rand_other_gender:"))
+async def on_rand_other_gender(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    gender = callback.data.split(":")[1]
+    await state.update_data(gender=gender)
+    lang = await db.get_user_language(callback.from_user.id)
+    await _replace_with_text(callback, get_string("enter_info_load", lang), reply_markup=back_step_keyboard(lang))
+    await state.set_state(CreateForm.waiting_rand_other_load)
+    await _safe_answer(callback)
+
+@router.message(CreateForm.waiting_rand_other_load)
+async def on_rand_other_load(message: Message, state: FSMContext, db: Database) -> None:
+    text = (message.text or "").strip()
+    lang = await db.get_user_language(message.from_user.id)
+    if text.isdigit() and 1 <= int(text) <= 10:
+        await state.update_data(info_load=text)
+        await message.answer(get_string("enter_product_name", lang), reply_markup=back_step_keyboard(lang))
+        await state.set_state(CreateForm.waiting_rand_other_name)
+    else:
+        await message.answer(get_string("enter_info_load_error", lang))
+
+@router.message(CreateForm.waiting_rand_other_name)
+async def on_rand_other_name(message: Message, state: FSMContext, db: Database) -> None:
+    text = (message.text or "").strip()
+    lang = await db.get_user_language(message.from_user.id)
+    if not text or len(text) > 50:
+        await message.answer(get_string("enter_product_name_error", lang))
+        return
+    await state.update_data(product_name=text)
+    await message.answer("Выберите угол камеры (Спереди/Сзади):", reply_markup=form_view_keyboard(lang))
+    await state.set_state(CreateForm.waiting_rand_other_angle)
+
+@router.callback_query(CreateForm.waiting_rand_other_angle, F.data.startswith("form_view:"))
+async def on_rand_other_angle(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    view = callback.data.split(":")[1]
+    await state.update_data(view=view)
+    lang = await db.get_user_language(callback.from_user.id)
+    from bot.keyboards import angle_keyboard
+    await _replace_with_text(callback, get_string("select_camera_dist", lang), reply_markup=angle_keyboard(lang))
+    await state.set_state(CreateForm.waiting_rand_other_dist)
+    await _safe_answer(callback)
+
+@router.callback_query(CreateForm.waiting_rand_other_dist, F.data.startswith("angle:"))
+async def on_rand_other_dist(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    dist = callback.data.split(":")[1]
+    await state.update_data(dist=dist)
+    lang = await db.get_user_language(callback.from_user.id)
+    await _replace_with_text(callback, get_string("enter_height_cm", lang), reply_markup=skip_step_keyboard("rand_height", lang))
+    await state.set_state(CreateForm.waiting_rand_other_height)
+    await _safe_answer(callback)
+
+@router.message(CreateForm.waiting_rand_other_height)
+@router.callback_query(F.data == "rand_height:skip")
+async def on_rand_other_height(message_or_callback: Message | CallbackQuery, state: FSMContext, db: Database) -> None:
+    if isinstance(message_or_callback, Message):
+        text = (message_or_callback.text or "").strip()
+        await state.update_data(height_cm=text)
+        lang = await db.get_user_language(message_or_callback.from_user.id)
+        await message_or_callback.answer(get_string("enter_width_cm", lang), reply_markup=skip_step_keyboard("rand_width", lang))
+    else:
+        await state.update_data(height_cm="")
+        lang = await db.get_user_language(message_or_callback.from_user.id)
+        await _replace_with_text(message_or_callback, get_string("enter_width_cm", lang), reply_markup=skip_step_keyboard("rand_width", lang))
+    await state.set_state(CreateForm.waiting_rand_other_width)
+
+@router.message(CreateForm.waiting_rand_other_width)
+@router.callback_query(F.data == "rand_width:skip")
+async def on_rand_other_width(message_or_callback: Message | CallbackQuery, state: FSMContext, db: Database) -> None:
+    if isinstance(message_or_callback, Message):
+        text = (message_or_callback.text or "").strip()
+        await state.update_data(width_cm=text)
+        lang = await db.get_user_language(message_or_callback.from_user.id)
+        await message_or_callback.answer(get_string("enter_length_cm", lang), reply_markup=skip_step_keyboard("rand_length", lang))
+    else:
+        await state.update_data(width_cm="")
+        lang = await db.get_user_language(message_or_callback.from_user.id)
+        await _replace_with_text(message_or_callback, get_string("enter_length_cm", lang), reply_markup=skip_step_keyboard("rand_length", lang))
+    await state.set_state(CreateForm.waiting_rand_other_length)
+
+@router.message(CreateForm.waiting_rand_other_length)
+@router.callback_query(F.data == "rand_length:skip")
+async def on_rand_other_length(message_or_callback: Message | CallbackQuery, state: FSMContext, db: Database) -> None:
+    if isinstance(message_or_callback, Message):
+        text = (message_or_callback.text or "").strip()
+        await state.update_data(length_cm=text)
+        lang = await db.get_user_language(message_or_callback.from_user.id)
+        await message_or_callback.answer(get_string("select_vibe", lang), reply_markup=plus_season_keyboard(lang))
+    else:
+        await state.update_data(length_cm="")
+        lang = await db.get_user_language(message_or_callback.from_user.id)
+        await _replace_with_text(message_or_callback, get_string("select_vibe", lang), reply_markup=plus_season_keyboard(lang))
+    await state.set_state(CreateForm.waiting_rand_other_season)
+
+@router.callback_query(CreateForm.waiting_rand_other_season, F.data.startswith("plus_season:"))
+async def on_rand_other_season(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    season = callback.data.split(":")[1]
+    await state.update_data(season=season)
+    lang = await db.get_user_language(callback.from_user.id)
+    from bot.keyboards import style_keyboard
+    await _replace_with_text(callback, get_string("select_style", lang), reply_markup=style_keyboard(lang))
+    await state.set_state(CreateForm.waiting_rand_other_style)
+    await _safe_answer(callback)
+
+@router.callback_query(CreateForm.waiting_rand_other_style, F.data.startswith("style:"))
+async def on_rand_other_style(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    val = callback.data.split(":")[1]
+    lang = await db.get_user_language(callback.from_user.id)
+    if val == "custom":
+        await _replace_with_text(callback, get_string("enter_custom_style", lang), reply_markup=back_step_keyboard(lang))
+        await state.set_state(CreateForm.waiting_rand_other_style_custom)
+    else:
+        if val != "skip":
+            await state.update_data(style=val)
+        else:
+            await state.update_data(style="")
+        await _replace_with_text(callback, get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
+        await state.set_state(CreateForm.waiting_aspect)
+    await _safe_answer(callback)
+
+@router.message(CreateForm.waiting_rand_other_style_custom)
+async def on_rand_other_style_custom(message: Message, state: FSMContext, db: Database) -> None:
+    text = (message.text or "").strip()
+    await state.update_data(style=text)
+    lang = await db.get_user_language(message.from_user.id)
+    await message.answer(get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
+    await state.set_state(CreateForm.waiting_aspect)
 
 
 @router.callback_query(F.data == "create_cat:storefront")
@@ -1899,6 +2057,86 @@ async def on_back_from_info_lang_custom(callback: CallbackQuery, state: FSMConte
     await state.set_state(None)
     await _safe_answer(callback)
 
+@router.callback_query(F.data == "back_step", CreateForm.waiting_rand_other_has_person)
+async def on_back_from_rand_other_person(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    await on_marketplace_menu(callback, db)
+
+@router.callback_query(F.data == "back_step", CreateForm.waiting_rand_other_gender)
+async def on_back_from_rand_other_gender(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    lang = await db.get_user_language(callback.from_user.id)
+    from bot.keyboards import yes_no_keyboard
+    await _replace_with_text(callback, get_string("has_person_ask", lang), reply_markup=yes_no_keyboard(lang))
+    await state.set_state(CreateForm.waiting_rand_other_has_person)
+
+@router.callback_query(F.data == "back_step", CreateForm.waiting_rand_other_load)
+async def on_back_from_rand_other_load(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    data = await state.get_data()
+    lang = await db.get_user_language(callback.from_user.id)
+    if data.get("has_person"):
+        from bot.keyboards import random_other_gender_keyboard
+        await _replace_with_text(callback, get_string("select_gender", lang), reply_markup=random_other_gender_keyboard(lang))
+        await state.set_state(CreateForm.waiting_rand_other_gender)
+    else:
+        from bot.keyboards import yes_no_keyboard
+        await _replace_with_text(callback, get_string("has_person_ask", lang), reply_markup=yes_no_keyboard(lang))
+        await state.set_state(CreateForm.waiting_rand_other_has_person)
+
+@router.callback_query(F.data == "back_step", CreateForm.waiting_rand_other_name)
+async def on_back_from_rand_other_name(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    lang = await db.get_user_language(callback.from_user.id)
+    await _replace_with_text(callback, get_string("enter_info_load", lang), reply_markup=back_step_keyboard(lang))
+    await state.set_state(CreateForm.waiting_rand_other_load)
+
+@router.callback_query(F.data == "back_step", CreateForm.waiting_rand_other_angle)
+async def on_back_from_rand_other_angle(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    lang = await db.get_user_language(callback.from_user.id)
+    await _replace_with_text(callback, get_string("enter_product_name", lang), reply_markup=back_step_keyboard(lang))
+    await state.set_state(CreateForm.waiting_rand_other_name)
+
+@router.callback_query(F.data == "back_step", CreateForm.waiting_rand_other_dist)
+async def on_back_from_rand_other_dist(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    lang = await db.get_user_language(callback.from_user.id)
+    await _replace_with_text(callback, "Выберите угол камеры (Спереди/Сзади):", reply_markup=form_view_keyboard(lang))
+    await state.set_state(CreateForm.waiting_rand_other_angle)
+
+@router.callback_query(F.data == "back_step", CreateForm.waiting_rand_other_height)
+async def on_back_from_rand_other_height(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    lang = await db.get_user_language(callback.from_user.id)
+    from bot.keyboards import angle_keyboard
+    await _replace_with_text(callback, get_string("select_camera_dist", lang), reply_markup=angle_keyboard(lang))
+    await state.set_state(CreateForm.waiting_rand_other_dist)
+
+@router.callback_query(F.data == "back_step", CreateForm.waiting_rand_other_width)
+async def on_back_from_rand_other_width(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    lang = await db.get_user_language(callback.from_user.id)
+    await _replace_with_text(callback, get_string("enter_height_cm", lang), reply_markup=skip_step_keyboard("rand_height", lang))
+    await state.set_state(CreateForm.waiting_rand_other_height)
+
+@router.callback_query(F.data == "back_step", CreateForm.waiting_rand_other_length)
+async def on_back_from_rand_other_length(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    lang = await db.get_user_language(callback.from_user.id)
+    await _replace_with_text(callback, get_string("enter_width_cm", lang), reply_markup=skip_step_keyboard("rand_width", lang))
+    await state.set_state(CreateForm.waiting_rand_other_width)
+
+@router.callback_query(F.data == "back_step", CreateForm.waiting_rand_other_season)
+async def on_back_from_rand_other_season(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    lang = await db.get_user_language(callback.from_user.id)
+    await _replace_with_text(callback, get_string("enter_length_cm", lang), reply_markup=skip_step_keyboard("rand_length", lang))
+    await state.set_state(CreateForm.waiting_rand_other_length)
+
+@router.callback_query(F.data == "back_step", CreateForm.waiting_rand_other_style)
+async def on_back_from_rand_other_style(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    lang = await db.get_user_language(callback.from_user.id)
+    await _replace_with_text(callback, get_string("select_vibe", lang), reply_markup=plus_season_keyboard(lang))
+    await state.set_state(CreateForm.waiting_rand_other_season)
+
+@router.callback_query(F.data == "back_step", CreateForm.waiting_rand_other_style_custom)
+async def on_back_from_rand_other_style_custom(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    lang = await db.get_user_language(callback.from_user.id)
+    from bot.keyboards import style_keyboard
+    await _replace_with_text(callback, get_string("select_style", lang), reply_markup=style_keyboard(lang))
+    await state.set_state(CreateForm.waiting_rand_other_style)
+
 @router.callback_query(F.data == "back_step", CreateForm.waiting_own_bg_photo)
 async def on_back_from_own_bg(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     await on_marketplace_menu(callback, db)
@@ -2077,25 +2315,43 @@ async def form_generate(callback: CallbackQuery, state: FSMContext, db: Database
                 prompt_filled += f" Cut style: {own_cut}."
         elif data.get("random_other_mode"):
             has_person = data.get("has_person")
-            location = data.get("rand_location")
-            loc_custom = data.get("rand_location_custom")
-            vibe = data.get("rand_vibe")
+            gender = data.get("gender")
+            load = data.get("info_load")
+            product_name = data.get("product_name")
+            view_key = data.get("view")
+            dist = data.get("dist")
+            h_cm = data.get("height_cm")
+            w_cm = data.get("width_cm")
+            l_cm = data.get("length_cm")
+            season = data.get("season")
+            style = data.get("style")
+            
+            view_word = {"back": "сзади", "front": "спереди", "side": "сбоку"}.get(view_key, "спереди")
+            dist_word = {"far": "дальний", "medium": "средний", "close": "близкий"}.get(dist, "средний")
+            gender_word = {"male": "Мужчина", "female": "Женщина", "boy": "Мальчик", "girl": "Девочка"}.get(gender, "")
             
             p_parts = ["Professional commercial product photography. High quality, ultra realistic lighting. "]
+            p_parts.append(f"Product: {product_name}. ")
+            
             if has_person:
-                p_parts.append("A person is interacting with the product in the scene. ")
+                p_parts.append(f"A {gender_word} is in the scene with the product. ")
             else:
                 p_parts.append("No people in the shot, focus strictly on the product itself. ")
             
-            if location == 'custom' and loc_custom:
-                p_parts.append(f"Setting: {loc_custom}. ")
-            elif location:
-                loc_map = {"inside_restaurant":"inside a restaurant","photo_studio":"in a professional photo studio","coffee_shop":"in a cozy coffee shop","city":"in a city street","building":"near a modern building","wall":"against a stylish wall","park":"in a green park","coffee_shop_out":"outside a cafe","forest":"in a forest","car":"near a car"}
-                p_parts.append(f"Setting: {loc_map.get(location, location)}. ")
-                
-            if vibe:
-                vibe_map = {"summer":"summer vibe", "winter":"winter vibe", "autumn":"autumn vibe", "spring":"spring vibe", "newyear":"holiday new year vibe"}
-                p_parts.append(f"Atmosphere: {vibe_map.get(vibe, vibe)}. ")
+            p_parts.append(f"Infographic load: {load}/10. ")
+            p_parts.append(f"Camera angle: {view_word}, Distance: {dist_word}. ")
+            
+            dims = []
+            if h_cm: dims.append(f"height {h_cm}cm")
+            if w_cm: dims.append(f"width {w_cm}cm")
+            if l_cm: dims.append(f"length {l_cm}cm")
+            if dims:
+                p_parts.append(f"Product dimensions: {', '.join(dims)}. ")
+            
+            if season:
+                p_parts.append(f"Season/Vibe: {season}. ")
+            if style:
+                p_parts.append(f"Style: {style}. ")
                 
             p_parts.append("8k resolution, cinematic lighting, sharp focus on product.")
             prompt_filled = "".join(p_parts)

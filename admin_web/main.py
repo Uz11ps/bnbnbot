@@ -567,7 +567,8 @@ async def edit_subscription(
     user: str = Depends(get_current_username)
 ):
     try:
-        expires_at = datetime.now() + timedelta(days=days)
+        expires_at = datetime.utcnow() + timedelta(days=days)
+        expires_str = expires_at.strftime("%Y-%m-%d %H:%M:%S")
         plan_type = "custom"
         
         plan_id_val = None
@@ -582,20 +583,14 @@ async def edit_subscription(
         
         safe_api_key = api_key.strip() if api_key and api_key.strip() else None
         
-        # Проверяем, есть ли уже подписка у этого пользователя
-        async with db.execute("SELECT id FROM subscriptions WHERE user_id = ?", (user_id,)) as cur:
-            existing = await cur.fetchone()
-            
-        if existing:
-            await db.execute(
-                "UPDATE subscriptions SET plan_id=?, plan_type=?, expires_at=?, daily_limit=?, daily_usage=0, last_usage_reset=CURRENT_TIMESTAMP, individual_api_key=? WHERE user_id=?",
-                (plan_id_val, plan_type, expires_at.isoformat(), limit, safe_api_key, user_id)
-            )
-        else:
-            await db.execute(
-                "INSERT INTO subscriptions (user_id, plan_id, plan_type, expires_at, daily_limit, daily_usage, last_usage_reset, individual_api_key) VALUES (?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP, ?)",
-                (user_id, plan_id_val, plan_type, expires_at.isoformat(), limit, safe_api_key)
-            )
+        # Очищаем все старые подписки пользователя перед выдачей новой, 
+        # чтобы избежать дублей и конфликтов
+        await db.execute("DELETE FROM subscriptions WHERE user_id = ?", (user_id,))
+        
+        await db.execute(
+            "INSERT INTO subscriptions (user_id, plan_id, plan_type, expires_at, daily_limit, daily_usage, last_usage_reset, individual_api_key) VALUES (?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP, ?)",
+            (user_id, plan_id_val, plan_type, expires_str, limit, safe_api_key)
+        )
         
         # Сбрасываем флаг триала при выдаче подписки
         await db.execute("UPDATE users SET trial_used=1 WHERE id=?", (user_id,))

@@ -863,7 +863,7 @@ class Database:
     async def get_user_subscription(self, user_id: int) -> tuple | None:
         async with aiosqlite.connect(self._db_path) as db:
             async with db.execute(
-                "SELECT plan_type, expires_at, daily_limit, daily_usage, individual_api_key FROM subscriptions WHERE user_id=? AND expires_at > CURRENT_TIMESTAMP",
+                "SELECT plan_type, expires_at, daily_limit, daily_usage, individual_api_key FROM subscriptions WHERE user_id=? AND expires_at > datetime('now') ORDER BY expires_at DESC LIMIT 1",
                 (user_id,)
             ) as cur:
                 return await cur.fetchone()
@@ -1121,12 +1121,13 @@ class Database:
     # Subscription Management
     async def grant_subscription(self, user_id: int, plan_id: int | None, plan_type: str, duration_days: int, daily_limit: int, amount: int = 0) -> None:
         from datetime import datetime, timedelta
-        expires_at = datetime.now() + timedelta(days=duration_days)
+        expires_at = datetime.utcnow() + timedelta(days=duration_days)
+        expires_str = expires_at.strftime("%Y-%m-%d %H:%M:%S")
         async with aiosqlite.connect(self._db_path) as db:
             # Если оформляется платная подписка, триал сгорает (хотя он и так перекроется)
             await db.execute(
                 "INSERT INTO subscriptions (user_id, plan_id, plan_type, expires_at, daily_limit) VALUES (?, ?, ?, ?, ?)",
-                (user_id, plan_id, plan_type, expires_at.isoformat(), daily_limit)
+                (user_id, plan_id, plan_type, expires_str, daily_limit)
             )
             
             # Записываем платеж

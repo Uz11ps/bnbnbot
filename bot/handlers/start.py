@@ -2509,18 +2509,31 @@ async def form_generate(callback: CallbackQuery, state: FSMContext, db: Database
 
         # Ротация ключей
         settings = load_settings()
-        keys_with_ids = await db.list_api_keys()
-        # Фильтруем только активные ключи и проверяем лимиты
-        tokens_order = []
-        for kid, tok, is_active, prio, du, tu, lr, ca, ua in keys_with_ids:
-            if is_active:
-                # Проверяем лимиты перед добавлением в список
-                can_use, reason = await db.check_api_key_limits(kid)
-                if can_use:
+        
+        # Определяем, какую таблицу ключей использовать
+        is_own_variant = (category == "own_variant")
+        
+        if is_own_variant:
+            # Для "Своего варианта фона" используем специальные ключи
+            keys_with_ids = await db.list_own_variant_api_keys()
+            # list_own_variant_api_keys возвращает (id, token, is_active)
+            tokens_order = []
+            for kid, tok, is_active in keys_with_ids:
+                if is_active:
                     tokens_order.append((kid, tok))
-                else:
-                    # Если достигнут общий лимит (235), ключ уже деактивирован в check_api_key_limits
-                    logger.info(f"API key {kid} skipped: {reason}")
+        else:
+            # Для всех остальных (включая Обычную генерацию) используем общие ключи Gemini
+            keys_with_ids = await db.list_api_keys()
+            # list_api_keys возвращает 9 колонок
+            tokens_order = []
+            for kid, tok, is_active, prio, du, tu, lr, ca, ua in keys_with_ids:
+                if is_active:
+                    # Проверяем лимиты перед добавлением в список
+                    can_use, reason = await db.check_api_key_limits(kid)
+                    if can_use:
+                        tokens_order.append((kid, tok))
+                    else:
+                        logger.info(f"API key {kid} skipped: {reason}")
         
         # Если есть индивидуальный ключ для 4K
         if quality == '4K' and ind_key:
@@ -2694,19 +2707,42 @@ async def on_result_edit_text(message: Message, state: FSMContext, db: Database)
     f = await message.bot.download_file(file.file_path)
     user_image_bytes = f.read()
 
-    from bot.config import load_settings
+    # Ротация ключей для правок
     from bot.gemini import generate_image
-    settings = load_settings()
-    try:
-        result_bytes = await generate_image(settings.gemini_api_key, prompt_filled, user_image_bytes, None, key_id=None, db_instance=db)
-    except Exception as e:
-        await message.answer(f"Ошибка генерации: {e}")
-        await state.clear()
+    
+    # Определяем, какую таблицу ключей использовать
+    is_own_variant = (category == "own_variant")
+    if is_own_variant:
+        keys_with_ids = await db.list_own_variant_api_keys()
+        tokens_order = [(kid, tok) for kid, tok, is_active in keys_with_ids if is_active]
+    else:
+        keys_with_ids = await db.list_api_keys()
+        tokens_order = []
+        for kid, tok, is_active, prio, du, tu, lr, ca, ua in keys_with_ids:
+            if is_active:
+                can_use, _ = await db.check_api_key_limits(kid)
+                if can_use: tokens_order.append((kid, tok))
+
+    if not tokens_order:
+        await message.answer("Все API ключи исчерпали лимиты. Попробуйте позже.")
         return
+
+    result_bytes = None
+    for key_id, token in tokens_order:
+        try:
+            result_bytes = await generate_image(token, prompt_filled, user_image_bytes, None, key_id=key_id, db_instance=db)
+            if result_bytes:
+                if key_id and not is_own_variant:
+                    await db.record_api_usage(key_id)
+                break
+        except Exception as e:
+            logger.error(f"Error during edit with key {key_id}: {e}")
+            continue
+
     if not result_bytes:
-        await message.answer("Генерация не вернула изображение")
-        await state.clear()
+        await message.answer("Генерация не вернула изображение. Попробуйте позже.")
         return
+
     try:
         # Списываем 1 генерацию при успехе
         await db.increment_user_balance(message.from_user.id, -1)

@@ -2816,11 +2816,17 @@ async def on_menu_profile(callback: CallbackQuery, db: Database) -> None:
     if sub:
         # sub structure: (plan_type, expires_at, daily_limit, daily_usage, ind_key)
         plan, expires, limit, usage, _indiv_key = sub
-        expires_dt = expires[:10] if isinstance(expires, str) else expires.strftime("%Y-%m-%d")
+        # Форматируем дату (expires может быть строкой или объектом datetime)
+        if isinstance(expires, str):
+            # Если в БД хранится 'YYYY-MM-DD HH:MM:SS'
+            expires_dt = expires[:16].replace('T', ' ')
+        else:
+            expires_dt = expires.strftime("%Y-%m-%d %H:%M")
+            
         daily_rem = max(0, limit - usage)
-        text = get_string("profile_info", lang, id=callback.from_user.id, sub=plan, daily_rem=daily_rem)
+        text = get_string("profile_info", lang, id=callback.from_user.id, sub=plan, expires=expires_dt, daily_rem=daily_rem)
     else:
-        text = get_string("profile_info", lang, id=callback.from_user.id, sub=get_string("sub_none_profile", lang), daily_rem=0)
+        text = get_string("profile_info", lang, id=callback.from_user.id, sub=get_string("sub_none", lang), expires="—", daily_rem=0)
     
     await _replace_with_text(callback, text, reply_markup=profile_keyboard(lang))
     await _safe_answer(callback)

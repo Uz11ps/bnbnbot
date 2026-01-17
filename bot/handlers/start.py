@@ -246,7 +246,8 @@ async def cmd_start(message: Message, db: Database) -> None:
         first_name=user.first_name,
         last_name=user.last_name,
     )
-    await message.answer(WELCOME_TEXT, reply_markup=terms_keyboard())
+    lang = await db.get_user_language(user.id)
+    await message.answer(get_string("start_welcome", lang), reply_markup=terms_keyboard(lang))
 
 
 @router.callback_query(F.data == "accept_terms")

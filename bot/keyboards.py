@@ -196,21 +196,18 @@ def ready_presets_keyboard(enabled: dict[str, bool], lang="ru") -> InlineKeyboar
     """Клавиатура выбора пола внутри готовых пресетов"""
     rows: list[list[InlineKeyboardButton]] = []
 
-    row1: list[InlineKeyboardButton] = []
-    # Используем .get(..., True), чтобы кнопки были видны по умолчанию
-    if enabled.get("female", True):
-        row1.append(InlineKeyboardButton(text=get_string("cat_female", lang), callback_data="create_cat:female"))
-    if enabled.get("male", True):
-        row1.append(InlineKeyboardButton(text=get_string("cat_male", lang), callback_data="create_cat:male"))
-    if row1:
-        rows.append(row1)
+    # Упрощаем: показываем кнопки ВСЕГДА для теста
+    row1 = [
+        InlineKeyboardButton(text=get_string("cat_female", lang), callback_data="create_cat:female"),
+        InlineKeyboardButton(text=get_string("cat_male", lang), callback_data="create_cat:male")
+    ]
+    rows.append(row1)
 
-    row2: list[InlineKeyboardButton] = []
-    if enabled.get("child", True):
-        row2.append(InlineKeyboardButton(text=get_string("gender_boy", lang), callback_data="child_gender:boy"))
-        row2.append(InlineKeyboardButton(text=get_string("gender_girl", lang), callback_data="child_gender:girl"))
-    if row2:
-        rows.append(row2)
+    row2 = [
+        InlineKeyboardButton(text=get_string("gender_boy", lang), callback_data="child_gender:boy"),
+        InlineKeyboardButton(text=get_string("gender_girl", lang), callback_data="child_gender:girl")
+    ]
+    rows.append(row2)
 
     rows.append([InlineKeyboardButton(text=get_string("back", lang), callback_data="menu_market")])
     return InlineKeyboardMarkup(inline_keyboard=rows)

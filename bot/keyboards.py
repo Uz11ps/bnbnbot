@@ -58,27 +58,27 @@ def marketplace_menu_keyboard(enabled: dict[str, bool], lang="ru") -> InlineKeyb
     rows: list[list[InlineKeyboardButton]] = []
     
     # Готовые пресеты
-    if enabled.get("female") is not False or enabled.get("male") is not False or enabled.get("child") is not False:
+    if enabled.get("female", True) or enabled.get("male", True) or enabled.get("child", True):
         rows.append([InlineKeyboardButton(text=get_string("cat_presets", lang), callback_data="create_cat:presets")])
 
     # Разделы Рандом
-    if enabled.get("random") is True:
+    if enabled.get("random", True):
         rows.append([InlineKeyboardButton(text=get_string("cat_random", lang), callback_data="create_random")])
-    if enabled.get("random_other") is True:
+    if enabled.get("random_other", True):
         rows.append([InlineKeyboardButton(text=get_string("cat_random_other", lang), callback_data="create_random_other")])
 
-    if enabled.get("infographic_clothing") is True or enabled.get("infographic_other") is True:
+    if enabled.get("infographic_clothing", True) or enabled.get("infographic_other", True):
         rows.append([InlineKeyboardButton(text=get_string("cat_infographics", lang), callback_data="create_cat:infographics")])
     
-    if enabled.get("storefront") is True:
+    if enabled.get("storefront", True):
         rows.append([InlineKeyboardButton(text=get_string("cat_storefront", lang), callback_data="create_cat:storefront")])
         
-    if enabled.get("whitebg") is True:
+    if enabled.get("whitebg", True):
         rows.append([InlineKeyboardButton(text=get_string("cat_whitebg", lang), callback_data="create_cat:whitebg")])
     
-    if enabled.get("own") is True:
+    if enabled.get("own", True):
         rows.append([InlineKeyboardButton(text=get_string("cat_own", lang), callback_data="create_cat:own")])
-    if enabled.get("own_variant") is True:
+    if enabled.get("own_variant", True):
         rows.append([InlineKeyboardButton(text=get_string("cat_own_variant", lang), callback_data="create_cat:own_variant")])
     
     rows.append([InlineKeyboardButton(text=get_string("back", lang), callback_data="back_main")])

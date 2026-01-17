@@ -109,7 +109,7 @@ async def get_db():
     finally:
         await db.close()
 
-CATEGORIES = ["female", "male", "child", "storefront", "whitebg", "random", "own", "own_variant", "infographic_clothing", "infographic_other"]
+CATEGORIES = ["female", "male", "child", "storefront", "whitebg", "random", "random_other", "own", "own_variant", "infographic_clothing", "infographic_other"]
 
 @app.get("/models/delete/{model_id}")
 async def delete_model(model_id: int, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):

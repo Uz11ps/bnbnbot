@@ -602,7 +602,7 @@ async def on_whitebg_category(callback: CallbackQuery, db: Database, state: FSMC
 
 @router.callback_query(F.data == "create_cat:infographics")
 async def on_infographics_menu(callback: CallbackQuery, db: Database) -> None:
-    enabled = await db.get_all_categories_enabled()
+    enabled = await db.list_categories_enabled()
     lang = await db.get_user_language(callback.from_user.id)
     from bot.keyboards import infographic_selection_keyboard
     await _replace_with_text(callback, get_string("select_infographic_type", lang), reply_markup=infographic_selection_keyboard(enabled, lang))

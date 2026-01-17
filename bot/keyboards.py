@@ -136,7 +136,6 @@ def admin_main_keyboard(lang="ru") -> InlineKeyboardMarkup:
         inline_keyboard=[
             [InlineKeyboardButton(text=get_string("admin_stats", lang), callback_data="admin_stats")],
             [InlineKeyboardButton(text=get_string("admin_users", lang), callback_data="admin_users_page:0"), InlineKeyboardButton(text=get_string("admin_search", lang), callback_data="admin_user_search")],
-            [InlineKeyboardButton(text=get_string("admin_models", lang), callback_data="admin_models")],
             [InlineKeyboardButton(text=get_string("admin_categories", lang), callback_data="admin_categories")],
             [InlineKeyboardButton(text=get_string("admin_own_prompts", lang), callback_data="admin_own_prompts")],
             [InlineKeyboardButton(text=get_string("admin_own_variant_prompts", lang), callback_data="admin_own_variant_prompts")],

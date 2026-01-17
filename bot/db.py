@@ -800,6 +800,12 @@ class Database:
             )
             await db.commit()
 
+    async def get_user_accepted_terms(self, user_id: int) -> bool:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT accepted_terms FROM users WHERE id=?", (user_id,)) as cur:
+                row = await cur.fetchone()
+                return bool(int(row[0])) if row else False
+
     async def get_user_blocked(self, user_id: int) -> bool:
         async with aiosqlite.connect(self._db_path) as db:
             async with db.execute("SELECT blocked FROM users WHERE id=?", (user_id,)) as cur:

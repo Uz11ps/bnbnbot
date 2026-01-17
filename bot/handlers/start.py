@@ -2866,6 +2866,22 @@ async def on_menu_howto(callback: CallbackQuery, db: Database) -> None:
     await _replace_with_text(callback, text, reply_markup=back_main_keyboard(lang))
     await _safe_answer(callback)
 
+@router.callback_query(F.data == "menu_agreement")
+async def on_menu_agreement(callback: CallbackQuery, db: Database) -> None:
+    lang = await db.get_user_language(callback.from_user.id)
+    text = await db.get_agreement_text()
+    if not text or text.strip() == "":
+        text = get_string("agreement_not_set", lang)
+    
+    # Если мы пришли из клавиатуры принятия условий, возвращаемся к ней, а не в главное меню
+    user_accepted = await db.get_user_accepted_terms(callback.from_user.id)
+    from bot.keyboards import terms_keyboard, back_main_keyboard
+    
+    reply_markup = back_main_keyboard(lang) if user_accepted else terms_keyboard(lang)
+    
+    await _replace_with_text(callback, text, reply_markup=reply_markup)
+    await _safe_answer(callback)
+
 @router.message(F.text == "/profile")
 async def cmd_profile(message: Message, db: Database) -> None:
     # Dummy callback to reuse on_menu_profile logic

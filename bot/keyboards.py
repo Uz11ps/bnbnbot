@@ -4,6 +4,7 @@ from bot.strings import get_string
 def terms_keyboard(lang="ru") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
+            [InlineKeyboardButton(text=get_string("agreement", lang), callback_data="menu_agreement")],
             [InlineKeyboardButton(text=get_string("accept_terms", lang), callback_data="accept_terms")]
         ]
     )
@@ -40,6 +41,7 @@ def settings_keyboard(lang="ru") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text=get_string("select_lang", lang), callback_data="settings_lang")],
+            [InlineKeyboardButton(text=get_string("agreement", lang), callback_data="menu_agreement")],
             [InlineKeyboardButton(text=get_string("back_main", lang), callback_data="back_main")]
         ]
     )

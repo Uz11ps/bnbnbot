@@ -57,6 +57,16 @@ def language_keyboard(lang="ru") -> InlineKeyboardMarkup:
 def marketplace_menu_keyboard(enabled: dict[str, bool], lang="ru") -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
     
+    # Готовые пресеты
+    if enabled.get("female") or enabled.get("male") or enabled.get("child"):
+        rows.append([InlineKeyboardButton(text=get_string("cat_presets", lang), callback_data="create_cat:presets")])
+
+    # Разделы Рандом
+    if enabled.get("random") is True:
+        rows.append([InlineKeyboardButton(text=get_string("cat_random", lang), callback_data="create_random")])
+    if enabled.get("random_other") is True:
+        rows.append([InlineKeyboardButton(text=get_string("cat_random_other", lang), callback_data="create_random_other")])
+
     if enabled.get("infographic_clothing") is True or enabled.get("infographic_other") is True:
         rows.append([InlineKeyboardButton(text=get_string("cat_infographics", lang), callback_data="create_cat:infographics")])
     
@@ -173,19 +183,9 @@ def admin_categories_keyboard(status: dict[str, bool], lang="ru") -> InlineKeybo
     )
 
 def create_product_keyboard_dynamic(enabled: dict[str, bool], lang="ru") -> InlineKeyboardMarkup:
-    """Создает клавиатуру выбора категории для 'Генерации фото' (Пресеты и Рандом)"""
+    """Обычная генерация теперь просто возвращает кнопку Назад, 
+    так как основная логика теперь сразу просит фото."""
     rows: list[list[InlineKeyboardButton]] = []
-
-    # Готовые пресеты (объединяем female, male, child)
-    if enabled.get("female") or enabled.get("male") or enabled.get("child"):
-        rows.append([InlineKeyboardButton(text=get_string("cat_presets", lang), callback_data="create_cat:presets")])
-
-    # Разделы Рандом
-    if enabled.get("random") is True:
-        rows.append([InlineKeyboardButton(text=get_string("cat_random", lang), callback_data="create_random")])
-    if enabled.get("random_other") is True:
-        rows.append([InlineKeyboardButton(text=get_string("cat_random_other", lang), callback_data="create_random_other")])
-
     rows.append([InlineKeyboardButton(text=get_string("back", lang), callback_data="back_main")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 

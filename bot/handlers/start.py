@@ -263,7 +263,7 @@ async def on_back_main(callback: CallbackQuery, state: FSMContext, db: Database)
     await _safe_answer(callback)
 
 @router.callback_query(F.data == "menu_create")
-async def on_create_photo(callback: CallbackQuery, db: Database) -> None:
+async def on_create_photo(callback: CallbackQuery, db: Database, state: FSMContext) -> None:
     lang = await db.get_user_language(callback.from_user.id)
     # Техработы: блокируем для не-админов
     if await db.get_maintenance():
@@ -279,14 +279,22 @@ async def on_create_photo(callback: CallbackQuery, db: Database) -> None:
     if balance <= 0:
         await _safe_answer(callback, get_string("limit_rem_zero", lang), show_alert=True)
         return
-    text = get_string("select_product", lang)
-    if callback.message and callback.message.text == text:
-        await _safe_answer(callback)
-        return
     
-    statuses = await db.list_categories_enabled()
-    from bot.keyboards import create_product_keyboard_dynamic
-    await _replace_with_text(callback, text, reply_markup=create_product_keyboard_dynamic(statuses, lang))
+    # Обычная генерация теперь сразу просит фото
+    await state.clear()
+    await state.update_data(category="random", random_mode=True, normal_gen_mode=True)
+    # Устанавливаем дефолтные параметры для обычной генерации
+    await state.update_data(
+        rand_gender="unisex",
+        height="170",
+        age="25",
+        view="front",
+        aspect="auto"
+    )
+    
+    text = get_string("upload_photo", lang)
+    await _replace_with_text(callback, text, reply_markup=back_main_keyboard(lang))
+    await state.set_state(CreateForm.waiting_view)
     await _safe_answer(callback)
 
 
@@ -1679,8 +1687,15 @@ async def handle_user_photo(message: Message, state: FSMContext, db: Database) -
 
     # Формируем текст подтверждения безопасно через список частей
     parts = []
-    parts.append("📋 Проверьте выбранные параметры:\n\n")
-    parts.append(f"📦 **Категория**: {('Женская' if category=='female' else 'Мужская' if category=='male' else 'Детская')}\n")
+    
+    if data.get("normal_gen_mode"):
+        parts.append("📋 Проверьте выбранные параметры:\n\n")
+        parts.append("📦 **Категория**: ✨ ОБЫЧНАЯ ГЕНЕРАЦИЯ\n")
+        parts.append(f"🖼️ **Формат**: {aspect.replace('x', ':')}\n\n")
+        parts.append("Все верно? Нажмите кнопку ниже для генерации.")
+    else:
+        parts.append("📋 Проверьте выбранные параметры:\n\n")
+        parts.append(f"📦 **Категория**: {('Женская' if category=='female' else 'Мужская' if category=='male' else 'Детская')}\n")
     if gender:
         parts.append(f"🚻 **Пол**: {gender}\n")
     parts.append(f"👕 **Тип одежды**: {cloth}\n")
@@ -1859,7 +1874,7 @@ async def on_back_from_custom_loc(callback: CallbackQuery, state: FSMContext, db
 
 @router.callback_query(F.data == "back_step", CreateForm.waiting_has_person)
 async def on_back_from_has_person(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
-    await on_create_photo(callback, db)
+    await on_create_photo(callback, db, state)
 
 @router.callback_query(F.data == "back_step", CreateForm.waiting_child_gender)
 async def on_back_from_child_gender(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
@@ -1898,7 +1913,7 @@ async def on_back_from_ref_photo(callback: CallbackQuery, state: FSMContext, db:
     if data.get("own_mode"):
         await on_marketplace_menu(callback, db)
     else:
-        await on_create_photo(callback, db)
+        await on_create_photo(callback, db, state)
 
 @router.callback_query(F.data == "back_step", CreateForm.waiting_product_photo)
 async def on_back_from_product_photo(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
@@ -1908,7 +1923,7 @@ async def on_back_from_product_photo(callback: CallbackQuery, state: FSMContext,
         await _replace_with_text(callback, get_string("upload_model_photo", lang), reply_markup=back_step_keyboard(lang))
         await state.set_state(CreateForm.waiting_ref_photo)
     else:
-        await on_create_photo(callback, db)
+        await on_create_photo(callback, db, state)
     await _safe_answer(callback)
 
 @router.callback_query(F.data == "back_step", CreateForm.waiting_own_cut)
@@ -1931,7 +1946,7 @@ async def on_back_from_own_aspect(callback: CallbackQuery, state: FSMContext, db
         await _replace_with_text(callback, get_string("select_sleeve_length", lang), reply_markup=sleeve_length_keyboard(lang))
     else:
         # fallback for other flows
-        await on_create_photo(callback, db)
+        await on_create_photo(callback, db, state)
     await _safe_answer(callback)
 
 @router.callback_query(F.data == "back_step", CreateForm.waiting_edit_text)
@@ -1971,7 +1986,7 @@ async def on_back_from_own_aspect(callback: CallbackQuery, state: FSMContext, db
         await _replace_with_text(callback, get_string("select_sleeve_length", lang), reply_markup=sleeve_length_keyboard(lang))
     else:
         # fallback for other flows
-        await on_create_photo(callback, db)
+        await on_create_photo(callback, db, state)
     await _safe_answer(callback)
 
 

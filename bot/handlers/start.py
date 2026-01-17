@@ -68,6 +68,7 @@ class CreateForm(StatesGroup):
     waiting_height = State()
     waiting_length = State()
     waiting_view = State()
+    waiting_prompt = State()
     waiting_aspect = State()
     waiting_sleeve = State()
     waiting_foot = State()
@@ -981,6 +982,27 @@ async def on_own_product_photo(message: Message, state: FSMContext, db: Database
     await state.set_state(CreateForm.waiting_aspect)
 
 
+@router.message(CreateForm.waiting_prompt, F.text)
+async def on_prompt_input(message: Message, state: FSMContext, db: Database) -> None:
+    prompt = (message.text or "").strip()
+    lang = await db.get_user_language(message.from_user.id)
+    if len(prompt) > 1000:
+        await message.answer(get_string("enter_prompt_error", lang), reply_markup=back_step_keyboard(lang))
+        return
+    
+    await state.update_data(prompt=prompt)
+    await message.answer(get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
+    await state.set_state(CreateForm.waiting_aspect)
+
+
+@router.callback_query(F.data == "back_step", CreateForm.waiting_prompt)
+async def on_back_from_prompt(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    lang = await db.get_user_language(callback.from_user.id)
+    await _replace_with_text(callback, get_string("upload_photo", lang), reply_markup=back_main_keyboard(lang))
+    await state.set_state(CreateForm.waiting_view)
+    await _safe_answer(callback)
+
+
 @router.callback_query(CreateForm.waiting_aspect, F.data.startswith("form_aspect:"))
 async def on_aspect_selected(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     aspect = callback.data.split(":", 1)[1]
@@ -989,7 +1011,15 @@ async def on_aspect_selected(callback: CallbackQuery, state: FSMContext, db: Dat
     data = await state.get_data()
     category = data.get("category")
     
-    if category == "own_variant":
+    if data.get("normal_gen_mode"):
+        parts = [
+            "📋 Проверьте выбранные параметры:\n\n",
+            "📦 **Категория**: ✨ ОБЫЧНАЯ ГЕНЕРАЦИЯ\n",
+            f"📝 **Промпт**: {data.get('prompt', '—')}\n",
+            f"🖼️ **Формат**: {aspect.replace('x', ':')}\n\n",
+            "Все верно? Нажмите кнопку ниже для генерации."
+        ]
+    elif category == "own_variant":
         parts = [
             "📋 Проверьте выбранные параметры:\n\n",
             "📦 **Категория**: 🖼️ Свой вариант ФОНА\n",
@@ -1822,8 +1852,15 @@ async def handle_user_photo(message: Message, state: FSMContext, db: Database) -
         return
     photo_id = message.photo[-1].file_id
     await state.update_data(user_photo_id=photo_id)
+    lang = await db.get_user_language(message.from_user.id)
 
-    # Собираем параметры
+    if data.get("normal_gen_mode"):
+        # Для обычной генерации просим промпт
+        await message.answer(get_string("enter_prompt", lang), reply_markup=back_step_keyboard(lang))
+        await state.set_state(CreateForm.waiting_prompt)
+        return
+
+    # Собираем параметры для других режимов
     category = data.get("category")
     cloth = data.get("cloth")
     # Тип фигуры (телосложение) теперь используется — берём из state
@@ -1849,14 +1886,8 @@ async def handle_user_photo(message: Message, state: FSMContext, db: Database) -
     # Формируем текст подтверждения безопасно через список частей
     parts = []
     
-    if data.get("normal_gen_mode"):
-        parts.append("📋 Проверьте выбранные параметры:\n\n")
-        parts.append("📦 **Категория**: ✨ ОБЫЧНАЯ ГЕНЕРАЦИЯ\n")
-        parts.append(f"🖼️ **Формат**: {aspect.replace('x', ':')}\n\n")
-        parts.append("Все верно? Нажмите кнопку ниже для генерации.")
-    else:
-        parts.append("📋 Проверьте выбранные параметры:\n\n")
-        parts.append(f"📦 **Категория**: {('Женская' if category=='female' else 'Мужская' if category=='male' else 'Детская')}\n")
+    parts.append("📋 Проверьте выбранные параметры:\n\n")
+    parts.append(f"📦 **Категория**: {('Женская' if category=='female' else 'Мужская' if category=='male' else 'Детская')}\n")
     if gender:
         parts.append(f"🚻 **Пол**: {gender}\n")
     parts.append(f"👕 **Тип одежды**: {cloth}\n")
@@ -2358,6 +2389,8 @@ async def form_generate(callback: CallbackQuery, state: FSMContext, db: Database
                 
             p_parts.append("8k resolution, cinematic lighting, sharp focus on product.")
             prompt_filled = "".join(p_parts)
+        elif data.get("normal_gen_mode"):
+            prompt_filled = data.get("prompt") or ""
         elif data.get("random_mode"):
             gender = data.get("rand_gender")
             gender_map = {"male":"мужчина","female":"женщина","boy":"мальчик","girl":"девочка"}

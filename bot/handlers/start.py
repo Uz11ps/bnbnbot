@@ -2308,7 +2308,7 @@ async def form_generate(callback: CallbackQuery, state: FSMContext, db: Database
             await callback.message.answer_document(document=photo_file, caption=get_string("gen_success", lang), reply_markup=kb)
             await state.set_state(CreateForm.result_ready)
         else:
-            await callback.bot.edit_message_text(chat_id=callback.message.chat.id, message_id=progress_msg.message_id, text=f"❌ Ошибка: {str(last_error)[:100]}")
+            await callback.bot.edit_message_text(chat_id=callback.message.chat.id, message_id=progress_msg.message_id, text=get_string("gen_error_contact_support", lang))
 
     except Exception as e:
         logger.error(f"Глобальная ошибка в form_generate: {e}", exc_info=True)

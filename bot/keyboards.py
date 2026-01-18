@@ -423,9 +423,9 @@ def model_select_keyboard(category: str, cloth: str, index: int, total: int, lan
 def pose_keyboard(lang="ru") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=get_string("pose_normal", lang), callback_data="pose:normal")],
-            [InlineKeyboardButton(text=get_string("pose_unusual", lang), callback_data="pose:unusual")],
             [InlineKeyboardButton(text=get_string("pose_vulgar", lang), callback_data="pose:vulgar")],
+            [InlineKeyboardButton(text=get_string("pose_unusual", lang), callback_data="pose:unusual")],
+            [InlineKeyboardButton(text=get_string("pose_normal", lang), callback_data="pose:normal")],
             [InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")],
         ]
     )

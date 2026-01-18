@@ -65,15 +65,10 @@ def marketplace_menu_keyboard(enabled: dict[str, bool], lang="ru") -> InlineKeyb
     # Разделы Рандом
     if enabled.get("random", True):
         rows.append([InlineKeyboardButton(text=get_string("cat_random", lang), callback_data="create_random")])
-    if enabled.get("random_other", True):
-        rows.append([InlineKeyboardButton(text=get_string("cat_random_other", lang), callback_data="create_random_other")])
-
-    # Инфографика — Показываем подразделы прямо в главном меню для удобства
-    if enabled.get("infographic_clothing", True):
-        rows.append([InlineKeyboardButton(text=get_string("cat_infographic_clothing", lang), callback_data="create_cat:infographic_clothing")])
-    if enabled.get("infographic_other", True):
-        rows.append([InlineKeyboardButton(text=get_string("cat_infographic_other", lang), callback_data="create_cat:infographic_other")])
     
+    # Кнопка Инфографика (внутри которой теперь 3 кнопки)
+    rows.append([InlineKeyboardButton(text=get_string("cat_infographics", lang), callback_data="create_cat:infographics")])
+
     # Витринное фото
     if enabled.get("storefront", True):
         rows.append([InlineKeyboardButton(text=get_string("cat_storefront", lang), callback_data="create_cat:storefront")])
@@ -578,9 +573,15 @@ def info_lang_keyboard(lang="ru") -> InlineKeyboardMarkup:
 
 def infographic_selection_keyboard(enabled: dict[str, bool], lang="ru") -> InlineKeyboardMarkup:
     rows = []
-    # Показываем оба раздела инфографики ВСЕГДА
-    rows.append([InlineKeyboardButton(text=get_string("cat_infographic_clothing", lang), callback_data="create_cat:infographic_clothing")])
-    rows.append([InlineKeyboardButton(text=get_string("cat_infographic_other", lang), callback_data="create_cat:infographic_other")])
+    # Теперь здесь 3 кнопки согласно запросу пользователя
+    if enabled.get("random_other", True):
+        rows.append([InlineKeyboardButton(text=get_string("cat_random_other", lang), callback_data="create_random_other")])
+    
+    if enabled.get("infographic_clothing", True):
+        rows.append([InlineKeyboardButton(text=get_string("cat_infographic_clothing", lang), callback_data="create_cat:infographic_clothing")])
+    
+    if enabled.get("infographic_other", True):
+        rows.append([InlineKeyboardButton(text=get_string("cat_infographic_other", lang), callback_data="create_cat:infographic_other")])
     
     rows.append([InlineKeyboardButton(text=get_string("back", lang), callback_data="menu_market")])
     return InlineKeyboardMarkup(inline_keyboard=rows)

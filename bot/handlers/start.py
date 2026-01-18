@@ -2360,7 +2360,8 @@ async def on_back_from_info_lang_custom(callback: CallbackQuery, state: FSMConte
 
 @router.callback_query(F.data == "back_step", CreateForm.waiting_rand_other_has_person)
 async def on_back_from_rand_other_person(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
-    await on_marketplace_menu(callback, db)
+    # Теперь возвращаемся в меню инфографики, так как эта кнопка теперь там
+    await on_infographics_menu(callback, db)
 
 @router.callback_query(F.data == "back_step", CreateForm.waiting_rand_other_gender)
 async def on_back_from_rand_other_gender(callback: CallbackQuery, state: FSMContext, db: Database) -> None:

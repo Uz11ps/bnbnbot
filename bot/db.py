@@ -1011,14 +1011,22 @@ class Database:
                 rows = await cur.fetchall()
                 return [(int(r[0]), (str(r[1]) if r[1] is not None else None)) for r in rows]
 
-    async def count_models(self, category: str, cloth: str) -> int:
+    async def count_models(self, category: str, cloth: str | None = None) -> int:
         async with aiosqlite.connect(self._db_path) as db:
-            async with db.execute(
-                "SELECT COUNT(*) FROM models WHERE category=? AND cloth=? AND is_active=1",
-                (category, cloth),
-            ) as cur:
-                row = await cur.fetchone()
-                return int(row[0]) if row else 0
+            if cloth:
+                async with db.execute(
+                    "SELECT COUNT(*) FROM models WHERE category=? AND cloth=? AND is_active=1",
+                    (category, cloth),
+                ) as cur:
+                    row = await cur.fetchone()
+                    return int(row[0]) if row else 0
+            else:
+                async with db.execute(
+                    "SELECT COUNT(*) FROM models WHERE category=? AND is_active=1",
+                    (category,),
+                ) as cur:
+                    row = await cur.fetchone()
+                    return int(row[0]) if row else 0
 
     async def list_prompts_page(self, offset: int, limit: int) -> list[tuple[int, str]]:
         async with aiosqlite.connect(self._db_path) as db:
@@ -1049,12 +1057,16 @@ class Database:
                 row = await cur.fetchone()
                 return str(row[0]) if row else ""
 
-    async def get_model_by_index(self, category: str, cloth: str, index: int) -> tuple[int, str, int, str | None] | None:
+    async def get_model_by_index(self, category: str, cloth: str | None, index: int) -> tuple[int, str, int, str | None] | None:
         async with aiosqlite.connect(self._db_path) as db:
-            async with db.execute(
-                "SELECT id, name, prompt_id, photo_file_id FROM models WHERE category=? AND cloth=? AND is_active=1 ORDER BY position, id LIMIT 1 OFFSET ?",
-                (category, cloth, index),
-            ) as cur:
+            if cloth:
+                sql = "SELECT id, name, prompt_id, photo_file_id FROM models WHERE category=? AND cloth=? AND is_active=1 ORDER BY position, id LIMIT 1 OFFSET ?"
+                params = (category, cloth, index)
+            else:
+                sql = "SELECT id, name, prompt_id, photo_file_id FROM models WHERE category=? AND is_active=1 ORDER BY position, id LIMIT 1 OFFSET ?"
+                params = (category, index)
+                
+            async with db.execute(sql, params) as cur:
                 row = await cur.fetchone()
                 if not row:
                     return None

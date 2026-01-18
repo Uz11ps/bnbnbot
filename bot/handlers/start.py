@@ -229,12 +229,9 @@ async def _answer_model_photo(callback: CallbackQuery, file_id: str, caption: st
 @router.callback_query(F.data.startswith("child_gender:"))
 async def on_child_gender_select(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     gender = callback.data.split(":")[1]
-    await state.update_data(child_gender=gender, category="child")
-    lang = await db.get_user_language(callback.from_user.id)
-    if gender == "boy":
-        await _replace_with_text(callback, get_string("select_gender", lang), reply_markup=boy_clothes_keyboard(lang))
-    else:
-        await _replace_with_text(callback, get_string("select_gender", lang), reply_markup=girl_clothes_keyboard(lang))
+    # gender is 'boy' or 'girl'
+    await state.update_data(child_gender=gender, category="child", cloth=gender)
+    await _show_models_for_category(callback, db, "child", gender)
     await _safe_answer(callback)
 
 
@@ -352,9 +349,8 @@ async def on_female_category(callback: CallbackQuery, db: Database, state: FSMCo
     if not await db.get_category_enabled("female"):
         await _safe_answer(callback, get_string("no_models_in_category_alert", await db.get_user_language(callback.from_user.id)), show_alert=True)
         return
-    await state.update_data(category="female")
-    lang = await db.get_user_language(callback.from_user.id)
-    await _replace_with_text(callback, get_string("select_gender", lang), reply_markup=female_clothes_keyboard(lang))
+    await state.update_data(category="female", cloth="all")
+    await _show_models_for_category(callback, db, "female", "all")
     await _safe_answer(callback)
 
 @router.callback_query(F.data == "create_cat:male")
@@ -367,10 +363,26 @@ async def on_male_category(callback: CallbackQuery, db: Database, state: FSMCont
     if not await db.get_category_enabled("male"):
         await _safe_answer(callback, get_string("no_models_in_category_alert", await db.get_user_language(callback.from_user.id)), show_alert=True)
         return
-    await state.update_data(category="male")
-    lang = await db.get_user_language(callback.from_user.id)
-    await _replace_with_text(callback, get_string("select_gender", lang), reply_markup=male_clothes_keyboard(lang))
+    await state.update_data(category="male", cloth="all")
+    await _show_models_for_category(callback, db, "male", "all")
     await _safe_answer(callback)
+
+async def _show_models_for_category(callback: CallbackQuery, db: Database, category: str, cloth: str) -> None:
+    total = await db.count_models(category, cloth)
+    if total <= 0:
+        await _safe_answer(callback, "Модели не найдены", show_alert=True)
+        return
+    text = _model_header(0, total)
+    model = await db.get_model_by_index(category, cloth, 0)
+    if model and model[3]:
+        await _answer_model_photo(
+            callback,
+            model[3],
+            text,
+            model_select_keyboard(category, cloth, 0, total),
+        )
+    else:
+        await _replace_with_text(callback, text, reply_markup=model_select_keyboard(category, cloth, 0, total))
 
 @router.callback_query(F.data == "create_cat:child")
 async def on_child_category(callback: CallbackQuery, db: Database, state: FSMContext) -> None:
@@ -1415,20 +1427,15 @@ async def on_model_pick(callback: CallbackQuery, db: Database, state: FSMContext
         await state.set_state(CreateForm.waiting_pants_style)
     else:
         if category == "child":
-            # Сначала выбираем пол ребёнка
-            from bot.keyboards import child_gender_keyboard
-            await _replace_with_text(callback, "Выберите пол ребёнка:", reply_markup=child_gender_keyboard())
-            await state.set_state(CreateForm.waiting_child_gender)
-            await _safe_answer(callback)
-            return
-            if cloth == "shoes":
-                # Детская обувь: сначала размер ноги (можно пропустить), потом рост, потом ракурс
-                await _replace_with_text(callback, "Введите размер ноги ребенка (например: 31) или отправьте 'Пропустить':")
-                await state.set_state(CreateForm.waiting_foot)
-            else:
-                # Детская одежда: сначала рост
+            # Если пол уже выбран (через новый упрощенный флоу), переходим к росту
+            if prev.get("child_gender"):
                 await _replace_with_text(callback, "Введите рост ребенка в см (например: 130):")
                 await state.set_state(CreateForm.waiting_height)
+            else:
+                # Старый флоу (на всякий случай)
+                from bot.keyboards import child_gender_keyboard
+                await _replace_with_text(callback, "Выберите пол ребёнка:", reply_markup=child_gender_keyboard())
+                await state.set_state(CreateForm.waiting_child_gender)
         else:
             # Взрослые: обувь — рост → размер ноги → ракурс; одежда — телосложение → возраст → рост → длина → рукав → ракурс
             if cloth == "shoes":
@@ -1438,6 +1445,7 @@ async def on_model_pick(callback: CallbackQuery, db: Database, state: FSMContext
                 # Для витринного фона: длина изделия → ракурс → фото
                 await _ask_garment_length(callback, state, db)
             else:
+                # Для 'all' (упрощенный флоу) или обычной одежды
                 data_state = await state.get_data()
                 if data_state.get("plus_mode") and cloth != "shoes":
                     # Режим Большой размер: размер не спрашиваем; запускаем выбор локации

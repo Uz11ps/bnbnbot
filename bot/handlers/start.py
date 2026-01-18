@@ -346,13 +346,13 @@ async def on_marketplace_menu(callback: CallbackQuery, db: Database) -> None:
         settings = load_settings()
         if callback.from_user.id not in (settings.admin_ids or []):
             await _safe_answer(callback, get_string("maintenance_alert", lang), show_alert=True)
-        return
+            return
     balance = await db.get_user_balance(callback.from_user.id)
     if balance <= 0:
         await _safe_answer(callback, get_string("limit_rem_zero", lang), show_alert=True)
         return
     
-        statuses = await db.list_categories_enabled()
+    statuses = await db.list_categories_enabled()
     from bot.keyboards import marketplace_menu_keyboard
     await _replace_with_text(callback, get_string("marketplace_menu", lang), reply_markup=marketplace_menu_keyboard(statuses, lang))
     await _safe_answer(callback)
@@ -1214,14 +1214,15 @@ async def on_own_size(callback: CallbackQuery, state: FSMContext, db: Database) 
 
 
 @router.message(CreateForm.waiting_own_length)
-async def on_own_length(message: Message, state: FSMContext) -> None:
+async def on_own_length(message: Message, state: FSMContext, db: Database) -> None:
     length_text = (message.text or "").strip()
+    lang = await db.get_user_language(message.from_user.id)
     if not length_text:
         await message.answer("Длина не может быть пустой. Укажите числом (см) или словами.")
         return
     await state.update_data(own_length=length_text)
     await state.set_state(CreateForm.waiting_own_sleeve)
-    await message.answer("Выберите длину рукава:", reply_markup=sleeve_length_keyboard())
+    await message.answer(get_string("select_sleeve_length", lang), reply_markup=sleeve_length_keyboard(lang))
 
 
 @router.callback_query(CreateForm.waiting_own_sleeve, F.data.startswith("form_sleeve:"))
@@ -1730,9 +1731,9 @@ async def form_set_height(message: Message, state: FSMContext, db: Database) -> 
 async def on_garment_len_callback(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     val = callback.data.split(":", 1)[1]
     data = await state.get_data()
+    lang = await db.get_user_language(callback.from_user.id)
     
     if val == "custom":
-        lang = await db.get_user_language(callback.from_user.id)
         await _replace_with_text(callback, get_string("enter_length_custom", lang), reply_markup=back_step_keyboard(lang))
         await state.set_state(CreateForm.waiting_length)
         await _safe_answer(callback)
@@ -1759,7 +1760,6 @@ async def on_garment_len_callback(callback: CallbackQuery, state: FSMContext, db
     # Фолбэк для own_mode или own_variant
     if data.get("own_mode") or data.get("category") == "own_variant":
         await state.update_data(own_length=length_val)
-        lang = await db.get_user_language(callback.from_user.id)
         # Для Свой вариант модели переходим к крою, для ФОНА - сразу к формату
         if data.get("own_mode"):
             await state.set_state(CreateForm.waiting_own_cut)
@@ -1776,10 +1776,10 @@ async def on_garment_len_callback(callback: CallbackQuery, state: FSMContext, db
     
     if data.get("random_mode") or cloth == "dress" or (plus_mode and cloth in ("top", "coat", "suit", "overall", "loungewear")):
         await state.set_state(CreateForm.waiting_sleeve)
-        await _replace_with_text(callback, "Clothing Sleeve Length: выберите длину рукава или пропустите", reply_markup=sleeve_length_keyboard())
+        await _replace_with_text(callback, get_string("select_sleeve_length", lang), reply_markup=sleeve_length_keyboard(lang))
     elif plus_mode and cloth == "pants":
         await state.set_state(CreateForm.waiting_pants_style)
-        await _replace_with_text(callback, "Тип кроя штанов (опционально):", reply_markup=pants_style_keyboard())
+        await _replace_with_text(callback, "Тип кроя штанов (опционально):", reply_markup=pants_style_keyboard(lang))
     else:
         await state.set_state(CreateForm.waiting_view)
         await _replace_with_text(callback, get_string("select_camera_dist", lang), reply_markup=form_view_keyboard(lang))
@@ -1823,7 +1823,7 @@ async def form_set_length_callback(callback: CallbackQuery, state: FSMContext, d
     # Остальная логика (рандом, инфографика и т.д.)
     if data.get("random_mode"):
         await state.set_state(CreateForm.waiting_sleeve)
-        await _replace_with_text(callback, "Clothing Sleeve Length: выберите длину рукава или пропустите", reply_markup=sleeve_length_keyboard())
+        await _replace_with_text(callback, get_string("select_sleeve_length", lang), reply_markup=sleeve_length_keyboard(lang))
     else:
         await state.set_state(CreateForm.waiting_view)
         await _replace_with_text(callback, get_string("select_camera_dist", lang), reply_markup=form_view_keyboard(lang))

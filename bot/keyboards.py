@@ -651,9 +651,8 @@ def form_view_keyboard(lang="ru") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text=get_string("dist_close", lang), callback_data="form_view:close"),
-                InlineKeyboardButton(text=get_string("dist_far", lang), callback_data="form_view:far"),
-                InlineKeyboardButton(text=get_string("dist_medium", lang), callback_data="form_view:medium")
+                InlineKeyboardButton(text=get_string("view_front", lang), callback_data="form_view:front"),
+                InlineKeyboardButton(text=get_string("view_back", lang), callback_data="form_view:back"),
             ],
             [InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")],
         ]

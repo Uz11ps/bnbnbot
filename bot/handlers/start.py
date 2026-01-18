@@ -1106,8 +1106,6 @@ async def on_aspect_selected(callback: CallbackQuery, state: FSMContext, db: Dat
             "Все верно? Нажмите кнопку ниже для генерации."
         ]
     elif data.get("own_mode"):
-        length = data.get("own_length") or "—"
-        sleeve = data.get("own_sleeve") or "—"
         view_key = data.get("view")
         view_map = {"close": "Близкий", "far": "Дальний", "medium": "Средний"}
         view = view_map.get(view_key, "Средний")
@@ -1115,8 +1113,6 @@ async def on_aspect_selected(callback: CallbackQuery, state: FSMContext, db: Dat
         parts = [
             "📋 Проверьте выбранные параметры:\n\n",
             "📦 **Категория**: ✨ Свой вариант МОДЕЛИ\n",
-            f"📏 **Длина изделия**: {length}\n",
-            f"🧥 **Длина рукава**: {sleeve}\n",
             f"👀 **Ракурс**: {view}\n",
             f"🖼️ **Формат**: {aspect.replace('x', ':')}\n\n",
             "Все верно? Нажмите кнопку ниже для генерации."
@@ -1186,8 +1182,10 @@ async def on_own_ref_photo(message: Message, state: FSMContext, db: Database) ->
 async def on_own_model_product_photo(message: Message, state: FSMContext, db: Database) -> None:
     prod_id = message.photo[-1].file_id
     await state.update_data(own_product_photo_id=prod_id)
-    # Переходим к выбору рукава
-    await _ask_sleeve_length(message, state, db)
+    # Сразу переходим к выбору формата
+    lang = await db.get_user_language(message.from_user.id)
+    await message.answer(get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
+    await state.set_state(CreateForm.waiting_aspect)
 
 
 @router.callback_query(F.data.startswith("own_view:"))
@@ -2395,9 +2393,9 @@ async def on_back_from_own_aspect(callback: CallbackQuery, state: FSMContext, db
         await _replace_with_text(callback, get_string("upload_product", lang), reply_markup=back_step_keyboard(lang))
         await state.set_state(CreateForm.waiting_own_product_photo)
     elif data.get("own_mode"):
-        # Для own_mode возвращаемся к рукаву
-        await state.set_state(CreateForm.waiting_own_sleeve)
-        await _replace_with_text(callback, get_string("select_sleeve_length", lang), reply_markup=sleeve_length_keyboard(lang))
+        # Для own_mode возвращаемся к загрузке фото товара
+        await _replace_with_text(callback, get_string("upload_product", lang), reply_markup=back_step_keyboard(lang))
+        await state.set_state(CreateForm.waiting_product_photo)
     else:
         # fallback for other flows
         await on_create_photo(callback, db, state)

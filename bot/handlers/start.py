@@ -64,6 +64,7 @@ router = Router()
 class CreateForm(StatesGroup):
     waiting_age = State()
     waiting_child_gender = State()
+    waiting_info_gender = State()
     waiting_size = State()
     waiting_height = State()
     waiting_length = State()
@@ -161,6 +162,34 @@ async def _replace_with_text(callback: CallbackQuery, text: str, reply_markup=No
         except Exception:
             pass
 
+
+async def _ask_sleeve_length(message_or_callback: Message | CallbackQuery, state: FSMContext, db: Database) -> None:
+    lang = await db.get_user_language(message_or_callback.from_user.id)
+    from bot.keyboards import own_sleeve_length_keyboard
+    text = get_string("select_sleeve_length", lang)
+    if isinstance(message_or_callback, Message):
+        await message_or_callback.answer(text, reply_markup=own_sleeve_length_keyboard(lang))
+    else:
+        await _replace_with_text(message_or_callback, text, reply_markup=own_sleeve_length_keyboard(lang))
+    await state.set_state(CreateForm.waiting_own_sleeve)
+
+@router.callback_query(F.data.startswith("own_sleeve:"))
+async def on_own_sleeve(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    val = callback.data.split(":", 1)[1]
+    sleeve_map = {
+        "normal": "Обычный",
+        "long": "Длинные",
+        "three_quarter": "Три четверти",
+        "elbow": "До локтей",
+        "short": "Короткие",
+        "none": "Без рукав",
+        "skip": "",
+    }
+    sleeve_text = sleeve_map.get(val, "")
+    await state.update_data(own_sleeve=sleeve_text)
+    # Далее длина изделия
+    await _ask_garment_length(callback, state, db)
+    await _safe_answer(callback)
 
 async def _ask_garment_length(message_or_callback: Message | CallbackQuery, state: FSMContext, db: Database) -> None:
     """Вспомогательная функция для запроса длины изделия с фото-гайдом"""
@@ -317,13 +346,13 @@ async def on_marketplace_menu(callback: CallbackQuery, db: Database) -> None:
         settings = load_settings()
         if callback.from_user.id not in (settings.admin_ids or []):
             await _safe_answer(callback, get_string("maintenance_alert", lang), show_alert=True)
-            return
+        return
     balance = await db.get_user_balance(callback.from_user.id)
     if balance <= 0:
         await _safe_answer(callback, get_string("limit_rem_zero", lang), show_alert=True)
         return
     
-    statuses = await db.list_categories_enabled()
+        statuses = await db.list_categories_enabled()
     from bot.keyboards import marketplace_menu_keyboard
     await _replace_with_text(callback, get_string("marketplace_menu", lang), reply_markup=marketplace_menu_keyboard(statuses, lang))
     await _safe_answer(callback)
@@ -384,7 +413,7 @@ async def _show_models_for_category(callback: CallbackQuery, db: Database, categ
     
     if model and model[3]:
         await _answer_model_photo(callback, model[3], text, kb)
-    else:
+        else:
         await _replace_with_text(callback, text, reply_markup=kb)
 
 @router.callback_query(F.data == "create_cat:child")
@@ -674,7 +703,7 @@ async def on_infographic_category(callback: CallbackQuery, state: FSMContext, db
     await _safe_answer(callback)
 
 
-@router.callback_query(F.data.startswith("info_gender:"))
+@router.callback_query(CreateForm.waiting_info_gender, F.data.startswith("info_gender:"))
 async def on_infographic_gender(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     g = callback.data.split(":")[1]
     await state.update_data(info_gender=g)
@@ -798,7 +827,7 @@ async def on_back_from_info_angle(callback: CallbackQuery, state: FSMContext, db
 @router.callback_query(F.data == "back_step", CreateForm.waiting_info_pose)
 async def on_back_from_info_pose(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     lang = await db.get_user_language(callback.from_user.id)
-    await _replace_with_text(callback, "Выберите угол камеры (Спереди/Сзади):", reply_markup=form_view_keyboard(lang))
+    await _replace_with_text(callback, get_string("select_camera_dist", lang), reply_markup=form_view_keyboard(lang))
     await state.set_state(CreateForm.waiting_info_angle)
     await _safe_answer(callback)
 
@@ -1009,12 +1038,11 @@ async def on_own_bg_photo(message: Message, state: FSMContext, db: Database) -> 
 
 
 @router.message(CreateForm.waiting_own_product_photo, F.photo)
-async def on_own_product_photo(message: Message, state: FSMContext, db: Database) -> None:
+async def on_own_variant_product_photo(message: Message, state: FSMContext, db: Database) -> None:
     photo_id = message.photo[-1].file_id
     await state.update_data(own_product_photo_id=photo_id)
-    lang = await db.get_user_language(message.from_user.id)
-    await message.answer(get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
-    await state.set_state(CreateForm.waiting_aspect)
+    # Переходим к выбору рукава
+    await _ask_sleeve_length(message, state, db)
 
 
 @router.message(CreateForm.waiting_prompt, F.text)
@@ -1058,6 +1086,9 @@ async def on_aspect_selected(callback: CallbackQuery, state: FSMContext, db: Dat
         parts = [
             "📋 Проверьте выбранные параметры:\n\n",
             "📦 **Категория**: 🖼️ Свой вариант ФОНА\n",
+            f"🧥 **Длина рукав**: {data.get('own_sleeve', '—')}\n",
+            f"📏 **Длина изделия**: {data.get('own_length', '—')}\n",
+            f"👀 **Ракурс**: {data.get('view', '—')}\n",
             f"🖼️ **Формат**: {aspect.replace('x', ':')}\n\n",
             "Все верно? Нажмите кнопку ниже для генерации."
         ]
@@ -1077,14 +1108,16 @@ async def on_aspect_selected(callback: CallbackQuery, state: FSMContext, db: Dat
     elif data.get("own_mode"):
         length = data.get("own_length") or "—"
         sleeve = data.get("own_sleeve") or "—"
-        cut = data.get("own_cut") or "—"
+        view_key = data.get("view")
+        view_map = {"close": "Близкий", "far": "Дальний", "medium": "Средний"}
+        view = view_map.get(view_key, "Средний")
         lang = await db.get_user_language(callback.from_user.id)
         parts = [
             "📋 Проверьте выбранные параметры:\n\n",
             "📦 **Категория**: ✨ Свой вариант МОДЕЛИ\n",
             f"📏 **Длина изделия**: {length}\n",
-            f"✂️ **Тип кроя штанов**: {cut}\n",
             f"🧥 **Длина рукава**: {sleeve}\n",
+            f"👀 **Ракурс**: {view}\n",
             f"🖼️ **Формат**: {aspect.replace('x', ':')}\n\n",
             "Все верно? Нажмите кнопку ниже для генерации."
         ]
@@ -1114,8 +1147,8 @@ async def on_aspect_selected(callback: CallbackQuery, state: FSMContext, db: Dat
         }
         age = age_map.get(age_key, age_key or "—")
         view_key = data.get("view")
-        view_map = {"front": "Спереди", "back": "Сзади", "side": "Сбоку"}
-        view = view_map.get(view_key, "Спереди")
+        view_map = {"close": "Близкий", "far": "Дальний", "medium": "Средний", "front": "Спереди", "back": "Сзади", "side": "Сбоку"}
+        view = view_map.get(view_key, "Средний")
         sleeve = data.get("sleeve") or "—"
         length = data.get("length") or "—"
         size = data.get("size") or "—"
@@ -1150,11 +1183,11 @@ async def on_own_ref_photo(message: Message, state: FSMContext, db: Database) ->
 
 
 @router.message(CreateForm.waiting_product_photo, F.photo)
-async def on_own_product_photo(message: Message, state: FSMContext, db: Database) -> None:
+async def on_own_model_product_photo(message: Message, state: FSMContext, db: Database) -> None:
     prod_id = message.photo[-1].file_id
     await state.update_data(own_product_photo_id=prod_id)
-    # Переходим к длине изделия с фотографией и кнопками
-    await _ask_garment_length(message, state, db)
+    # Переходим к выбору рукава
+    await _ask_sleeve_length(message, state, db)
 
 
 @router.callback_query(F.data.startswith("own_view:"))
@@ -1303,7 +1336,7 @@ async def on_random_decor(callback: CallbackQuery, state: FSMContext, db: Databa
         await _replace_with_text(callback, get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
         await state.set_state(CreateForm.waiting_aspect)
     else:
-        await _replace_with_text(callback, "Выберите ракурс:", reply_markup=random_shot_keyboard())
+    await _replace_with_text(callback, "Выберите ракурс:", reply_markup=random_shot_keyboard())
     await _safe_answer(callback)
 
 
@@ -1456,9 +1489,9 @@ async def on_model_pick(callback: CallbackQuery, db: Database, state: FSMContext
                 await state.set_state(CreateForm.waiting_height)
             else:
                 # Старый флоу (на всякий случай)
-                from bot.keyboards import child_gender_keyboard
-                await _replace_with_text(callback, "Выберите пол ребёнка:", reply_markup=child_gender_keyboard())
-                await state.set_state(CreateForm.waiting_child_gender)
+            from bot.keyboards import child_gender_keyboard
+            await _replace_with_text(callback, "Выберите пол ребёнка:", reply_markup=child_gender_keyboard())
+            await state.set_state(CreateForm.waiting_child_gender)
         else:
             # Взрослые: обувь — рост → размер ноги → ракурс; одежда — телосложение → возраст → рост → длина → рукав → ракурс
             if cloth == "shoes":
@@ -1511,7 +1544,7 @@ async def on_pants_style(callback: CallbackQuery, state: FSMContext, db: Databas
 
     if data.get("random_mode"):
         # В рандоме после выбора кроя — переходим к ракурсу
-        await _replace_with_text(callback, "👀 Пожалуйста выберите ракурс:", reply_markup=form_view_keyboard())
+        await _replace_with_text(callback, get_string("select_camera_dist", lang), reply_markup=form_view_keyboard(lang))
         await state.set_state(CreateForm.waiting_view)
     elif category == "child":
         await _replace_with_text(callback, "Введите возраст ребенка (в годах):")
@@ -1598,9 +1631,10 @@ async def form_set_age_message(message: Message, state: FSMContext, db: Database
             await state.update_data(age=f"{digits} лет")
         # После возраста — для детской одежды тоже спрашиваем длину изделия (кроме обуви)
         cloth = data.get("cloth")
+        lang = await db.get_user_language(message.from_user.id)
         if cloth == "shoes":
             await state.set_state(CreateForm.waiting_view)
-            await message.answer("👀 Пожалуйста выберите ракурс:", reply_markup=form_view_keyboard())
+            await message.answer(get_string("select_camera_dist", lang), reply_markup=form_view_keyboard(lang))
         else:
             await _ask_garment_length(message, state, db)
     else:
@@ -1684,8 +1718,9 @@ async def form_set_height(message: Message, state: FSMContext, db: Database) -> 
         return
     # Детская обувь: после роста — сразу ракурс (размер уже спросили до роста)
     if category == "child" and cloth == "shoes":
+        lang = await db.get_user_language(message.from_user.id)
         await state.set_state(CreateForm.waiting_view)
-        await message.answer("👀 Пожалуйста выберите ракурс:", reply_markup=form_view_keyboard())
+        await message.answer(get_string("select_camera_dist", lang), reply_markup=form_view_keyboard(lang))
         return
     # Прочие случаи: по умолчанию — длина изделия, затем рукав
     await _ask_garment_length(message, state, db)
@@ -1721,12 +1756,17 @@ async def on_garment_len_callback(callback: CallbackQuery, state: FSMContext, db
     length_val = len_map.get(val, "")
     await state.update_data(length=length_val)
     
-    # Фолбэк для own_mode (если это был Свой Вариант Модели)
-    if data.get("own_mode"):
+    # Фолбэк для own_mode или own_variant
+    if data.get("own_mode") or data.get("category") == "own_variant":
         await state.update_data(own_length=length_val)
         lang = await db.get_user_language(callback.from_user.id)
-        await state.set_state(CreateForm.waiting_own_cut)
-        await _replace_with_text(callback, get_string("select_pants_style", lang), reply_markup=pants_style_keyboard(lang))
+        # Для Свой вариант модели переходим к крою, для ФОНА - сразу к формату
+        if data.get("own_mode"):
+            await state.set_state(CreateForm.waiting_own_cut)
+            await _replace_with_text(callback, get_string("select_pants_style", lang), reply_markup=pants_style_keyboard(lang))
+        else:
+            await _replace_with_text(callback, get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
+            await state.set_state(CreateForm.waiting_aspect)
         await _safe_answer(callback)
         return
 
@@ -1742,8 +1782,51 @@ async def on_garment_len_callback(callback: CallbackQuery, state: FSMContext, db
         await _replace_with_text(callback, "Тип кроя штанов (опционально):", reply_markup=pants_style_keyboard())
     else:
         await state.set_state(CreateForm.waiting_view)
-        await _replace_with_text(callback, "👀 Пожалуйста выберите ракурс:", reply_markup=form_view_keyboard())
+        await _replace_with_text(callback, get_string("select_camera_dist", lang), reply_markup=form_view_keyboard(lang))
     
+    await _safe_answer(callback)
+
+
+@router.callback_query(CreateForm.waiting_length, F.data.startswith("garment_len:"))
+async def form_set_length_callback(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    val = callback.data.split(":", 1)[1]
+    lang = await db.get_user_language(callback.from_user.id)
+    
+    # Маппинг значений для промпта
+    len_map = {
+        "short_top": "Короткий топ", "regular_top": "Обычный топ",
+        "to_waist": "До талии", "below_waist": "Ниже талии",
+        "mid_thigh": "До середины бедра", "to_knees": "До колен",
+        "below_knees": "Ниже колен", "midi": "Миди",
+        "to_ankles": "До щиколоток", "to_floor": "До пола",
+        "skip": ""
+    }
+    
+    if val == "custom":
+        await state.set_state(CreateForm.waiting_length)
+        await _replace_with_text(callback, get_string("enter_length_custom", lang))
+        await _safe_answer(callback)
+        return
+
+    length_text = len_map.get(val, "")
+    await state.update_data(length=length_text)
+    data = await state.get_data()
+    
+    # Для всех режимов "Свой вариант" (own и own_variant) спрашиваем длину рукава
+    if data.get("own_mode") or data.get("category") == "own_variant":
+        await state.update_data(own_length=length_text)
+        await state.set_state(CreateForm.waiting_sleeve)
+        await _replace_with_text(callback, get_string("select_sleeve_length", lang), reply_markup=sleeve_length_keyboard(lang))
+        await _safe_answer(callback)
+        return
+
+    # Остальная логика (рандом, инфографика и т.д.)
+    if data.get("random_mode"):
+        await state.set_state(CreateForm.waiting_sleeve)
+        await _replace_with_text(callback, "Clothing Sleeve Length: выберите длину рукава или пропустите", reply_markup=sleeve_length_keyboard())
+    else:
+        await state.set_state(CreateForm.waiting_view)
+        await _replace_with_text(callback, get_string("select_camera_dist", lang), reply_markup=form_view_keyboard(lang))
     await _safe_answer(callback)
 
 
@@ -1754,29 +1837,11 @@ async def form_set_length(message: Message, state: FSMContext, db: Database) -> 
     data = await state.get_data()
     lang = await db.get_user_language(message.from_user.id)
     
-    if data.get("own_mode"):
+    if data.get("own_mode") or data.get("category") == "own_variant":
         await state.update_data(own_length=length)
-        await state.set_state(CreateForm.waiting_own_cut)
-        await message.answer(get_string("select_pants_style", lang), reply_markup=pants_style_keyboard(lang))
+        await state.set_state(CreateForm.waiting_sleeve)
+        await message.answer(get_string("select_sleeve_length", lang), reply_markup=sleeve_length_keyboard(lang))
         return
-
-    cloth = data.get("cloth")
-    plus_mode = bool(data.get("plus_mode"))
-    # В Большом размере спрашиваем рукав для верхних вещей и платьев
-    if data.get("random_mode"):
-        # В рандоме всегда предложим длину рукава
-        await state.set_state(CreateForm.waiting_sleeve)
-        await message.answer("Clothing Sleeve Length: выберите длину рукава или пропустите", reply_markup=sleeve_length_keyboard())
-    elif cloth == "dress" or (plus_mode and cloth in ("top", "coat", "suit", "overall", "loungewear")):
-        await state.set_state(CreateForm.waiting_sleeve)
-        await message.answer("Clothing Sleeve Length: выберите длину рукава или пропустите", reply_markup=sleeve_length_keyboard())
-    elif plus_mode and cloth == "pants":
-        # В Большом размере спросим крой брюк
-        await state.set_state(CreateForm.waiting_pants_style)
-        await message.answer("Тип кроя штанов (опционально):", reply_markup=pants_style_keyboard())
-    else:
-        await state.set_state(CreateForm.waiting_view)
-        await message.answer("👀 Пожалуйста выберите ракурс:", reply_markup=form_view_keyboard())
 
 
 @router.message(CreateForm.waiting_foot)
@@ -1790,12 +1855,13 @@ async def form_set_foot(message: Message, state: FSMContext) -> None:
             await message.answer("Введите размер ноги числом, например: 31 или отправьте 'Пропустить'")
             return
         await state.update_data(foot_size=digits)
+    lang = await db.get_user_language(message.from_user.id)
     await state.set_state(CreateForm.waiting_view)
-    await message.answer("👀 Пожалуйста выберите ракурс:", reply_markup=form_view_keyboard())
+    await message.answer(get_string("select_camera_dist", lang), reply_markup=form_view_keyboard(lang))
 
 
 @router.callback_query(CreateForm.waiting_sleeve, F.data.startswith("form_sleeve:"))
-async def form_set_sleeve(callback: CallbackQuery, state: FSMContext) -> None:
+async def form_set_sleeve(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     val = callback.data.split(":", 1)[1]
     sleeve_map = {
         "normal": "Обычный",
@@ -1806,48 +1872,109 @@ async def form_set_sleeve(callback: CallbackQuery, state: FSMContext) -> None:
         "none": "Без рукав",
         "skip": "",
     }
-    await state.update_data(sleeve=sleeve_map.get(val, ""))
-    # В рандом-режиме после рукава спросим тип кроя брюк (опционально), затем ракурс
-    data = await state.get_data()
-    lang = data.get("lang", "ru")
+    sleeve_text = sleeve_map.get(val, "")
+    await state.update_data(sleeve=sleeve_text)
     
+    data = await state.get_data()
+    lang = await db.get_user_language(callback.from_user.id)
+    
+    # Для всех режимов "Свой вариант" после рукава переходим к ракурсу или сразу к формату
+    if data.get("own_mode") or data.get("category") == "own_variant":
+        await state.update_data(own_sleeve=sleeve_text)
+        # Для "Своего варианта" тоже можно спросить ракурс (Близкий/Дальний/Средний)
+        await state.set_state(CreateForm.waiting_view)
+        await _replace_with_text(callback, "👀 Пожалуйста выберите ракурс:", reply_markup=form_view_keyboard(lang))
+        await _safe_answer(callback)
+        return
+
+    # Остальная логика (рандом, инфографика и т.д.)
     if data.get("infographic_mode"):
         await state.set_state(CreateForm.waiting_info_angle)
-        # Угол камеры (Спереди/Сзади) - переиспользуем form_view_keyboard
-        await _replace_with_text(callback, "Выберите угол камеры (Спереди/Сзади):", reply_markup=form_view_keyboard(lang))
+        await _replace_with_text(callback, get_string("select_camera_dist", lang), reply_markup=form_view_keyboard(lang))
         return
 
     if data.get("random_mode"):
         await _replace_with_text(callback, "Тип кроя штанов (опционально):", reply_markup=pants_style_keyboard())
         await state.set_state(CreateForm.waiting_pants_style)
     else:
-        await _replace_with_text(callback, "👀 Пожалуйста выберите ракурс:", reply_markup=form_view_keyboard())
+        await _replace_with_text(callback, get_string("select_camera_dist", lang), reply_markup=form_view_keyboard(lang))
         await state.set_state(CreateForm.waiting_view)
     await _safe_answer(callback)
 
 
-@router.callback_query(CreateForm.waiting_info_angle, F.data.startswith("form_view:"))
-async def on_info_angle(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+@router.callback_query(F.data.startswith("form_view:"))
+async def form_set_view(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     view = callback.data.split(":", 1)[1]
-    await state.update_data(info_angle=view)
+    data = await state.get_data()
     lang = await db.get_user_language(callback.from_user.id)
-    # Далее Ракурс (Дальний/Средний/Близкий) - angle_keyboard
-    await _replace_with_text(callback, get_string("select_camera_dist", lang), reply_markup=angle_keyboard(lang))
-    await state.set_state(CreateForm.waiting_view) # Используем для выбора дистанции
+    current_state = await state.get_state()
+
+    # Если мы в промежуточном состоянии выбора ракурса (для инфографики)
+    if current_state == CreateForm.waiting_info_angle.state:
+        await state.update_data(info_angle=view)
+        # Далее Ракурс (Дальний/Средний/Близкий) - angle_keyboard
+        from bot.keyboards import angle_keyboard
+        await _replace_with_text(callback, get_string("select_camera_dist", lang), reply_markup=angle_keyboard(lang))
+        await state.set_state(CreateForm.waiting_view)
+        await _safe_answer(callback)
+        return
+
+    # Если это окончательный выбор дистанции для инфографики
+    if current_state == CreateForm.waiting_view.state and data.get("infographic_mode"):
+        await state.update_data(info_dist=view)
+        # Далее Поза (Вульгарная-Нестандратный-Обычный)
+        from bot.keyboards import pose_keyboard
+        await _replace_with_text(callback, "Выберите позу модели:", reply_markup=pose_keyboard(lang))
+        await state.set_state(CreateForm.waiting_info_pose)
+        await _safe_answer(callback)
+        return
+
+    # Для "Своего варианта"
+    if data.get("own_mode") or data.get("category") == "own_variant":
+        await state.update_data(view=view)
+        # Если это первый выбор ракурса в начале флоу
+        if current_state == CreateForm.waiting_view.state and not data.get("own_product_photo_id"):
+            if data.get("category") == "own_variant":
+                await _replace_with_text(callback, get_string("upload_bg_photo", lang), reply_markup=back_step_keyboard(lang))
+                await state.set_state(CreateForm.waiting_own_bg_photo)
+            else:
+                await _replace_with_text(callback, get_string("upload_model_photo", lang), reply_markup=back_step_keyboard(lang))
+                await state.set_state(CreateForm.waiting_ref_photo)
+            await _safe_answer(callback)
+            return
+        
+        # Если это финальный выбор ракурса после всех фото
+        await _replace_with_text(callback, get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
+        await state.set_state(CreateForm.waiting_aspect)
+        await _safe_answer(callback)
+        return
+
+    # Рандом для прочих товаров
+    if current_state == CreateForm.waiting_rand_other_angle.state:
+        await state.update_data(view=view)
+        # Далее дистанция
+        from bot.keyboards import camera_distance_keyboard
+        await _replace_with_text(callback, get_string("select_camera_dist", lang), reply_markup=camera_distance_keyboard(lang))
+        await state.set_state(CreateForm.waiting_rand_other_dist)
+        await _safe_answer(callback)
+        return
+
+    # Стандартная логика: сохраняем ракурс и сразу просим фото
+    await state.update_data(view=view)
+    text = (
+        "📸 Пожалуйста пришлите фотографию вашего товара.\n\n"
+        "⚠️ Обратите внимание: фотография должна быть четкой без лишних бликов и размытостей.\n\n"
+        "Если остались вопросы - пишите в поддержку @bnbslow"
+    )
+    
+    # Проверка на дубликат сообщения (чтобы не отправлять дважды)
+    if callback.message.text and "📸 Пожалуйста пришлите фотографию" in callback.message.text:
+        await _safe_answer(callback)
+        return
+
+    await state.set_state(CreateForm.waiting_view)
+    await _replace_with_text(callback, text)
     await _safe_answer(callback)
-
-
-@router.callback_query(CreateForm.waiting_view, F.data.startswith("angle:"))
-async def on_info_dist(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
-    dist = callback.data.split(":", 1)[1]
-    await state.update_data(info_dist=dist)
-    lang = await db.get_user_language(callback.from_user.id)
-    # Далее Поза (Вульгарная-Нестандратный-Обычный)
-    from bot.keyboards import pose_keyboard
-    await _replace_with_text(callback, "Выберите позу модели:", reply_markup=pose_keyboard(lang))
-    await state.set_state(CreateForm.waiting_info_pose)
-    await _safe_answer(callback)
-
 
 @router.callback_query(CreateForm.waiting_info_pose, F.data.startswith("pose:"))
 async def on_info_pose(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
@@ -1858,37 +1985,36 @@ async def on_info_pose(callback: CallbackQuery, state: FSMContext, db: Database)
     await _safe_answer(callback)
 
 
-@router.callback_query(F.data.startswith("form_view:"))
-async def form_set_view(callback: CallbackQuery, state: FSMContext) -> None:
-    view = callback.data.split(":", 1)[1]
-    await state.update_data(view=view)
-    # Сразу просим фото, формат выбирается автоматически
-    text = (
-        "📸 Пожалуйста пришлите фотографию вашего товара.\n\n"
-        "⚠️ Обратите внимание: фотография должна быть четкой без лишних бликов и размытостей.\n\n"
-        "Если остались вопросы - пишите в поддержку @bnbslow"
-    )
-    # Устанавливаем состояние ожидания фото
-    await state.set_state(CreateForm.waiting_view)
-    await _replace_with_text(callback, text)
-    await _safe_answer(callback)
-
-
 
 @router.message(CreateForm.waiting_view, F.photo)
 async def handle_user_photo(message: Message, state: FSMContext, db: Database) -> None:
-    # Принимаем фото товара только на шаге waiting_view и только при наличии фото
+    # Защита от двойного срабатывания при отправке альбомов
     data = await state.get_data()
     if not data:
         return
+    
+    # Проверяем, не перешли ли мы уже в другое состояние (защита от гонки при альбомах)
+    current_state = await state.get_state()
+    if current_state != CreateForm.waiting_view.state:
+        return
+            
     photo_id = message.photo[-1].file_id
     await state.update_data(user_photo_id=photo_id)
     lang = await db.get_user_language(message.from_user.id)
 
     if data.get("normal_gen_mode"):
-        # Для обычной генерации просим промпт
-        await message.answer(get_string("enter_prompt", lang), reply_markup=back_step_keyboard(lang))
-        await state.set_state(CreateForm.waiting_prompt)
+        # Для обычной генерации мы можем принимать несколько фото
+        photos = data.get("photos", [])
+        if photo_id not in photos:
+            photos.append(photo_id)
+            await state.update_data(photos=photos)
+        
+        # Если это альбом, мы получим несколько сообщений. 
+        # Используем вспомогательный флаг, чтобы не спамить вопросом про промпт
+        if not data.get("prompt_requested"):
+            await message.answer(get_string("enter_prompt", lang), reply_markup=back_step_keyboard(lang))
+            await state.update_data(prompt_requested=True)
+            await state.set_state(CreateForm.waiting_prompt)
         return
 
     if data.get("random_other_mode"):
@@ -1897,6 +2023,16 @@ async def handle_user_photo(message: Message, state: FSMContext, db: Database) -
         await message.answer(get_string("has_person_ask", lang), reply_markup=yes_no_keyboard(lang))
         await state.set_state(CreateForm.waiting_rand_other_has_person)
         return
+
+    if data.get("infographic_mode"):
+        # Для инфографики переходим к выбору пола
+        from bot.keyboards import infographic_gender_keyboard
+        await message.answer(get_string("select_gender", lang), reply_markup=infographic_gender_keyboard(lang))
+        await state.set_state(CreateForm.waiting_info_gender)
+        return
+
+    # Собираем параметры для других режимов
+    # ... (код ниже остается прежним, но мы добавляем переход в waiting_aspect В КОНЦЕ)
 
     # Собираем параметры для других режимов
     category = data.get("category")
@@ -1913,8 +2049,8 @@ async def handle_user_photo(message: Message, state: FSMContext, db: Database) -
     }
     age = age_map.get(age_key, age_key or "—")
     view_key = data.get("view")
-    view_map_readable = {"front": "Передняя часть", "back": "Сзади", "side": "Сбоку"}
-    view = view_map_readable.get(view_key, "Передняя часть")
+    view_map_readable = {"close": "Близкий", "far": "Дальний", "medium": "Средний", "front": "Спереди", "back": "Сзади", "side": "Сбоку"}
+    view = view_map_readable.get(view_key, "Средний")
     aspect = data.get("aspect", "auto")
     sleeve = data.get("sleeve") or "—"
     size_desc = data.get("size") or "—"
@@ -2176,7 +2312,7 @@ async def on_back_from_rand_other_angle(callback: CallbackQuery, state: FSMConte
 @router.callback_query(F.data == "back_step", CreateForm.waiting_rand_other_dist)
 async def on_back_from_rand_other_dist(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     lang = await db.get_user_language(callback.from_user.id)
-    await _replace_with_text(callback, "Выберите угол камеры (Спереди/Сзади):", reply_markup=form_view_keyboard(lang))
+    await _replace_with_text(callback, get_string("select_camera_dist", lang), reply_markup=form_view_keyboard(lang))
     await state.set_state(CreateForm.waiting_rand_other_angle)
 
 @router.callback_query(F.data == "back_step", CreateForm.waiting_rand_other_height)
@@ -2292,20 +2428,6 @@ async def on_back_from_result(callback: CallbackQuery, state: FSMContext, db: Da
 async def on_back_step_fallback(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     # Если ни один стейт-специфичный хендлер не сработал
     await on_back_main(callback, state, db)
-async def on_back_from_own_aspect(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
-    data = await state.get_data()
-    lang = await db.get_user_language(callback.from_user.id)
-    if data.get("category") == "own_variant":
-        await _replace_with_text(callback, get_string("upload_product", lang), reply_markup=back_step_keyboard(lang))
-        await state.set_state(CreateForm.waiting_own_product_photo)
-    elif data.get("own_mode"):
-        # Для own_mode возвращаемся к рукаву
-        await state.set_state(CreateForm.waiting_own_sleeve)
-        await _replace_with_text(callback, get_string("select_sleeve_length", lang), reply_markup=sleeve_length_keyboard(lang))
-    else:
-        # fallback for other flows
-        await on_create_photo(callback, db, state)
-    await _safe_answer(callback)
 
 
 @router.callback_query(F.data == "form_generate")
@@ -2383,16 +2505,30 @@ async def form_generate(callback: CallbackQuery, state: FSMContext, db: Database
         if data.get("own_mode"):
             own_length = (data.get("own_length") or "")
             own_sleeve = (data.get("own_sleeve") or "")
-            own_cut = (data.get("own_cut") or "")
-            # Упрощенный промпт без генерации описания модели
+            view_key = data.get("view")
+            view_word = {"close": "close shot", "far": "far shot", "medium": "medium shot"}.get(view_key, "medium shot")
+            
             base = await db.get_own_prompt3() or "Professional fashion photography. Place the product from the second image on the model from the first image, maintaining the same pose, lighting, and background style. High quality, realistic, natural lighting."
             prompt_filled = base
             if own_length:
                 prompt_filled += f" Garment length: {own_length}."
             if own_sleeve:
                 prompt_filled += f" Sleeve length: {own_sleeve}."
-            if own_cut:
-                prompt_filled += f" Cut style: {own_cut}."
+            if view_word:
+                prompt_filled += f" Camera distance: {view_word}."
+        elif category == "own_variant":
+            own_length = (data.get("own_length") or "")
+            own_sleeve = (data.get("own_sleeve") or "")
+            view_key = data.get("view")
+            view_word = {"close": "close shot", "far": "far shot", "medium": "medium shot"}.get(view_key, "medium shot")
+            
+            prompt_filled = prompt_text
+            if own_length:
+                prompt_filled += f" Garment length: {own_length}."
+            if own_sleeve:
+                prompt_filled += f" Sleeve length: {own_sleeve}."
+            if view_word:
+                prompt_filled += f" Camera distance: {view_word}."
         elif data.get("random_other_mode"):
             has_person = data.get("has_person")
             gender = data.get("gender")
@@ -2406,7 +2542,7 @@ async def form_generate(callback: CallbackQuery, state: FSMContext, db: Database
             season = data.get("season")
             style = data.get("style")
             
-            view_word = {"back": "сзади", "front": "спереди", "side": "сбоку"}.get(view_key, "спереди")
+            view_word = {"close": "близкий", "far": "дальний", "medium": "средний", "back": "сзади", "front": "спереди", "side": "сбоку"}.get(view_key, "спереди")
             dist_word = {"far": "дальний", "medium": "средний", "close": "близкий"}.get(dist, "средний")
             gender_word = {"male": "Мужчина", "female": "Женщина", "boy": "Мальчик", "girl": "Девочка"}.get(gender, "")
             
@@ -2430,6 +2566,7 @@ async def form_generate(callback: CallbackQuery, state: FSMContext, db: Database
             
             if season:
                 p_parts.append(f"Season/Vibe: {season}. ")
+            
             if style:
                 p_parts.append(f"Style: {style}. ")
                 
@@ -2471,13 +2608,14 @@ async def form_generate(callback: CallbackQuery, state: FSMContext, db: Database
                 p_parts.append(f"Длина изделия: {L}. ")
             if sleeve_text:
                 p_parts.append(f"Длина рукава: {sleeve_text}. ")
-            view_txt = "сзади" if data.get("view") == "back" else "спереди"
+            view_key = data.get("view")
+            view_txt = {"close": "близкий", "far": "дальний", "medium": "средний", "back": "сзади", "front": "спереди"}.get(view_key, "средний")
             p_parts.append(f"Вид: {view_txt}. Профессиональное фото, реалистичный свет, высокое качество.")
             base_random = await db.get_random_prompt() or ""
             prompt_filled = (base_random + "\n\n" + ''.join(p_parts)).strip()
         else:
             view_key = data.get("view")
-            view_word = {"back": "сзади", "front": "спереди", "side": "сбоку"}.get(view_key, "спереди")
+            view_word = {"close": "близкий", "far": "дальний", "medium": "средний", "back": "сзади", "front": "спереди", "side": "сбоку"}.get(view_key, "спереди")
             
             # Собираем все возможные замены для промпта
             replacements = {
@@ -2556,6 +2694,14 @@ async def form_generate(callback: CallbackQuery, state: FSMContext, db: Database
             from bot.gemini import generate_image
             
             input_photos = data.get("photos", [])
+            # Если это не обычная генерация, берем user_photo_id
+            if not data.get("normal_gen_mode"):
+                if category == "own_variant":
+                    input_photos = [data.get("own_bg_photo_id"), data.get("own_product_photo_id")]
+                elif data.get("own_mode"):
+                    input_photos = [data.get("own_ref_photo_id"), data.get("own_product_photo_id")]
+                else:
+                    input_photos = [data.get("user_photo_id")]
             
             try:
                 bot = callback.bot
@@ -2563,6 +2709,7 @@ async def form_generate(callback: CallbackQuery, state: FSMContext, db: Database
                 downloaded_paths = []
                 import uuid
                 for fid in input_photos:
+                    if not fid: continue
                     f_info = await bot.get_file(fid)
                     ext = f_info.file_path.split('.')[-1]
                     p = f"data/temp_{uuid.uuid4()}.{ext}"
@@ -2573,7 +2720,6 @@ async def form_generate(callback: CallbackQuery, state: FSMContext, db: Database
                 aspect = data.get("aspect", "1:1").replace(":", "x")
                 
                 # Вызываем генерацию
-                from bot.gemini import generate_image
                 result_path = await generate_image(
                     api_key=token,
                     prompt=prompt_filled,
@@ -2597,6 +2743,7 @@ async def form_generate(callback: CallbackQuery, state: FSMContext, db: Database
                         
                     # Отправляем результат
                     from aiogram.types import FSInputFile
+                    from bot.keyboards import result_actions_keyboard, result_actions_own_keyboard
                     res_msg = await bot.send_photo(
                         chat_id=user_id,
                         photo=FSInputFile(result_path),
@@ -2657,6 +2804,8 @@ async def form_generate(callback: CallbackQuery, state: FSMContext, db: Database
     except Exception as e:
         logger.exception(f"Critical error in form_generate: {e}")
         await _safe_answer(callback, get_string("internal_error", lang), show_alert=True)
+    
+    await _safe_answer(callback)
 
 
 @router.callback_query(F.data == "result_edit")
@@ -2775,7 +2924,7 @@ async def on_result_edit_text(message: Message, state: FSMContext, db: Database)
                 if key_id and not is_own_variant:
                     await db.record_api_usage(key_id)
                 break
-        except Exception as e:
+    except Exception as e:
             logger.error(f"Error during edit with key {key_id}: {e}")
             continue
 
@@ -2864,7 +3013,7 @@ async def on_menu_profile(callback: CallbackQuery, db: Database) -> None:
         text = get_string("profile_info", lang, id=callback.from_user.id, sub=get_string("sub_none", lang), expires="—", daily_rem=0)
     
     await _replace_with_text(callback, text, reply_markup=profile_keyboard(lang))
-    await _safe_answer(callback)
+        await _safe_answer(callback)
 
 @router.callback_query(F.data == "menu_subscription")
 async def on_sub_menu(callback: CallbackQuery, db: Database) -> None:
@@ -2948,7 +3097,7 @@ async def on_buy_plan(callback: CallbackQuery, db: Database) -> None:
     plan = await db.get_subscription_plan(plan_id)
     if not plan:
         await _safe_answer(callback, "План не найден.", show_alert=True)
-        return
+            return
     
     # plan structure: (id, name_ru, name_en, name_vi, desc_ru, desc_en, desc_vi, price, duration, limit, active)
     name = plan[1] if lang == "ru" else (plan[2] if lang == "en" else plan[3])

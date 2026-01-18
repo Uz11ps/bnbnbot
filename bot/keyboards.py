@@ -446,9 +446,11 @@ def pose_keyboard(lang="ru") -> InlineKeyboardMarkup:
 def angle_keyboard(lang="ru") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=get_string("dist_close", lang), callback_data="angle:close")],
-            [InlineKeyboardButton(text=get_string("dist_medium", lang), callback_data="angle:medium")],
-            [InlineKeyboardButton(text=get_string("dist_far", lang), callback_data="angle:far")],
+            [
+                InlineKeyboardButton(text=get_string("dist_close", lang), callback_data="form_view:close"),
+                InlineKeyboardButton(text=get_string("dist_far", lang), callback_data="form_view:far"),
+                InlineKeyboardButton(text=get_string("dist_medium", lang), callback_data="form_view:medium")
+            ],
             [InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")],
         ]
     )
@@ -524,9 +526,11 @@ def random_holiday_keyboard(lang="ru") -> InlineKeyboardMarkup:
 def camera_distance_keyboard(lang="ru") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=get_string("dist_far", lang), callback_data="camera_dist:far")],
-            [InlineKeyboardButton(text=get_string("dist_medium", lang), callback_data="camera_dist:medium")],
-            [InlineKeyboardButton(text=get_string("dist_close", lang), callback_data="camera_dist:close")],
+            [
+                InlineKeyboardButton(text=get_string("dist_close", lang), callback_data="form_view:close"),
+                InlineKeyboardButton(text=get_string("dist_far", lang), callback_data="form_view:far"),
+                InlineKeyboardButton(text=get_string("dist_medium", lang), callback_data="form_view:medium")
+            ],
             [InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")],
         ]
     )
@@ -646,7 +650,11 @@ def garment_length_keyboard(lang="ru") -> InlineKeyboardMarkup:
 def form_view_keyboard(lang="ru") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=get_string("view_back", lang), callback_data="form_view:back"), InlineKeyboardButton(text=get_string("view_front", lang), callback_data="form_view:front")],
+            [
+                InlineKeyboardButton(text=get_string("dist_close", lang), callback_data="form_view:close"),
+                InlineKeyboardButton(text=get_string("dist_far", lang), callback_data="form_view:far"),
+                InlineKeyboardButton(text=get_string("dist_medium", lang), callback_data="form_view:medium")
+            ],
             [InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")],
         ]
     )
@@ -912,6 +920,17 @@ def admin_own_variant_api_keys_keyboard(keys: list, lang="ru") -> InlineKeyboard
     rows.append([InlineKeyboardButton(text=get_string("admin_add_key", lang), callback_data="own_variant_api_key_add")])
     rows.append([InlineKeyboardButton(text=get_string("back", lang), callback_data="admin_main")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+def own_sleeve_length_keyboard(lang="ru") -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=get_string("sleeve_normal", lang), callback_data="own_sleeve:normal"), InlineKeyboardButton(text=get_string("sleeve_long", lang), callback_data="own_sleeve:long")],
+            [InlineKeyboardButton(text=get_string("sleeve_three_quarter", lang), callback_data="own_sleeve:three_quarter"), InlineKeyboardButton(text=get_string("sleeve_elbow", lang), callback_data="own_sleeve:elbow")],
+            [InlineKeyboardButton(text=get_string("sleeve_short", lang), callback_data="own_sleeve:short"), InlineKeyboardButton(text=get_string("sleeve_none", lang), callback_data="own_sleeve:none")],
+            [InlineKeyboardButton(text=get_string("skip", lang), callback_data="own_sleeve:skip")],
+            [InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")],
+        ]
+    )
 
 def admin_category_prices_keyboard(prices: list, lang="ru") -> InlineKeyboardMarkup:
     rows = []

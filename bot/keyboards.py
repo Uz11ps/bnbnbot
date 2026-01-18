@@ -250,6 +250,18 @@ def style_keyboard(lang="ru") -> InlineKeyboardMarkup:
         ]
     )
 
+def camera_dist_keyboard(lang="ru") -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text=get_string("dist_far", lang), callback_data="angle:far"),
+                InlineKeyboardButton(text=get_string("dist_medium", lang), callback_data="angle:medium"),
+                InlineKeyboardButton(text=get_string("dist_close", lang), callback_data="angle:close")
+            ],
+            [InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")],
+        ]
+    )
+
 def skip_step_keyboard(step_name: str, lang="ru") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[

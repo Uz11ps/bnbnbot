@@ -2746,8 +2746,24 @@ async def form_generate(callback: CallbackQuery, state: FSMContext, db: Database
         # Добавляем брендинг
         prompt_filled = db.add_ai_room_branding(prompt_filled)
         
-        await _replace_with_text(callback, get_string("gen_processing", lang))
-    
+        # Отправляем сообщение о начале генерации с анимацией
+        process_msg = await callback.message.answer("🎨 ⚡️ ⏳")
+        
+        async def animate_gen(msg, lang_code):
+            frames = [
+                "🎨 ⏳ Генерируем...",
+                "🎨 ⌛️ Почти готово...",
+                "🎨 ✨ Магия нейросетей...",
+                "🎨 🔄 Улучшаем детали..."
+            ]
+            try:
+                for i in range(20):
+                    await asyncio.sleep(1.5)
+                    await msg.edit_text(frames[i % len(frames)])
+            except: pass
+
+        anim_task = asyncio.create_task(animate_gen(process_msg, lang))
+
         # Выбор API ключа
         category = data.get("category")
         is_own_variant = (category == "own_variant")
@@ -2842,6 +2858,12 @@ async def form_generate(callback: CallbackQuery, state: FSMContext, db: Database
                     # Отправляем результат
                     from aiogram.types import FSInputFile
                     from bot.keyboards import result_actions_keyboard, result_actions_own_keyboard
+                    
+                    # Останавливаем анимацию и удаляем сообщение о загрузке
+                    anim_task.cancel()
+                    try: await process_msg.delete()
+                    except: pass
+
                     res_msg = await bot.send_photo(
                         chat_id=user_id,
                         photo=FSInputFile(result_path),
@@ -2885,6 +2907,12 @@ async def form_generate(callback: CallbackQuery, state: FSMContext, db: Database
                     
             except Exception as e:
                 logger.error(f"Generation error with key {kid}: {e}")
+                
+                # Останавливаем анимацию при ошибке
+                anim_task.cancel()
+                try: await process_msg.delete()
+                except: pass
+
                 from bot.gemini import is_proxy_error
                 await db.record_api_error(
                     key_id=kid,

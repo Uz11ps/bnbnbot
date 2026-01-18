@@ -46,6 +46,8 @@ from bot.keyboards import (
     plus_gender_keyboard,
     info_lang_keyboard,
     skip_step_keyboard,
+    infographic_gender_keyboard,
+    infographic_style_keyboard,
 )
 from bot.db import Database
 from bot.strings import get_string

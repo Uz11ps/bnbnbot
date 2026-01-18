@@ -413,7 +413,7 @@ async def _show_models_for_category(callback: CallbackQuery, db: Database, categ
     
     if model and model[3]:
         await _answer_model_photo(callback, model[3], text, kb)
-        else:
+    else:
         await _replace_with_text(callback, text, reply_markup=kb)
 
 @router.callback_query(F.data == "create_cat:child")

@@ -85,12 +85,15 @@ def _generate_sync(
     }
     
     if aspect_ratio:
-        generation_config["aspectRatio"] = aspect_ratio
+        generation_config["aspect_ratio"] = aspect_ratio
     
-    # Добавляем поддержку 4K и аспектов через промпт если модель поддерживает или через параметры
+    # Добавляем поддержку 4K и аспектов через промпт
     # В текущей версии API Gemini Image Preview мы управляем этим через промпт
+    if aspect_ratio:
+        prompt = f"{prompt} Use aspect ratio {aspect_ratio}."
+        
     if "4k" in (prompt or "").lower() or "ultra" in (prompt or "").lower():
-        generation_config["temperature"] = 0.2  # Меньше креативности, больше четкости
+        generation_config["temperature"] = 0.2
     
     payload = {
         "contents": [{"parts": parts}],
@@ -244,8 +247,11 @@ async def generate_image(
             with open(p, "rb") as f:
                 images_bytes.append(f.read())
     
-    # Модифицируем промпт под качество если нужно
+    # Модифицируем промпт под качество и аспект если нужно
     final_prompt = prompt
+    if aspect_ratio:
+        final_prompt += f" Aspect ratio: {aspect_ratio}."
+        
     if quality == '4K':
         final_prompt += " High detail, 4k resolution, professional photography."
         

@@ -970,7 +970,7 @@ async def on_infographic_extra_skip(callback: CallbackQuery, state: FSMContext, 
     await _safe_answer(callback)
 
 
-@router.callback_query(CreateForm.waiting_has_person, F.data.startswith("yes_no:"))
+@router.callback_query(CreateForm.waiting_has_person, F.data.startswith("choice:"))
 async def on_has_person_selected(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     val = callback.data.split(":")[1]
     has_person = (val == "yes")

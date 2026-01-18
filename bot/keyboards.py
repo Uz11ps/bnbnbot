@@ -238,15 +238,6 @@ def yes_no_keyboard(lang="ru") -> InlineKeyboardMarkup:
         ]
     )
 
-def random_other_gender_keyboard(lang="ru") -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=get_string("gender_male", lang), callback_data="rand_other_gender:male"), InlineKeyboardButton(text=get_string("gender_female", lang), callback_data="rand_other_gender:female")],
-            [InlineKeyboardButton(text=get_string("gender_boy", lang), callback_data="rand_other_gender:boy"), InlineKeyboardButton(text=get_string("gender_girl", lang), callback_data="rand_other_gender:girl")],
-            [InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")]
-        ]
-    )
-
 def style_keyboard(lang="ru") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -391,17 +382,6 @@ def result_actions_own_keyboard(lang="ru") -> InlineKeyboardMarkup:
         inline_keyboard=[
             [InlineKeyboardButton(text=get_string("btn_repeat", lang), callback_data="result_repeat")],
             [InlineKeyboardButton(text=get_string("back_main", lang), callback_data="back_main")],
-        ]
-    )
-
-def yes_no_keyboard(lang="ru") -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text=get_string("yes", lang), callback_data="yes_no:yes"),
-                InlineKeyboardButton(text=get_string("no", lang), callback_data="yes_no:no")
-            ],
-            [InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")]
         ]
     )
 

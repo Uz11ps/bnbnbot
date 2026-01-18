@@ -123,6 +123,11 @@ class CreateForm(StatesGroup):
     waiting_rand_other_season = State()
     waiting_rand_other_style = State()
     waiting_rand_other_style_custom = State()
+    waiting_rand_loc_group = State()
+    waiting_rand_loc = State()
+    waiting_rand_vibe = State()
+    waiting_rand_decor = State()
+    waiting_rand_shot = State()
     index = State()
     model_id = State()
     prompt_id = State()
@@ -457,9 +462,9 @@ async def on_random_gender(callback: CallbackQuery, state: FSMContext, db: Datab
     gender = callback.data.split(":")[1]
     await state.update_data(gender=gender)
     lang = await db.get_user_language(callback.from_user.id)
-    # После пола — сразу локация (убираем инфографику для РАНДОМ одежда)
-    await _replace_with_text(callback, get_string("select_loc_group", lang), reply_markup=random_loc_group_keyboard(lang))
-    await state.set_state(CreateForm.waiting_rand_loc_group)
+    # После пола — нагруженность (пользователь попросил вернуть)
+    await _replace_with_text(callback, get_string("enter_info_load", lang), reply_markup=skip_step_keyboard("info_load", lang))
+    await state.set_state(CreateForm.waiting_info_load)
     await _safe_answer(callback)
 
 
@@ -772,36 +777,43 @@ async def on_infographic_style(callback: CallbackQuery, state: FSMContext, db: D
 async def on_infographic_load_input(message: Message, state: FSMContext, db: Database) -> None:
     text = (message.text or "").strip()
     lang = await db.get_user_language(message.from_user.id)
+    data = await state.get_data()
     
-    # Проверка на пропуск
-    if text.lower() in ("пропустить", "skip", "пропустить"):
-        await state.update_data(info_load="")
+    # Извлекаем только цифры или проверяем на пропуск
+    load_value = ""
+    if text.lower() not in ("пропустить", "skip"):
+        digits = ''.join(ch for ch in text if ch.isdigit())
+        if not digits or not (1 <= int(digits) <= 10):
+            await message.answer(get_string("enter_info_load_error", lang))
+            return
+        load_value = digits
+    
+    await state.update_data(info_load=load_value)
+
+    if data.get("random_mode"):
+        # Если это режим Рандом (одежда) — далее локация
+        from bot.keyboards import random_loc_group_keyboard
+        await message.answer(get_string("select_loc_group", lang), reply_markup=random_loc_group_keyboard(lang))
+        await state.set_state(CreateForm.waiting_rand_loc_group)
+    else:
+        # Для инфографики — выбор языка
+        from bot.keyboards import info_lang_keyboard
         await message.answer(get_string("select_info_lang", lang), reply_markup=info_lang_keyboard(lang))
-        return
-    
-    # Извлекаем только цифры
-    digits = ''.join(ch for ch in text if ch.isdigit())
-    if not digits:
-        await message.answer(get_string("enter_info_load_error", lang))
-        return
-    
-    load_value = int(digits)
-    
-    # Валидация: от 1 до 10
-    if load_value < 1 or load_value > 10:
-        await message.answer(get_string("enter_info_load_error", lang))
-        return
-    
-    await state.update_data(info_load=str(load_value))
-    await message.answer(get_string("select_info_lang", lang), reply_markup=info_lang_keyboard(lang))
+        await state.set_state(None) # Состояние сбросится колбэком
 
-
-@router.callback_query(F.data.startswith("info_load:"))
-async def on_infographic_load_skip(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
-    # Обработка пропуска через кнопку (если осталась где-то)
+@router.callback_query(F.data == "info_load:skip")
+async def on_infographic_load_skip_btn(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     await state.update_data(info_load="")
     lang = await db.get_user_language(callback.from_user.id)
-    await _replace_with_text(callback, get_string("select_info_lang", lang), reply_markup=info_lang_keyboard(lang))
+    data = await state.get_data()
+    
+    if data.get("random_mode"):
+        from bot.keyboards import random_loc_group_keyboard
+        await _replace_with_text(callback, get_string("select_loc_group", lang), reply_markup=random_loc_group_keyboard(lang))
+        await state.set_state(CreateForm.waiting_rand_loc_group)
+    else:
+        from bot.keyboards import info_lang_keyboard
+        await _replace_with_text(callback, get_string("select_info_lang", lang), reply_markup=info_lang_keyboard(lang))
     await _safe_answer(callback)
 
 
@@ -809,11 +821,29 @@ async def on_infographic_load_skip(callback: CallbackQuery, state: FSMContext, d
 async def on_back_from_info_load(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     lang = await db.get_user_language(callback.from_user.id)
     data = await state.get_data()
+    if data.get("random_mode"):
+        # Для Рандома (одежда) возвращаемся к выбору пола
+        from bot.keyboards import random_gender_keyboard
+        await _replace_with_text(callback, get_string("select_model_gender", lang), reply_markup=random_gender_keyboard(lang))
+        await state.set_state(None) # Колбэк обработает
+        await _safe_answer(callback)
+        return
+
     cat = data.get("category")
     if cat == "infographic_clothing":
+        from bot.keyboards import infographic_gender_keyboard
         await _replace_with_text(callback, get_string("select_gender", lang), reply_markup=infographic_gender_keyboard(lang, back_data="create_cat:infographics"))
     else:
         await on_infographics_menu(callback, db)
+    await _safe_answer(callback)
+
+@router.callback_query(F.data == "back_step", CreateForm.waiting_rand_loc_group)
+async def on_back_from_rand_loc_group(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    lang = await db.get_user_language(callback.from_user.id)
+    # Возвращаемся к нагрузке инфографики
+    from bot.keyboards import skip_step_keyboard
+    await _replace_with_text(callback, get_string("enter_info_load", lang), reply_markup=skip_step_keyboard("info_load", lang))
+    await state.set_state(CreateForm.waiting_info_load)
     await _safe_answer(callback)
 
 @router.callback_query(F.data == "back_step", CreateForm.waiting_info_lang_custom)
@@ -1337,14 +1367,6 @@ async def on_own_cut(callback: CallbackQuery, state: FSMContext) -> None:
     await _safe_answer(callback)
 
 
-@router.callback_query(F.data.startswith("rand_gender:"))
-async def on_random_gender(callback: CallbackQuery, state: FSMContext) -> None:
-    g = callback.data.split(":", 1)[1]
-    await state.update_data(rand_gender=g)
-    await _replace_with_text(callback, "Где снимать?", reply_markup=random_loc_group_keyboard())
-    await _safe_answer(callback)
-
-
 @router.callback_query(F.data.startswith("rand_locgroup:"))
 async def on_random_locgroup(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     group = callback.data.split(":", 1)[1]
@@ -1352,6 +1374,7 @@ async def on_random_locgroup(callback: CallbackQuery, state: FSMContext, db: Dat
     lang = await db.get_user_language(callback.from_user.id)
     from bot.keyboards import random_location_keyboard
     await _replace_with_text(callback, get_string("select_location", lang), reply_markup=random_location_keyboard(group, lang))
+    await state.set_state(CreateForm.waiting_rand_loc)
     await _safe_answer(callback)
 
 @router.callback_query(F.data.startswith("rand_location:"))
@@ -1361,6 +1384,7 @@ async def on_random_location(callback: CallbackQuery, state: FSMContext, db: Dat
     lang = await db.get_user_language(callback.from_user.id)
     from bot.keyboards import random_vibe_keyboard
     await _replace_with_text(callback, get_string("select_vibe", lang), reply_markup=random_vibe_keyboard(lang))
+    await state.set_state(CreateForm.waiting_rand_vibe)
     await _safe_answer(callback)
 
 @router.callback_query(F.data == "rand_location_custom")

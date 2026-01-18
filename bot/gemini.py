@@ -84,14 +84,7 @@ def _generate_sync(
         "maxOutputTokens": 4096,
     }
     
-    if aspect_ratio:
-        generation_config["aspect_ratio"] = aspect_ratio
-    
-    # Добавляем поддержку 4K и аспектов через промпт
-    # В текущей версии API Gemini Image Preview мы управляем этим через промпт
-    if aspect_ratio:
-        prompt = f"{prompt} Use aspect ratio {aspect_ratio}."
-        
+    # В текущей версии API Gemini Image Preview мы управляем качеством через промпт
     if "4k" in (prompt or "").lower() or "ultra" in (prompt or "").lower():
         generation_config["temperature"] = 0.2
     

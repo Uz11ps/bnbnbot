@@ -48,6 +48,7 @@ from bot.keyboards import (
     skip_step_keyboard,
     infographic_gender_keyboard,
     infographic_style_keyboard,
+    yes_no_keyboard,
 )
 from bot.db import Database
 from bot.strings import get_string
@@ -2160,7 +2161,6 @@ async def handle_user_photo(message: Message, state: FSMContext, db: Database) -
 
     if data.get("random_other_mode"):
         # Для рандома прочих товаров переходим к вопросу о человеке
-        from bot.keyboards import yes_no_keyboard
         await message.answer(get_string("has_person_ask", lang), reply_markup=yes_no_keyboard(lang))
         await state.set_state(CreateForm.waiting_rand_other_has_person)
         return

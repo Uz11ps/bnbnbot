@@ -18,9 +18,9 @@ from contextlib import asynccontextmanager
 # --- Настройки путей ---
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # В Docker контейнере база должна быть в /app/data/bot.db
-DB_PATH = os.path.join(BASE_DIR, "data", "bot.db")
-if not os.path.exists(DB_PATH) and os.path.exists(os.path.join(BASE_DIR, "bot.db")):
-    DB_PATH = os.path.join(BASE_DIR, "bot.db")
+DB_PATH = "/app/data/bot.db"
+# Создаем папку если ее нет (на случай если volume не примонтирован)
+os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 
 UPLOAD_DIR = os.path.join(BASE_DIR, "data", "uploads", "models")
 STATIC_DIR = os.path.join(BASE_DIR, "admin_web", "static")
@@ -291,7 +291,7 @@ async def list_users(request: Request, q: str = "", db: aiosqlite.Connection = D
         "users": users, 
         "q": q, 
         "plans": plans,
-        "now": datetime.now().isoformat()
+        "now": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
     })
 
 @app.post("/cancel_subscription")

@@ -863,7 +863,9 @@ class Database:
     async def get_user_subscription(self, user_id: int) -> tuple | None:
         async with aiosqlite.connect(self._db_path) as db:
             async with db.execute(
-                "SELECT id, plan_type, expires_at, daily_limit, daily_usage, last_usage_reset, individual_api_key FROM subscriptions WHERE user_id=? AND expires_at > datetime('now') ORDER BY expires_at DESC LIMIT 1",
+                "SELECT id, plan_type, expires_at, daily_limit, daily_usage, last_usage_reset, individual_api_key "
+                "FROM subscriptions WHERE user_id=? AND datetime(expires_at) > datetime('now') "
+                "ORDER BY expires_at DESC LIMIT 1",
                 (user_id,)
             ) as cur:
                 sub = await cur.fetchone()

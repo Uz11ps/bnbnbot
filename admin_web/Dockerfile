@@ -8,7 +8,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Копируем папку bot, чтобы работали импорты настроек
 COPY bot /app/bot
 COPY admin_web /app/admin_web
-COPY data /app/data
+# Папку data НЕ копируем, она должна подключаться как volume
 
 # Устанавливаем PYTHONPATH, чтобы python видел папку bot
 ENV PYTHONPATH=/app

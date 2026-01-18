@@ -80,23 +80,12 @@ async def set_commands(bot: Bot) -> None:
 async def main() -> None:
     settings = load_settings()
 
-    # Извлекаем путь к БД из DATABASE_URL (поддержка формата sqlite+aiosqlite:///./bot.db)
-    # По умолчанию используем /app/data/bot.db для персистентности в Docker
+    # Жестко используем /app/data/bot.db для Docker
     db_path = "/app/data/bot.db"
-    db_url = settings.database_url
-    if db_url.startswith("sqlite"):
-        if ":///" in db_url:
-            db_path = db_url.split("///", 1)[-1]
-        else:
-            db_path = "/app/data/bot.db"
     
-    # Если путь относительный и мы не в Docker, или хотим сохранить совместимость
-    if not os.path.isabs(db_path) and not db_path.startswith("./data"):
-        # Если файл существует в корне, но не в data, и мы не в Docker
-        if os.path.exists("bot.db") and not os.path.exists("data/bot.db"):
-            db_path = "bot.db"
-        else:
-            db_path = "data/bot.db"
+    # Если мы не в Docker и файла по этому пути нет, пробуем локальный путь
+    if not os.path.exists("/app") and not os.path.exists(db_path):
+        db_path = "data/bot.db"
 
     db = Database(db_path=db_path)
     await db.init()

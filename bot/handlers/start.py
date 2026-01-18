@@ -1181,26 +1181,23 @@ async def on_aspect_selected(callback: CallbackQuery, state: FSMContext, db: Dat
         view_map = {"close": "Близкий", "far": "Дальний", "medium": "Средний", "front": "Спереди", "back": "Сзади", "side": "Сбоку"}
         parts.append(f"👀 **Ракурс**: {view_map.get(data.get('view'), 'Средний')}\n")
     
-    elif data.get("random_other_mode"):
+    elif category == "random_other" or data.get("random_other_mode"):
         parts.append("📦 **Категория**: 📦 Рандом для остальных видов товара\n")
         has_person = "Да" if data.get("has_person") else "Нет"
         parts.append(f"👤 **Человек**: {has_person}\n")
         if data.get("has_person"):
-            info_load = data.get("info_load") or "—"
-            product_name = data.get("product_name") or "—"
-            view = "Спереди" if data.get("view") == "front" else "Сзади"
+            parts.append(f"📊 **Нагруженность**: {data.get('info_load', '—')}\n")
+            parts.append(f"📝 **Название**: {data.get('product_name', '—')}\n")
+            view_map = {"front": "Спереди", "back": "Сзади"}
+            parts.append(f"👀 **Угол**: {view_map.get(data.get('view'), '—')}\n")
             dist_map = {"close": "Близкий", "far": "Дальний", "medium": "Средний"}
-            dist = dist_map.get(data.get("dist"), "—")
-            parts.append(f"📊 **Нагруженность**: {info_load}\n")
-            parts.append(f"📝 **Название**: {product_name}\n")
-            parts.append(f"👀 **Угол**: {view}\n")
-            parts.append(f"📏 **Ракурс**: {dist}\n")
+            parts.append(f"📏 **Ракурс**: {dist_map.get(data.get('dist'), '—')}\n")
             dims = f"{data.get('height_cm', '—')}x{data.get('width_cm', '—')}x{data.get('length_cm', '—')}"
             parts.append(f"📐 **ВxШxД**: {dims} см\n")
             parts.append(f"⏳ **Сезон**: {data.get('season', '—')}\n")
             parts.append(f"🎨 **Стиль**: {data.get('style', '—')}\n")
     
-    elif data.get("own_mode"):
+    elif data.get("infographic_mode"):
         parts.append("📦 **Категория**: ✨ Свой вариант МОДЕЛИ\n")
         view_map = {"close": "Близкий", "far": "Дальний", "medium": "Средний", "front": "Спереди", "back": "Сзади", "side": "Сбоку"}
         parts.append(f"👀 **Ракурс**: {view_map.get(data.get('view'), 'Средний')}\n")
@@ -2550,6 +2547,14 @@ async def form_generate(callback: CallbackQuery, state: FSMContext, db: Database
             await _safe_answer(callback, get_string("limit_rem_zero", lang), show_alert=True)
             return
         
+        # sub structure: (plan_type, expires_at, daily_limit, daily_usage, ind_key)
+        plan_type, expires_at, daily_limit, daily_usage, ind_key = sub
+        if daily_usage >= daily_limit:
+            await _safe_answer(callback, get_string("limit_rem_zero", lang), show_alert=True)
+            return
+
+        quality = '4K' if '4K' in plan_type.upper() else 'HD'
+
         if not data:
             logger.error(f"[form_generate] КРИТИЧЕСКАЯ ОШИБКА: Данные сессии пусты для пользователя {user_id}")
             await _safe_answer(callback, get_string("session_not_found", lang) + " (пустые данные)", show_alert=True)

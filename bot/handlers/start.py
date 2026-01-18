@@ -1489,9 +1489,9 @@ async def on_model_pick(callback: CallbackQuery, db: Database, state: FSMContext
                 await state.set_state(CreateForm.waiting_height)
             else:
                 # Старый флоу (на всякий случай)
-            from bot.keyboards import child_gender_keyboard
-            await _replace_with_text(callback, "Выберите пол ребёнка:", reply_markup=child_gender_keyboard())
-            await state.set_state(CreateForm.waiting_child_gender)
+                from bot.keyboards import child_gender_keyboard
+                await _replace_with_text(callback, "Выберите пол ребёнка:", reply_markup=child_gender_keyboard())
+                await state.set_state(CreateForm.waiting_child_gender)
         else:
             # Взрослые: обувь — рост → размер ноги → ракурс; одежда — телосложение → возраст → рост → длина → рукав → ракурс
             if cloth == "shoes":
@@ -3013,7 +3013,7 @@ async def on_menu_profile(callback: CallbackQuery, db: Database) -> None:
         text = get_string("profile_info", lang, id=callback.from_user.id, sub=get_string("sub_none", lang), expires="—", daily_rem=0)
     
     await _replace_with_text(callback, text, reply_markup=profile_keyboard(lang))
-        await _safe_answer(callback)
+    await _safe_answer(callback)
 
 @router.callback_query(F.data == "menu_subscription")
 async def on_sub_menu(callback: CallbackQuery, db: Database) -> None:
@@ -3097,7 +3097,7 @@ async def on_buy_plan(callback: CallbackQuery, db: Database) -> None:
     plan = await db.get_subscription_plan(plan_id)
     if not plan:
         await _safe_answer(callback, "План не найден.", show_alert=True)
-            return
+        return
     
     # plan structure: (id, name_ru, name_en, name_vi, desc_ru, desc_en, desc_vi, price, duration, limit, active)
     name = plan[1] if lang == "ru" else (plan[2] if lang == "en" else plan[3])

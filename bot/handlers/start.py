@@ -1174,7 +1174,7 @@ async def on_aspect_selected(callback: CallbackQuery, state: FSMContext, db: Dat
         parts.append("📦 **Категория**: ✨ ОБЫЧНАЯ ГЕНЕРАЦИЯ\n")
         parts.append(f"📝 **Промпт**: {data.get('prompt', '—')}\n")
     
-    elif category == "own_variant":
+    elif category == "own_variant" or data.get("category") == "own_variant":
         parts.append("📦 **Категория**: 🖼️ Свой вариант ФОНА\n")
         parts.append(f"🧥 **Длина рукав**: {data.get('own_sleeve', '—')}\n")
         parts.append(f"📏 **Длина изделия**: {data.get('own_length', '—')}\n")
@@ -1197,7 +1197,7 @@ async def on_aspect_selected(callback: CallbackQuery, state: FSMContext, db: Dat
             parts.append(f"⏳ **Сезон**: {data.get('season', '—')}\n")
             parts.append(f"🎨 **Стиль**: {data.get('style', '—')}\n")
     
-    elif data.get("infographic_mode"):
+    elif data.get("own_mode") or category == "own":
         parts.append("📦 **Категория**: ✨ Свой вариант МОДЕЛИ\n")
         view_map = {"close": "Близкий", "far": "Дальний", "medium": "Средний", "front": "Спереди", "back": "Сзади", "side": "Сбоку"}
         parts.append(f"👀 **Ракурс**: {view_map.get(data.get('view'), 'Средний')}\n")

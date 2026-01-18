@@ -216,17 +216,61 @@ def _generate_sync(
     return None
 
 
+def is_proxy_error(e: Exception) -> bool:
+    """Проверяет, является ли ошибка ошибкой прокси/сети"""
+    return getattr(e, 'is_proxy_error', False)
+
+
 async def generate_image(
     api_key: str,
     prompt: str,
-    images: list[bytes] | bytes,
-    ref_image_bytes: bytes | None = None,
-    model_name: str | None = None,
+    image_paths: list[str],
     aspect_ratio: str | None = None,
+    quality: str | None = None,
+    model_name: str | None = "gemini-3-pro-image-preview",
     key_id: int | None = None,
     db_instance = None,
-) -> Optional[bytes]:
-    return await asyncio.to_thread(_generate_sync, api_key, prompt, images, ref_image_bytes, model_name, aspect_ratio, key_id, db_instance)
+) -> Optional[str]:
+    """
+    Генерирует изображение через Gemini API.
+    Принимает пути к файлам, возвращает путь к результату.
+    """
+    import uuid
+    
+    # Читаем файлы в байты
+    images_bytes = []
+    for p in image_paths:
+        if os.path.exists(p):
+            with open(p, "rb") as f:
+                images_bytes.append(f.read())
+    
+    # Модифицируем промпт под качество если нужно
+    final_prompt = prompt
+    if quality == '4K':
+        final_prompt += " High detail, 4k resolution, professional photography."
+        
+    # Вызываем синхронную обертку
+    result_bytes = await asyncio.to_thread(
+        _generate_sync, 
+        api_key, 
+        final_prompt, 
+        images_bytes, 
+        None, # ref_image_bytes (not used here)
+        model_name, 
+        aspect_ratio, 
+        key_id, 
+        db_instance
+    )
+    
+    if result_bytes:
+        # Сохраняем результат во временный файл
+        out_path = f"data/result_{uuid.uuid4()}.jpg"
+        os.makedirs("data", exist_ok=True)
+        with open(out_path, "wb") as f:
+            f.write(result_bytes)
+        return out_path
+        
+    return None
 
 
 def _generate_text_sync(

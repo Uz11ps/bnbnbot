@@ -1336,7 +1336,7 @@ async def on_random_decor(callback: CallbackQuery, state: FSMContext, db: Databa
         await _replace_with_text(callback, get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
         await state.set_state(CreateForm.waiting_aspect)
     else:
-    await _replace_with_text(callback, "Выберите ракурс:", reply_markup=random_shot_keyboard())
+        await _replace_with_text(callback, "Выберите ракурс:", reply_markup=random_shot_keyboard())
     await _safe_answer(callback)
 
 

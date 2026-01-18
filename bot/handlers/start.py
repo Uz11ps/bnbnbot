@@ -2924,7 +2924,7 @@ async def on_result_edit_text(message: Message, state: FSMContext, db: Database)
                 if key_id and not is_own_variant:
                     await db.record_api_usage(key_id)
                 break
-    except Exception as e:
+        except Exception as e:
             logger.error(f"Error during edit with key {key_id}: {e}")
             continue
 

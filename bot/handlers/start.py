@@ -149,7 +149,7 @@ async def _replace_with_text(callback: CallbackQuery, text: str, reply_markup=No
             await callback.message.delete()
             await callback.message.answer(text, reply_markup=reply_markup)
         else:
-        await callback.message.edit_text(text, reply_markup=reply_markup)
+            await callback.message.edit_text(text, reply_markup=reply_markup)
     except TelegramBadRequest:
         try:
             await callback.message.answer(text, reply_markup=reply_markup)

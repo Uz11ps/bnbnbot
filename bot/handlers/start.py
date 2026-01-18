@@ -1235,6 +1235,10 @@ async def on_own_ref_photo(message: Message, state: FSMContext, db: Database) ->
 
 @router.message(CreateForm.waiting_product_photo, F.photo)
 async def on_own_model_product_photo(message: Message, state: FSMContext, db: Database) -> None:
+    data = await state.get_data()
+    if data.get("repeat_mode"):
+        await state.update_data(repeat_mode=False)
+        
     prod_id = message.photo[-1].file_id
     await state.update_data(own_product_photo_id=prod_id)
     # Сразу переходим к выбору формата
@@ -2115,6 +2119,14 @@ async def handle_user_photo(message: Message, state: FSMContext, db: Database) -
     photo_id = message.photo[-1].file_id
     await state.update_data(user_photo_id=photo_id)
     lang = await db.get_user_language(message.from_user.id)
+
+    # Если включен режим повтора — пропускаем все вопросы и идем к формату
+    if data.get("repeat_mode"):
+        await state.update_data(repeat_mode=False)
+        from bot.keyboards import aspect_ratio_keyboard
+        await message.answer(get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
+        await state.set_state(CreateForm.waiting_aspect)
+        return
 
     if data.get("normal_gen_mode"):
         # Для обычной генерации мы можем принимать несколько фото
@@ -3088,14 +3100,35 @@ async def on_result_repeat(callback: CallbackQuery, state: FSMContext, db: Datab
     if not data:
         await _safe_answer(callback, get_string("session_not_found", lang), show_alert=True)
         return
-    # Полностью сбрасываем сессию для новой генерации
+
+    # Сохраняем важные параметры конфигурации
+    keep_keys = [
+        "category", "cloth", "selected_cloth", "height", "age", "size", "sleeve", "length", 
+        "view", "prompt_id", "aspect", "info_load", "info_lang", "info_brand", 
+        "info_adv1", "info_adv2", "info_adv3", "info_extra", "info_angle", 
+        "info_dist", "info_pose", "random_mode", "random_other_mode", 
+        "infographic_mode", "own_mode", "plus_mode", "own_length", "own_sleeve", 
+        "own_cut", "pants_style", "gender", "has_person", "product_name", "dist",
+        "height_cm", "width_cm", "length_cm", "season", "style", "info_gender",
+        "own_ref_photo_id", "own_bg_photo_id", "prompt",
+        "rand_gender", "rand_location", "rand_location_custom", "rand_vibe", "rand_shot",
+        "rand_loc_group", "rand_loc", "rand_decor"
+    ]
+    
+    # Фильтруем данные, оставляя только настройки
+    new_data = {k: v for k, v in data.items() if k in keep_keys}
+    new_data["repeat_mode"] = True # Флаг для пропуска шагов
+    
+    # Сбрасываем текущее состояние
     await state.clear()
-    # Начинаем новую сессию с того же места
-    category = data.get("category")
-    if category:
-        await state.update_data(category=category)
-    await state.set_state(CreateForm.waiting_view)
-    # Не удаляем предыдущее фото, отправляем новый запрос
+    await state.update_data(**new_data)
+    
+    # Определяем, в какой стейт отправить юзера для загрузки фото
+    if data.get("own_mode") or data.get("category") == "own_variant":
+        await state.set_state(CreateForm.waiting_product_photo)
+    else:
+        await state.set_state(CreateForm.waiting_view)
+    
     await callback.message.answer(get_string("repeat_photo_prompt", lang))
     await _safe_answer(callback)
 

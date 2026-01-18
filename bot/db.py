@@ -863,10 +863,27 @@ class Database:
     async def get_user_subscription(self, user_id: int) -> tuple | None:
         async with aiosqlite.connect(self._db_path) as db:
             async with db.execute(
-                "SELECT plan_type, expires_at, daily_limit, daily_usage, individual_api_key FROM subscriptions WHERE user_id=? AND expires_at > datetime('now') ORDER BY expires_at DESC LIMIT 1",
+                "SELECT id, plan_type, expires_at, daily_limit, daily_usage, last_usage_reset, individual_api_key FROM subscriptions WHERE user_id=? AND expires_at > datetime('now') ORDER BY expires_at DESC LIMIT 1",
                 (user_id,)
             ) as cur:
-                return await cur.fetchone()
+                sub = await cur.fetchone()
+                if not sub:
+                    return None
+                
+                sub_id, plan_type, expires_at, daily_limit, daily_usage, last_reset, ind_key = sub
+                
+                # Автоматический сброс лимита при наступлении нового дня
+                from datetime import datetime
+                now_date = datetime.now().isoformat()[:10]
+                if not last_reset or last_reset[:10] != now_date:
+                    await db.execute(
+                        "UPDATE subscriptions SET daily_usage=0, last_usage_reset=CURRENT_TIMESTAMP WHERE id=?",
+                        (sub_id,)
+                    )
+                    await db.commit()
+                    daily_usage = 0
+                
+                return plan_type, expires_at, daily_limit, daily_usage, ind_key
 
     async def update_daily_usage(self, user_id: int) -> bool:
         """Инкрементирует использование за день. Возвращает False, если лимит исчерпан."""

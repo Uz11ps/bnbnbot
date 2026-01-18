@@ -300,7 +300,6 @@ def random_vibe_keyboard(lang="ru") -> InlineKeyboardMarkup:
         inline_keyboard=[
             [InlineKeyboardButton(text=get_string("season_summer", lang), callback_data="rand_vibe:summer"), InlineKeyboardButton(text=get_string("season_winter", lang), callback_data="rand_vibe:winter")],
             [InlineKeyboardButton(text=get_string("season_autumn", lang), callback_data="rand_vibe:autumn"), InlineKeyboardButton(text=get_string("season_spring", lang), callback_data="rand_vibe:spring")],
-            [InlineKeyboardButton(text=get_string("holiday_newyear", lang), callback_data="rand_vibe:newyear")],
             [InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")],
         ]
     )
@@ -509,7 +508,7 @@ def random_season_keyboard(lang="ru") -> InlineKeyboardMarkup:
 def random_holiday_keyboard(lang="ru") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=get_string("holiday_wedding", lang), callback_data="rand_holiday:wedding"), InlineKeyboardButton(text=get_string("holiday_newyear", lang), callback_data="rand_holiday:newyear")],
+            [InlineKeyboardButton(text=get_string("holiday_wedding", lang), callback_data="rand_holiday:wedding")],
             [InlineKeyboardButton(text=get_string("holiday_bday", lang), callback_data="rand_holiday:bday"), InlineKeyboardButton(text=get_string("holiday_may9", lang), callback_data="rand_holiday:may9")],
             [InlineKeyboardButton(text=get_string("holiday_march8", lang), callback_data="rand_holiday:march8"), InlineKeyboardButton(text=get_string("holiday_momday", lang), callback_data="rand_holiday:momday")],
             [InlineKeyboardButton(text=get_string("holiday_teacherday", lang), callback_data="rand_holiday:teacherday"), InlineKeyboardButton(text=get_string("holiday_russiaday", lang), callback_data="rand_holiday:russiaday")],
@@ -591,7 +590,6 @@ def infographic_selection_keyboard(enabled: dict[str, bool], lang="ru") -> Inlin
 def info_holiday_keyboard(lang="ru") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=get_string("holiday_newyear", lang), callback_data="info_holiday:newyear")],
             [InlineKeyboardButton(text=get_string("holiday_march8", lang), callback_data="info_holiday:8march")],
             [InlineKeyboardButton(text=get_string("holiday_feb23", lang), callback_data="info_holiday:23feb")],
             [InlineKeyboardButton(text=get_string("holiday_bday", lang), callback_data="info_holiday:bday")],

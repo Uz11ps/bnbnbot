@@ -1160,6 +1160,7 @@ async def on_back_from_prompt(callback: CallbackQuery, state: FSMContext, db: Da
 
 
 @router.callback_query(CreateForm.waiting_aspect, F.data.startswith("form_aspect:"))
+@router.callback_query(CreateForm.waiting_aspect, F.data.startswith("form_aspect:"))
 async def on_aspect_selected(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     aspect = callback.data.split(":", 1)[1]
     await state.update_data(aspect=aspect)
@@ -2532,7 +2533,8 @@ async def on_back_step_fallback(callback: CallbackQuery, state: FSMContext, db: 
 @router.callback_query(F.data == "form_generate")
 async def form_generate(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     user_id = callback.from_user.id
-    logger.info(f"[form_generate] Начало генерации для пользователя {user_id}")
+    data = await state.get_data()
+    logger.info(f"[form_generate] Начало генерации для пользователя {user_id}. Данные сессии: {data}")
     
     # Проверка техработ
     if await db.get_maintenance():
@@ -2543,22 +2545,14 @@ async def form_generate(callback: CallbackQuery, state: FSMContext, db: Database
 
     try:
         sub = await db.get_user_subscription(user_id)
+        lang = await db.get_user_language(user_id)
         if not sub:
-            await _safe_answer(callback, get_string("limit_rem_zero", await db.get_user_language(callback.from_user.id)), show_alert=True)
+            await _safe_answer(callback, get_string("limit_rem_zero", lang), show_alert=True)
             return
         
-        # sub structure: (plan_type, expires_at, daily_limit, daily_usage, ind_key)
-        plan_type, expires_at, daily_limit, daily_usage, ind_key = sub
-        if daily_usage >= daily_limit:
-            await _safe_answer(callback, get_string("limit_rem_zero", await db.get_user_language(callback.from_user.id)), show_alert=True)
-            return
-
-        quality = '4K' if '4K' in plan_type.upper() else 'HD'
-
-        data = await state.get_data()
-        lang = await db.get_user_language(user_id)
         if not data:
-            await _safe_answer(callback, get_string("session_not_found", lang), show_alert=True)
+            logger.error(f"[form_generate] КРИТИЧЕСКАЯ ОШИБКА: Данные сессии пусты для пользователя {user_id}")
+            await _safe_answer(callback, get_string("session_not_found", lang) + " (пустые данные)", show_alert=True)
             return
 
         category = data.get("category")

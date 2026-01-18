@@ -52,6 +52,19 @@ async def run_migrations(db: aiosqlite.Connection):
         except Exception as e:
             print(f"Migration error (users.trial_used): {e}")
 
+    async with db.execute("PRAGMA table_info(subscription_plans)") as cur:
+        p_cols = [row[1] for row in await cur.fetchall()]
+    
+    for lang_code in ["ru", "en", "vi"]:
+        col_name = f"description_{lang_code}"
+        if p_cols and col_name not in p_cols:
+            try:
+                await db.execute(f"ALTER TABLE subscription_plans ADD COLUMN {col_name} TEXT")
+                await db.commit()
+                print(f"Migration: Added {col_name} to subscription_plans")
+            except Exception as e:
+                print(f"Migration error (subscription_plans.{col_name}): {e}")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     os.makedirs(UPLOAD_DIR, exist_ok=True)

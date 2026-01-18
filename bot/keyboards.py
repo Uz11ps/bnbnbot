@@ -68,9 +68,11 @@ def marketplace_menu_keyboard(enabled: dict[str, bool], lang="ru") -> InlineKeyb
     if enabled.get("random_other", True):
         rows.append([InlineKeyboardButton(text=get_string("cat_random_other", lang), callback_data="create_random_other")])
 
-    # Инфографика
-    if enabled.get("infographic_clothing", True) or enabled.get("infographic_other", True):
-        rows.append([InlineKeyboardButton(text=get_string("cat_infographics", lang), callback_data="create_cat:infographics")])
+    # Инфографика — Показываем подразделы прямо в главном меню для удобства
+    if enabled.get("infographic_clothing", True):
+        rows.append([InlineKeyboardButton(text=get_string("cat_infographic_clothing", lang), callback_data="create_cat:infographic_clothing")])
+    if enabled.get("infographic_other", True):
+        rows.append([InlineKeyboardButton(text=get_string("cat_infographic_other", lang), callback_data="create_cat:infographic_other")])
     
     # Витринное фото
     if enabled.get("storefront", True):

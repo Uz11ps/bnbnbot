@@ -84,6 +84,8 @@ async def admin_entry(message: Message, settings: Settings, db: Database) -> Non
     await message.answer(get_string("admin_panel_title", lang, status=status), reply_markup=admin_main_keyboard(lang))
 
 
+from aiogram.fsm.storage.base import StorageKey
+
 @router.message(Command("reset_user"))
 async def cmd_reset_user(message: Message, db: Database, settings: Settings, state: FSMContext, bot: Bot) -> None:
     if not _is_admin(message.from_user.id, settings):
@@ -98,24 +100,25 @@ async def cmd_reset_user(message: Message, db: Database, settings: Settings, sta
     except Exception:
         await message.answer(get_string("admin_reset_invalid", lang))
         return
-    # ...
-    # ...
+    
     try:
-        # ...
+        # Сброс FSM состояния для указанного пользователя
+        key = StorageKey(bot_id=bot.id, chat_id=user_id, user_id=user_id)
         target_state = FSMContext(
             storage=state.storage,
             key=key
         )
         await target_state.clear()
+        
+        # Сброс баланса и триала в БД (опционально, но часто нужно при reset)
+        await db.execute("UPDATE users SET trial_used=0, balance=0 WHERE id=?", (user_id,))
+        await db.execute("DELETE FROM subscriptions WHERE user_id=?", (user_id,))
+        await db.commit()
+        
         await message.answer(get_string("admin_reset_success", lang, user_id=user_id))
     except Exception as e:
-        # Если не удалось, очищаем состояние текущего пользователя, если это он
-        if message.from_user.id == user_id:
-            await state.clear()
-            await message.answer(get_string("admin_reset_success", lang, user_id=user_id))
-        else:
-            logger.error(f"Ошибка при сбросе состояния пользователя {user_id}: {e}")
-            await message.answer(get_string("admin_reset_error", lang, e=e))
+        logger.error(f"Ошибка при сбросе состояния пользователя {user_id}: {e}")
+        await message.answer(get_string("admin_reset_error", lang, e=str(e)))
 
 
 @router.callback_query(F.data == "admin_stats")

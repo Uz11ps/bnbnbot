@@ -707,9 +707,8 @@ class Database:
 
     # Category enable/disable
     async def get_category_enabled(self, name: str) -> bool:
-        key = f"cat_enabled_{name}"
         async with aiosqlite.connect(self._db_path) as db:
-            async with db.execute("SELECT value FROM app_settings WHERE key=?", (key,)) as cur:
+            async with db.execute("SELECT value FROM app_settings WHERE key=?", (name,)) as cur:
                 row = await cur.fetchone()
                 # По умолчанию категории включены, если нет записи '0'
                 if not row:
@@ -717,11 +716,10 @@ class Database:
                 return str(row[0]) != '0'
 
     async def set_category_enabled(self, name: str, enabled: bool) -> None:
-        key = f"cat_enabled_{name}"
         async with aiosqlite.connect(self._db_path) as db:
             await db.execute(
-                "INSERT INTO app_settings (key, value) VALUES (?, ?)\n                 ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                (key, '1' if enabled else '0'),
+                "INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (name, '1' if enabled else '0'),
             )
             await db.commit()
 
@@ -862,44 +860,36 @@ class Database:
 
     async def get_user_subscription(self, user_id: int) -> tuple | None:
         async with aiosqlite.connect(self._db_path) as db:
-            # Используем максимально надежное сравнение дат для SQLite
+            # Используем максимально надежное сравнение дат для SQLite (UTC)
             sql = """
                 SELECT id, plan_type, expires_at, daily_limit, daily_usage, last_usage_reset, individual_api_key 
                 FROM subscriptions 
-                WHERE user_id=? AND datetime(expires_at) > datetime('now', 'utc')
+                WHERE user_id=? AND datetime(expires_at) > CURRENT_TIMESTAMP
                 ORDER BY expires_at DESC LIMIT 1
             """
             async with db.execute(sql, (user_id,)) as cur:
                 sub = await cur.fetchone()
                 if not sub:
-                    # Дополнительная проверка: может быть проблема с часовым поясом
-                    # Попробуем без учета UTC
-                    sql_fallback = """
-                        SELECT id, plan_type, expires_at, daily_limit, daily_usage, last_usage_reset, individual_api_key 
-                        FROM subscriptions 
-                        WHERE user_id=? AND datetime(expires_at) > datetime('now')
-                        ORDER BY expires_at DESC LIMIT 1
-                    """
-                    async with db.execute(sql_fallback, (user_id,)) as cur_f:
-                        sub = await cur_f.fetchone()
-                
-                if not sub:
-                    logger.info(f"Subscription not found for user {user_id}")
+                    # Попробуем найти любую последнюю подписку для лога
+                    async with db.execute("SELECT expires_at FROM subscriptions WHERE user_id=? ORDER BY expires_at DESC LIMIT 1", (user_id,)) as cur_l:
+                        last_exp = await cur_l.fetchone()
+                        if last_exp:
+                            logger.info(f"Subscription expired for user {user_id} at {last_exp[0]}")
                     return None
                 
                 sub_id, plan_type, expires_at, daily_limit, daily_usage, last_reset, ind_key = sub
-                logger.info(f"Found sub for {user_id}: {plan_type}, expires: {expires_at}")
                 
-                # Автоматический сброс лимита при наступлении нового дня
-                from datetime import datetime
-                now_date = datetime.now().isoformat()[:10]
-                if not last_reset or last_reset[:10] != now_date:
-                    await db.execute(
-                        "UPDATE subscriptions SET daily_usage=0, last_usage_reset=CURRENT_TIMESTAMP WHERE id=?",
-                        (sub_id,)
-                    )
-                    await db.commit()
-                    daily_usage = 0
+                # Автоматический сброс лимита при наступлении нового дня (UTC)
+                # last_reset хранится как 'YYYY-MM-DD HH:MM:SS'
+                async with db.execute("SELECT date('now'), date(?)", (last_reset,)) as cur_d:
+                    row_d = await cur_d.fetchone()
+                    if row_d and row_d[0] != row_d[1]:
+                        await db.execute(
+                            "UPDATE subscriptions SET daily_usage=0, last_usage_reset=CURRENT_TIMESTAMP WHERE id=?",
+                            (sub_id,)
+                        )
+                        await db.commit()
+                        daily_usage = 0
                 
                 return plan_type, expires_at, daily_limit, daily_usage, ind_key
 
@@ -907,7 +897,7 @@ class Database:
         """Инкрементирует использование за день. Возвращает False, если лимит исчерпан."""
         async with aiosqlite.connect(self._db_path) as db:
             async with db.execute(
-                "SELECT id, daily_limit, daily_usage, last_usage_reset FROM subscriptions WHERE user_id=? AND expires_at > CURRENT_TIMESTAMP",
+                "SELECT id, daily_limit, daily_usage, last_usage_reset FROM subscriptions WHERE user_id=? AND datetime(expires_at) > CURRENT_TIMESTAMP",
                 (user_id,)
             ) as cur:
                 sub = await cur.fetchone()
@@ -915,12 +905,13 @@ class Database:
                     return False
                 sub_id, limit, usage, last_reset = sub
                 
-                # Сброс если новый день
-                from datetime import datetime
-                if last_reset[:10] != datetime.now().isoformat()[:10]:
-                    await db.execute("UPDATE subscriptions SET daily_usage=1, last_usage_reset=CURRENT_TIMESTAMP WHERE id=?", (sub_id,))
-                    await db.commit()
-                    return True
+                # Сброс если новый день (UTC)
+                async with db.execute("SELECT date('now'), date(?)", (last_reset,)) as cur_d:
+                    row_d = await cur_d.fetchone()
+                    if row_d and row_d[0] != row_d[1]:
+                        await db.execute("UPDATE subscriptions SET daily_usage=1, last_usage_reset=CURRENT_TIMESTAMP WHERE id=?", (sub_id,))
+                        await db.commit()
+                        return True
                 
                 if usage >= limit:
                     return False

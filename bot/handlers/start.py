@@ -366,22 +366,26 @@ async def on_male_category(callback: CallbackQuery, db: Database, state: FSMCont
     await _show_models_for_category(callback, db, "male", "all")
     await _safe_answer(callback)
 
-async def _show_models_for_category(callback: CallbackQuery, db: Database, category: str, cloth: str) -> None:
+async def _show_models_for_category(callback: CallbackQuery, db: Database, category: str, cloth: str, index: int = 0) -> None:
     total = await db.count_models(category, cloth)
     if total <= 0:
         await _safe_answer(callback, "Модели не найдены", show_alert=True)
         return
-    text = _model_header(0, total)
-    model = await db.get_model_by_index(category, cloth, 0)
+    
+    # Ограничиваем индекс
+    if index < 0: index = total - 1
+    if index >= total: index = 0
+    
+    text = _model_header(index, total)
+    model = await db.get_model_by_index(category, cloth, index)
+    
+    lang = await db.get_user_language(callback.from_user.id)
+    kb = model_select_keyboard(category, cloth, index, total, lang)
+    
     if model and model[3]:
-        await _answer_model_photo(
-            callback,
-            model[3],
-            text,
-            model_select_keyboard(category, cloth, 0, total),
-            )
-        else:
-        await _replace_with_text(callback, text, reply_markup=model_select_keyboard(category, cloth, 0, total))
+        await _answer_model_photo(callback, model[3], text, kb)
+    else:
+        await _replace_with_text(callback, text, reply_markup=kb)
 
 @router.callback_query(F.data == "create_cat:child")
 async def on_child_category(callback: CallbackQuery, db: Database, state: FSMContext) -> None:
@@ -429,10 +433,11 @@ async def on_create_random_other(callback: CallbackQuery, state: FSMContext, db:
     await state.clear()
     await state.update_data(random_other_mode=True, category="random_other")
     lang = await db.get_user_language(callback.from_user.id)
-    # В рандоме для прочих товаров сначала спрашиваем о присутствии человека
-    from bot.keyboards import yes_no_keyboard
-    await _replace_with_text(callback, get_string("has_person_ask", lang), reply_markup=yes_no_keyboard(lang))
-    await state.set_state(CreateForm.waiting_rand_other_has_person)
+    
+    # Сначала просим фото
+    text = get_string("upload_photo", lang)
+    await _replace_with_text(callback, text, reply_markup=back_main_keyboard(lang))
+    await state.set_state(CreateForm.waiting_view)
     await _safe_answer(callback)
 
 @router.callback_query(CreateForm.waiting_rand_other_has_person, F.data.startswith("choice:"))
@@ -1298,7 +1303,7 @@ async def on_random_decor(callback: CallbackQuery, state: FSMContext, db: Databa
         await _replace_with_text(callback, get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
         await state.set_state(CreateForm.waiting_aspect)
     else:
-    await _replace_with_text(callback, "Выберите ракурс:", reply_markup=random_shot_keyboard())
+        await _replace_with_text(callback, "Выберите ракурс:", reply_markup=random_shot_keyboard())
     await _safe_answer(callback)
 
 
@@ -1451,9 +1456,9 @@ async def on_model_pick(callback: CallbackQuery, db: Database, state: FSMContext
                 await state.set_state(CreateForm.waiting_height)
             else:
                 # Старый флоу (на всякий случай)
-            from bot.keyboards import child_gender_keyboard
-            await _replace_with_text(callback, "Выберите пол ребёнка:", reply_markup=child_gender_keyboard())
-            await state.set_state(CreateForm.waiting_child_gender)
+                from bot.keyboards import child_gender_keyboard
+                await _replace_with_text(callback, "Выберите пол ребёнка:", reply_markup=child_gender_keyboard())
+                await state.set_state(CreateForm.waiting_child_gender)
         else:
             # Взрослые: обувь — рост → размер ноги → ракурс; одежда — телосложение → возраст → рост → длина → рукав → ракурс
             if cloth == "shoes":
@@ -1694,7 +1699,7 @@ async def on_garment_len_callback(callback: CallbackQuery, state: FSMContext, db
     if val == "custom":
         lang = await db.get_user_language(callback.from_user.id)
         await _replace_with_text(callback, get_string("enter_length_custom", lang), reply_markup=back_step_keyboard(lang))
-    await state.set_state(CreateForm.waiting_length)
+        await state.set_state(CreateForm.waiting_length)
         await _safe_answer(callback)
         return
 
@@ -1886,6 +1891,13 @@ async def handle_user_photo(message: Message, state: FSMContext, db: Database) -
         await state.set_state(CreateForm.waiting_prompt)
         return
 
+    if data.get("random_other_mode"):
+        # Для рандома прочих товаров переходим к вопросу о человеке
+        from bot.keyboards import yes_no_keyboard
+        await message.answer(get_string("has_person_ask", lang), reply_markup=yes_no_keyboard(lang))
+        await state.set_state(CreateForm.waiting_rand_other_has_person)
+        return
+
     # Собираем параметры для других режимов
     category = data.get("category")
     cloth = data.get("cloth")
@@ -1997,7 +2009,11 @@ async def on_back_from_size(callback: CallbackQuery, state: FSMContext, db: Data
     category = data.get("category")
     cloth = data.get("cloth")
     index = data.get("index", 0)
-    await on_model_nav(callback, db) # Re-use model navigation
+    
+    # Мы не можем просто вызвать on_model_nav, так как он парсит callback.data.
+    # Вместо этого вызываем вспомогательную функцию показа модели.
+    await _show_models_for_category(callback, db, category, cloth, index)
+    await _safe_answer(callback)
 
 @router.callback_query(F.data == "back_step", CreateForm.waiting_age)
 async def on_back_from_age(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
@@ -2067,7 +2083,9 @@ async def on_back_from_foot(callback: CallbackQuery, state: FSMContext, db: Data
 
 @router.callback_query(F.data == "back_step", CreateForm.plus_loc)
 async def on_back_from_plus_loc(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
-    await on_model_nav(callback, db)
+    data = await state.get_data()
+    await _show_models_for_category(callback, db, data.get("category"), data.get("cloth"), data.get("index", 0))
+    await _safe_answer(callback)
 
 @router.callback_query(F.data == "back_step", CreateForm.plus_season)
 async def on_back_from_plus_season(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
@@ -2096,7 +2114,9 @@ async def on_back_from_has_person(callback: CallbackQuery, state: FSMContext, db
 
 @router.callback_query(F.data == "back_step", CreateForm.waiting_child_gender)
 async def on_back_from_child_gender(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
-    await on_model_nav(callback, db)
+    data = await state.get_data()
+    await _show_models_for_category(callback, db, data.get("category"), data.get("cloth"), data.get("index", 0))
+    await _safe_answer(callback)
 
 @router.callback_query(F.data == "back_step", CreateForm.waiting_pants_style)
 async def on_back_from_pants_style(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
@@ -2106,7 +2126,7 @@ async def on_back_from_pants_style(callback: CallbackQuery, state: FSMContext, d
         lang = await db.get_user_language(callback.from_user.id)
         await _replace_with_text(callback, "Выберите длину рукава:", reply_markup=sleeve_length_keyboard(lang))
     else:
-        await on_model_nav(callback, db)
+        await _show_models_for_category(callback, db, data.get("category"), data.get("cloth"), data.get("index", 0))
     await _safe_answer(callback)
 
 @router.callback_query(F.data == "back_step", CreateForm.waiting_info_lang_custom)
@@ -2333,34 +2353,34 @@ async def form_generate(callback: CallbackQuery, state: FSMContext, db: Database
             return
 
         prompt_text = ""
-    if data.get("random_mode"):
-        prompt_text = ""
+        if data.get("random_mode"):
+            prompt_text = ""
         elif data.get("category") == "own_variant":
             # Промпт для своего варианта фона
             base = await db.get_own_variant_prompt() or "Professional fashion photography. Place the product from the second image onto the background from the first image. Maintain natural lighting, shadows, and perspective. High quality, 8k resolution."
             prompt_text = base
-    else:
-        if data.get("category") == "whitebg":
-            base = await db.get_whitebg_prompt()
-            prompt_text = base or ""
         else:
-            pid = data.get('prompt_id')
-            prompt_text = await db.get_prompt_text(int(pid)) if pid else ""
+            if data.get("category") == "whitebg":
+                base = await db.get_whitebg_prompt()
+                prompt_text = base or ""
+            else:
+                pid = data.get('prompt_id')
+                prompt_text = await db.get_prompt_text(int(pid)) if pid else ""
         
-    # Приводим возраст и длину рукава к финальному виду для промта
-    age_key = data.get('age')
-    age_map = {
-        "20_26": "Молодая модель возраста 20-26 лет",
-        "30_38": "Взрослая модель возраста 30-38 лет",
-        "40_48": "Зрелая модель возраста 40-48 лет",
-        "55_60": "Пожилая модель возраста 55-60 лет",
-    }
-    age_text = age_map.get(age_key, age_key or "")
-    sleeve_text = data.get('sleeve') or ""
-    size_text = data.get('size') or ""
-        
+        # Приводим возраст и длину рукава к финальному виду для промта
+        age_key = data.get('age')
+        age_map = {
+            "20_26": "Молодая модель возраста 20-26 лет",
+            "30_38": "Взрослая модель возраста 30-38 лет",
+            "40_48": "Зрелая модель возраста 40-48 лет",
+            "55_60": "Пожилая модель возраста 55-60 лет",
+        }
+        age_text = age_map.get(age_key, age_key or "")
+        sleeve_text = data.get('sleeve') or ""
+        size_text = data.get('size') or ""
+            
         prompt_filled = ""
-    if data.get("own_mode"):
+        if data.get("own_mode"):
             own_length = (data.get("own_length") or "")
             own_sleeve = (data.get("own_sleeve") or "")
             own_cut = (data.get("own_cut") or "")
@@ -2417,40 +2437,47 @@ async def form_generate(callback: CallbackQuery, state: FSMContext, db: Database
             prompt_filled = "".join(p_parts)
         elif data.get("normal_gen_mode"):
             prompt_filled = data.get("prompt") or ""
-    elif data.get("random_mode"):
-        gender = data.get("rand_gender")
-        gender_map = {"male":"мужчина","female":"женщина","boy":"мальчик","girl":"девочка"}
-        loc_map = {"inside_restaurant":"внутри ресторана","photo_studio":"в фотостудии","coffee_shop":"в кофейне","city":"в городе","building":"у здания","wall":"у стены","park":"в парке","coffee_shop_out":"у кофейни","forest":"в лесу","car":"у машины"}
-        vibe_map = {"summer":"летний", "winter":"зимний", "autumn":"осенний", "spring":"весенний"}
-        p_parts: list[str] = []
+        elif data.get("random_mode"):
+            gender = data.get("rand_gender")
+            gender_map = {"male":"мужчина","female":"женщина","boy":"мальчик","girl":"девочка"}
+            loc_map = {"inside_restaurant":"внутри ресторана","photo_studio":"в фотостудии","coffee_shop":"в кофейне","city":"в городе","building":"у здания","wall":"у стены","park":"в парке","coffee_shop_out":"у кофейни","forest":"в лесу","car":"у машины"}
+            vibe_map = {"summer":"летний", "winter":"зимний", "autumn":"осенний", "spring":"весенний"}
+            p_parts: list[str] = []
             p_parts.append(f"{gender_map.get(gender, 'модель')} ")
-            if age_text: p_parts.append(f"{age_text}. ")
-        h = data.get("height")
-            if h: p_parts.append(f"Рост {h} см. ")
-            if size_text: p_parts.append(f"{size_text}. ")
-        loc = data.get("rand_location")
-        if loc:
-            if loc == 'custom':
-                custom = (data.get('rand_location_custom') or '').strip()
-                    if custom: p_parts.append(f"Съёмка {custom}. ")
-            else:
+            if age_text:
+                p_parts.append(f"{age_text}. ")
+            h = data.get("height")
+            if h:
+                p_parts.append(f"Рост {h} см. ")
+            if size_text:
+                p_parts.append(f"{size_text}. ")
+            loc = data.get("rand_location")
+            if loc:
+                if loc == 'custom':
+                    custom = (data.get('rand_location_custom') or '').strip()
+                    if custom:
+                        p_parts.append(f"Съёмка {custom}. ")
+                else:
                     p_parts.append(f"Съёмка {loc_map.get(loc, loc)}. ")
-        vibe = data.get("rand_vibe")
-            if vibe: p_parts.append(f"Вайб: {vibe_map.get(vibe, vibe)}. ")
-        shot = data.get("rand_shot")
-        if shot:
-            shot_map = {"full":"в полный рост", "close":"близкий ракурс"}
+            vibe = data.get("rand_vibe")
+            if vibe:
+                p_parts.append(f"Вайб: {vibe_map.get(vibe, vibe)}. ")
+            shot = data.get("rand_shot")
+            if shot:
+                shot_map = {"full":"в полный рост", "close":"близкий ракурс"}
                 p_parts.append(f"Ракурс: {shot_map.get(shot, shot)}. ")
-        L = (data.get("length") or "").strip()
-            if L: p_parts.append(f"Длина изделия: {L}. ")
-            if sleeve_text: p_parts.append(f"Длина рукава: {sleeve_text}. ")
-        view_txt = "сзади" if data.get("view") == "back" else "спереди"
+            L = (data.get("length") or "").strip()
+            if L:
+                p_parts.append(f"Длина изделия: {L}. ")
+            if sleeve_text:
+                p_parts.append(f"Длина рукава: {sleeve_text}. ")
+            view_txt = "сзади" if data.get("view") == "back" else "спереди"
             p_parts.append(f"Вид: {view_txt}. Профессиональное фото, реалистичный свет, высокое качество.")
-        base_random = await db.get_random_prompt() or ""
+            base_random = await db.get_random_prompt() or ""
             prompt_filled = (base_random + "\n\n" + ''.join(p_parts)).strip()
-    else:
-        view_key = data.get("view")
-        view_word = {"back": "сзади", "front": "спереди", "side": "сбоку"}.get(view_key, "спереди")
+        else:
+            view_key = data.get("view")
+            view_word = {"back": "сзади", "front": "спереди", "side": "сбоку"}.get(view_key, "спереди")
             
             # Собираем все возможные замены для промпта
             replacements = {
@@ -2480,170 +2507,156 @@ async def form_generate(callback: CallbackQuery, state: FSMContext, db: Database
         if quality == '4K':
             prompt_filled += " High quality, 4K resolution, ultra detailed."
 
-        lang = await db.get_user_language(user_id)
-        await _replace_with_text(callback, get_string("gen_in_progress", lang), reply_markup=None)
-    await _safe_answer(callback)
-        progress_msg = await callback.message.answer("⏳")
-    stop_event = asyncio.Event()
-    asyncio.create_task(_run_generation_progress(callback.bot, callback.message.chat.id, progress_msg.message_id, stop_event))
-
-        # Загрузка фото
-        image_bytes = None
-        reference_bytes = None
+        # Добавляем брендинг
+        prompt_filled = db.add_ai_room_branding(prompt_filled)
         
-        if category == "own_variant":
-            bg_id = data.get("own_bg_photo_id")
-        prod_id = data.get("own_product_photo_id")
-            if bg_id and prod_id:
-                bg_file = await callback.bot.get_file(bg_id)
-                bg_f = await callback.bot.download_file(bg_file.file_path)
-                reference_bytes = bg_f.read()
-                prod_file = await callback.bot.get_file(prod_id)
-                prod_f = await callback.bot.download_file(prod_file.file_path)
-                image_bytes = prod_f.read()
-        elif data.get("own_mode"):
-            # Загружаем фото продукта
-            prod_id = data.get("own_product_photo_id")
-            if prod_id:
-        prod_file = await callback.bot.get_file(prod_id)
-        prod_bytes = await callback.bot.download_file(prod_file.file_path)
-        image_bytes = prod_bytes.read()
-            # Загружаем фото модели (референс)
-            ref_id = data.get("own_ref_photo_id")
-            if ref_id:
-        ref_file = await callback.bot.get_file(ref_id)
-                ref_bytes = await callback.bot.download_file(ref_file.file_path)
-                reference_bytes = ref_bytes.read()
-    else:
-        user_photo_id = data.get("user_photo_id")
-            if user_photo_id:
-        file = await callback.bot.get_file(user_photo_id)
-        file_bytes = await callback.bot.download_file(file.file_path)
-        image_bytes = file_bytes.read()
-                # Референс (модель)
-                if not data.get("random_mode"):
-                    model = await db.get_model_by_index(category, data.get("cloth"), data.get("index"))
-                    if model and model[3]:
-                        ref_file = await callback.bot.get_file(model[3])
-                        ref_f = await callback.bot.download_file(ref_file.file_path)
-                        reference_bytes = ref_f.read()
-
-        if not image_bytes:
-            stop_event.set()
-            await callback.message.answer("Ошибка: фото не загружено.")
-            return
-
-        # Ротация ключей
-    settings = load_settings()
-        
-        # Определяем, какую таблицу ключей использовать
+        await _replace_with_text(callback, get_string("gen_processing", lang))
+    
+        # Выбор API ключа
+        category = data.get("category")
         is_own_variant = (category == "own_variant")
         
+        # Если normal_gen_mode, используем обычные ключи Gemini
+        if data.get("normal_gen_mode"):
+            is_own_variant = False
+            
         if is_own_variant:
-            # Для "Своего варианта фона" используем специальные ключи
-            keys_with_ids = await db.list_own_variant_api_keys()
-            # list_own_variant_api_keys возвращает (id, token, is_active)
-            tokens_order = []
-            for kid, tok, is_active in keys_with_ids:
-                if is_active:
-                    tokens_order.append((kid, tok))
+            api_keys = await db.list_own_variant_api_keys()
         else:
-            # Для всех остальных (включая Обычную генерацию) используем общие ключи Gemini
-    keys_with_ids = await db.list_api_keys()
-            # list_api_keys возвращает 9 колонок
-            tokens_order = []
-            for kid, tok, is_active, prio, du, tu, lr, ca, ua in keys_with_ids:
-                if is_active:
-                    # Проверяем лимиты перед добавлением в список
-                    can_use, reason = await db.check_api_key_limits(kid)
-                    if can_use:
-                        tokens_order.append((kid, tok))
-                    else:
-                        logger.info(f"API key {kid} skipped: {reason}")
-        
-        # Если есть индивидуальный ключ для 4K
-        if quality == '4K' and ind_key:
-            tokens_order.insert(0, (None, ind_key))
-        
-        if not tokens_order:
-            stop_event.set()
-            await callback.bot.edit_message_text(chat_id=callback.message.chat.id, message_id=progress_msg.message_id, text="❌ " + get_string("gen_error", lang))
-            await callback.message.answer(get_string("gen_error", lang) + "\n\n⚠️ Все API ключи исчерпали лимиты. Обратитесь к администратору.")
+            api_keys = await db.list_api_keys()
+            
+        # Фильтруем только активные
+        active_keys = [k for k in api_keys if k[2]] # is_active
+        if not active_keys:
+            await _replace_with_text(callback, get_string("api_error_user", lang))
             return
+            
+        # Перебираем ключи пока не найдем рабочий (rotate)
+        result_url = None
+        error_msg = None
         
-    result_bytes = None
-        last_error = None
-        aspect_ratio = data.get("aspect", "1:1").replace("x", ":")
-    for key_id, token in tokens_order:
-        try:
-                # Дополнительная проверка перед использованием
-                if key_id:
-                    can_use, reason = await db.check_api_key_limits(key_id)
-                    if not can_use:
-                        logger.info(f"API key {key_id} limit reached before use: {reason}")
-                        continue
+        import random
+        random.shuffle(active_keys)
+        
+        for key_tuple in active_keys:
+            kid = key_tuple[0]
+            token = key_tuple[1]
+            
+            # Проверка лимитов ключа
+            if is_own_variant:
+                ok, limit_err = await db.check_own_variant_rate_limit(kid)
+            else:
+                ok, limit_err = await db.check_api_key_limits(kid)
                 
-                result_bytes = await generate_image(token, prompt_filled, image_bytes, reference_bytes, aspect_ratio=aspect_ratio, key_id=key_id, db_instance=db)
-            if result_bytes:
-                    if key_id: 
-                        await db.record_api_usage(key_id)
-                        # Проверяем, не достиг ли ключ лимита после использования
-                        can_use, reason = await db.check_api_key_limits(key_id)
-                        if not can_use and "Total limit" in reason:
-                            logger.info(f"API key {key_id} reached total limit after usage, deactivated")
-                break
-        except Exception as e:
-            last_error = e
-                error_str = str(e)
+            if not ok:
+                logger.warning(f"Key {kid} reached limit: {limit_err}")
+                continue
                 
-                # Определяем тип ошибки и записываем в БД
-                # Проверяем атрибуты исключения из gemini.py
-                is_proxy_error = getattr(e, 'is_proxy_error', False) or any(x in error_str.lower() for x in ["proxy", "connection", "timeout", "network"])
-                status_code = getattr(e, 'status_code', None)
-                error_type = getattr(e, 'error_type', None)
+            # Пробуем генерацию
+            from bot.gemini import generate_image
+            
+            input_photos = data.get("photos", [])
+            
+            try:
+                bot = callback.bot
                 
-                if status_code is None:
-                    if "429" in error_str:
-                        status_code = 429
-                    elif "400" in error_str:
-                        status_code = 400
+                downloaded_paths = []
+                import uuid
+                for fid in input_photos:
+                    f_info = await bot.get_file(fid)
+                    ext = f_info.file_path.split('.')[-1]
+                    p = f"data/temp_{uuid.uuid4()}.{ext}"
+                    await bot.download_file(f_info.file_path, p)
+                    downloaded_paths.append(p)
                 
-                if error_type is None:
-                    error_type = "429" if status_code == 429 else ("quota" if "quota" in error_str.lower() else ("proxy" if is_proxy_error else "unknown"))
+                # Aspect ratio
+                aspect = data.get("aspect", "1:1").replace(":", "x")
                 
-                # Получаем preview ключа для логирования
-                api_key_preview = token[:10] + "..." if len(token) > 10 else token
+                # Вызываем генерацию
+                from bot.gemini import generate_image
+                result_path = await generate_image(
+                    api_key=token,
+                    prompt=prompt_filled,
+                    image_paths=downloaded_paths,
+                    aspect_ratio=aspect,
+                    quality=quality
+                )
                 
-                # Записываем ошибку в БД
-                if key_id:
-                    await db.record_api_error(key_id, api_key_preview, error_type, error_str[:500], status_code, is_proxy_error)
+                # Чистим временные файлы
+                import os
+                for p in downloaded_paths:
+                    try: os.remove(p)
+                    except: pass
+                
+                if result_path:
+                    # Успех! Записываем использование
+                    if is_own_variant:
+                        await db.record_own_variant_usage(kid)
+                    else:
+                        await db.record_api_usage(kid)
+                        
+                    # Отправляем результат
+                    from aiogram.types import FSInputFile
+                    res_msg = await bot.send_photo(
+                        chat_id=user_id,
+                        photo=FSInputFile(result_path),
+                        caption=get_string("gen_success", lang),
+                        reply_markup=result_actions_keyboard(lang) if not is_own_variant else result_actions_own_keyboard(lang)
+                    )
                     
-                    if "quota" in error_str.lower() or status_code == 429:
-                    await db.update_api_key(key_id, is_active=0)
-            continue
-
-        stop_event.set()
-        if result_bytes:
-            # Списание
-            total_after = total_tenths - price_tenths
-            new_balance = total_after // 10
-            new_frac = total_after % 10
-            await db.increment_user_balance(user_id, new_balance - balance)
-            await db.set_user_fraction(user_id, new_frac)
-            await db.update_daily_usage(user_id)
-            
-        photo_file = BufferedInputFile(result_bytes, filename="result.png")
-            await callback.bot.edit_message_text(chat_id=callback.message.chat.id, message_id=progress_msg.message_id, text="✅ " + get_string("gen_ready", lang))
-            
-            kb = result_actions_own_keyboard(lang) if category == "own_variant" else result_actions_keyboard(lang)
-            await callback.message.answer_document(document=photo_file, caption=get_string("gen_success", lang), reply_markup=kb)
-    await state.set_state(CreateForm.result_ready)
-        else:
-            await callback.bot.edit_message_text(chat_id=callback.message.chat.id, message_id=progress_msg.message_id, text=get_string("gen_error_contact_support", lang))
-
+                    # Сохраняем в историю
+                    import json
+                    pid = await db.generate_pid()
+                    await db.add_generation_history(
+                        pid=pid,
+                        user_id=user_id,
+                        category=category,
+                        params=json.dumps(data),
+                        input_photos=json.dumps(input_photos),
+                        result_photo_id=res_msg.photo[-1].file_id
+                    )
+                    
+                    # Списываем баланс
+                    await db.increment_user_balance(user_id, -(price_tenths // 10))
+                    # Остаток в фракции
+                    rem = price_tenths % 10
+                    if rem > 0:
+                        cur_frac = await db.get_user_fraction(user_id)
+                        new_frac = cur_frac - rem
+                        if new_frac < 0:
+                            await db.increment_user_balance(user_id, -1)
+                            new_frac += 10
+                        await db.set_user_fraction(user_id, new_frac)
+                    
+                    # Инкрементируем daily_usage подписки
+                    await db.update_daily_usage(user_id)
+                    
+                    try: os.remove(result_path)
+                    except: pass
+                    
+                    await state.set_state(CreateForm.result_ready)
+                    await state.update_data(last_pid=pid)
+                    return
+                    
+            except Exception as e:
+                logger.error(f"Generation error with key {kid}: {e}")
+                from bot.gemini import is_proxy_error
+                await db.record_api_error(
+                    key_id=kid,
+                    api_key_preview=token[:10],
+                    error_type=type(e).__name__,
+                    error_message=str(e),
+                    is_proxy_error=is_proxy_error(e)
+                )
+                error_msg = str(e)
+                continue
+        
+        # Если дошли сюда, значит все ключи не сработали
+        await _replace_with_text(callback, get_string("api_error_user", lang))
+        
     except Exception as e:
-        logger.error(f"Глобальная ошибка в form_generate: {e}", exc_info=True)
-        await callback.message.answer("Произошла неожиданная ошибка при генерации.")
+        logger.exception(f"Critical error in form_generate: {e}")
+        await _safe_answer(callback, get_string("internal_error", lang), show_alert=True)
 
 
 @router.callback_query(F.data == "result_edit")
@@ -2750,39 +2763,35 @@ async def on_result_edit_text(message: Message, state: FSMContext, db: Database)
                 if can_use: tokens_order.append((kid, tok))
 
     if not tokens_order:
-        await message.answer("Все API ключи исчерпали лимиты. Попробуйте позже.")
+        await message.answer(get_string("api_limit_reached", lang))
         return
 
     result_bytes = None
     for key_id, token in tokens_order:
         try:
+            # Используем FSInputFile для консистентности или оставляем как есть если gemini.py возвращает байты
             result_bytes = await generate_image(token, prompt_filled, user_image_bytes, None, key_id=key_id, db_instance=db)
             if result_bytes:
                 if key_id and not is_own_variant:
                     await db.record_api_usage(key_id)
                 break
-    except Exception as e:
+        except Exception as e:
             logger.error(f"Error during edit with key {key_id}: {e}")
             continue
 
     if not result_bytes:
-        await message.answer("Генерация не вернула изображение. Попробуйте позже.")
+        await message.answer(get_string("gen_no_image", lang))
         return
 
     try:
         # Списываем 1 генерацию при успехе
         await db.increment_user_balance(message.from_user.id, -1)
-        try:
-            await db.add_transaction(message.from_user.id, -1, "spend", "edit_generation")
-        except Exception:
-            pass
+        # ...
         photo_file = BufferedInputFile(result_bytes, filename="result.png")
         # после правок оставляем только кнопку «Главное меню»
-        lang = await db.get_user_language(message.from_user.id)
         await message.answer_document(document=photo_file, caption=get_string("gen_ready", lang), reply_markup=back_main_keyboard(lang))
     except Exception as e:
-        lang = await db.get_user_language(message.from_user.id)
-        await message.answer(get_string("gen_error", lang) + f": {e}")
+        await message.answer(get_string("gen_error_contact_support", lang))
     await state.clear()
 
 
@@ -2855,7 +2864,7 @@ async def on_menu_profile(callback: CallbackQuery, db: Database) -> None:
         text = get_string("profile_info", lang, id=callback.from_user.id, sub=get_string("sub_none", lang), expires="—", daily_rem=0)
     
     await _replace_with_text(callback, text, reply_markup=profile_keyboard(lang))
-        await _safe_answer(callback)
+    await _safe_answer(callback)
 
 @router.callback_query(F.data == "menu_subscription")
 async def on_sub_menu(callback: CallbackQuery, db: Database) -> None:
@@ -2939,7 +2948,7 @@ async def on_buy_plan(callback: CallbackQuery, db: Database) -> None:
     plan = await db.get_subscription_plan(plan_id)
     if not plan:
         await _safe_answer(callback, "План не найден.", show_alert=True)
-            return
+        return
     
     # plan structure: (id, name_ru, name_en, name_vi, desc_ru, desc_en, desc_vi, price, duration, limit, active)
     name = plan[1] if lang == "ru" else (plan[2] if lang == "en" else plan[3])

@@ -369,7 +369,7 @@ async def add_full_model(
     category: str = Form(...),
     name: str = Form(...),
     prompt_text: str = Form(...),
-    photo: UploadFile = File(...),
+    photo: UploadFile = File(None),
     db: aiosqlite.Connection = Depends(get_db),
     user: str = Depends(get_current_username)
 ):
@@ -381,13 +381,32 @@ async def add_full_model(
     async with db.execute("SELECT last_insert_rowid()") as cur:
         model_id = (await cur.fetchone())[0]
     
-    file_path = f"{UPLOAD_DIR}/model_{model_id}.jpg"
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(photo.file, buffer)
+    if photo and photo.filename:
+        file_path = f"{UPLOAD_DIR}/model_{model_id}.jpg"
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(photo.file, buffer)
+        
+        rel_path = os.path.relpath(file_path, BASE_DIR).replace("\\", "/")
+        await db.execute("UPDATE models SET photo_file_id=? WHERE id=?", (rel_path, model_id))
     
-    rel_path = os.path.relpath(file_path, BASE_DIR).replace("\\", "/")
-    await db.execute("UPDATE models SET photo_file_id=? WHERE id=?", (rel_path, model_id))
     await db.commit()
+    return RedirectResponse(url="/prompts", status_code=303)
+
+@app.get("/models/delete_photo/{model_id}")
+async def delete_model_photo(model_id: int, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    async with db.execute("SELECT photo_file_id FROM models WHERE id=?", (model_id,)) as cur:
+        row = await cur.fetchone()
+        if row and row[0]:
+            photo_path = row[0]
+            if photo_path.startswith("data/"):
+                full_path = os.path.join(BASE_DIR, photo_path)
+                if os.path.exists(full_path):
+                    try:
+                        os.remove(full_path)
+                    except Exception as e:
+                        print(f"Error removing file {full_path}: {e}")
+            await db.execute("UPDATE models SET photo_file_id=NULL WHERE id=?", (model_id,))
+            await db.commit()
     return RedirectResponse(url="/prompts", status_code=303)
 
 @app.get("/settings", response_class=HTMLResponse)

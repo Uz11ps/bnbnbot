@@ -60,7 +60,7 @@
                         <input type="text" name="name" class="form-control" placeholder="Имя модели" required>
                     </div>
                     <div class="col-md-4">
-                        <input type="file" name="photo" class="form-control" accept="image/*" required>
+                        <input type="file" name="photo" class="form-control" accept="image/*">
                     </div>
                     <div class="col-md-12">
                         <textarea name="prompt_text" class="form-control" rows="2" placeholder="Текст промпта" required></textarea>
@@ -94,13 +94,18 @@
                                 <div class="row">
                                     <div class="col-4">
                                         {% if m.photo_file_id %}
-                                            {% if m.photo_file_id.startswith('data/') %}
-                                                <img src="/{{ m.photo_file_id }}" class="img-fluid rounded mb-2 shadow-sm" alt="Model">
-                                            {% else %}
-                                                <div class="text-center py-4 bg-light rounded small mb-2">TG Photo<br>{{ m.photo_file_id[:10] }}...</div>
-                                            {% endif %}
+                                            <div class="position-relative">
+                                                {% if m.photo_file_id.startswith('data/') %}
+                                                    <img src="/{{ m.photo_file_id }}" class="img-fluid rounded mb-2 shadow-sm" alt="Model">
+                                                {% else %}
+                                                    <div class="text-center py-4 bg-light rounded small mb-2">TG Photo<br>{{ m.photo_file_id[:10] }}...</div>
+                                                {% endif %}
+                                                <a href="/models/delete_photo/{{ m.id }}" class="btn btn-xs btn-danger position-absolute top-0 end-0 m-1" title="Удалить фото" onclick="return confirm('Удалить только фото?')">
+                                                    <i class="bi bi-x"></i>
+                                                </a>
+                                            </div>
                                         {% else %}
-                                            <div class="text-center py-4 bg-light rounded small mb-2">Нет фото</div>
+                                            <div class="text-center py-4 bg-light rounded small mb-2 text-muted">Нет фото</div>
                                         {% endif %}
                                         <input type="file" name="photo" class="form-control form-control-sm" accept="image/*">
                                     </div>

@@ -1166,76 +1166,113 @@ async def on_aspect_selected(callback: CallbackQuery, state: FSMContext, db: Dat
     
     data = await state.get_data()
     category = data.get("category")
+    lang = await db.get_user_language(callback.from_user.id)
+    parts = ["📋 Проверьте выбранные параметры:\n\n"]
     
-    # ... логика формирования предпросмотра ...
-    if data.get("infographic_mode"):
-        load = data.get("info_load") or "—"
-        lang_code = data.get("info_lang") or "—"
-        brand = data.get("info_brand") or "—"
-        adv = f"{data.get('info_adv1', '')} {data.get('info_adv2', '')} {data.get('info_adv3', '')}".strip() or "—"
-        extra = data.get("info_extra") or "—"
+    if data.get("normal_gen_mode"):
+        parts.append("📦 **Категория**: ✨ ОБЫЧНАЯ ГЕНЕРАЦИЯ\n")
+        parts.append(f"📝 **Промпт**: {data.get('prompt', '—')}\n")
+    
+    elif category == "own_variant":
+        parts.append("📦 **Категория**: 🖼️ Свой вариант ФОНА\n")
+        parts.append(f"🧥 **Длина рукав**: {data.get('own_sleeve', '—')}\n")
+        parts.append(f"📏 **Длина изделия**: {data.get('own_length', '—')}\n")
+        view_map = {"close": "Близкий", "far": "Дальний", "medium": "Средний", "front": "Спереди", "back": "Сзади", "side": "Сбоку"}
+        parts.append(f"👀 **Ракурс**: {view_map.get(data.get('view'), 'Средний')}\n")
+    
+    elif data.get("random_other_mode"):
+        parts.append("📦 **Категория**: 📦 Рандом для остальных видов товара\n")
+        has_person = "Да" if data.get("has_person") else "Нет"
+        parts.append(f"👤 **Человек**: {has_person}\n")
+        if data.get("has_person"):
+            info_load = data.get("info_load") or "—"
+            product_name = data.get("product_name") or "—"
+            view = "Спереди" if data.get("view") == "front" else "Сзади"
+            dist_map = {"close": "Близкий", "far": "Дальний", "medium": "Средний"}
+            dist = dist_map.get(data.get("dist"), "—")
+            parts.append(f"📊 **Нагруженность**: {info_load}\n")
+            parts.append(f"📝 **Название**: {product_name}\n")
+            parts.append(f"👀 **Угол**: {view}\n")
+            parts.append(f"📏 **Ракурс**: {dist}\n")
+            dims = f"{data.get('height_cm', '—')}x{data.get('width_cm', '—')}x{data.get('length_cm', '—')}"
+            parts.append(f"📐 **ВxШxД**: {dims} см\n")
+            parts.append(f"⏳ **Сезон**: {data.get('season', '—')}\n")
+            parts.append(f"🎨 **Стиль**: {data.get('style', '—')}\n")
+    
+    elif data.get("own_mode"):
+        parts.append("📦 **Категория**: ✨ Свой вариант МОДЕЛИ\n")
+        view_map = {"close": "Близкий", "far": "Дальний", "medium": "Средний", "front": "Спереди", "back": "Сзади", "side": "Сбоку"}
+        parts.append(f"👀 **Ракурс**: {view_map.get(data.get('view'), 'Средний')}\n")
+        parts.append(f"🧥 **Длина рукав**: {data.get('own_sleeve', '—')}\n")
+        parts.append(f"📏 **Длина изделия**: {data.get('own_length', '—')}\n")
         
-        parts = [
-            "📋 Проверьте выбранные параметры:\n\n",
-            f"📦 **Категория**: 📊 Инфографика ({category})\n",
-            f"📊 **Нагруженность**: {load}\n",
-            f"🌐 **Язык**: {lang_code}\n",
-            f"📝 **Бренд**: {brand}\n",
-            f"✨ **Преимущества**: {adv}\n",
-            f"➕ **Доп. инфо**: {extra}\n"
-        ]
+    elif data.get("infographic_mode"):
+        parts.append(f"📦 **Категория**: 📊 Инфографика ({category})\n")
+        parts.append(f"📊 **Нагруженность**: {data.get('info_load', '—')}\n")
+        parts.append(f"🌐 **Язык**: {data.get('info_lang', '—')}\n")
+        parts.append(f"📝 **Бренд**: {data.get('info_brand', '—')}\n")
+        adv = f"{data.get('info_adv1', '')} {data.get('info_adv2', '')} {data.get('info_adv3', '')}".strip() or "—"
+        parts.append(f"✨ **Преимущества**: {adv}\n")
+        parts.append(f"➕ **Доп. инфо**: {data.get('info_extra', '—')}\n")
         
         if category == "infographic_clothing":
-            parts.extend([
-                f"📐 **Телосложение**: {data.get('size', '—')}\n",
-                f"📏 **Рост**: {data.get('height', '—')} см\n",
-                f"✂️ **Крой**: {data.get('pants_style', '—')}\n",
-                f"🧥 **Рукав**: {data.get('sleeve', '—')}\n",
-                f"👀 **Угол**: {data.get('info_angle', '—')}\n",
-                f"📏 **Ракурс**: {data.get('info_dist', '—')}\n",
-                f"🧘 **Поза**: {data.get('info_pose', '—')}\n",
-                f"👗 **Длина**: {data.get('length', '—')}\n"
-            ])
+            parts.append(f"📐 **Телосложение**: {data.get('size', '—')}\n")
+            parts.append(f"📏 **Рост**: {data.get('height', '—')} см\n")
+            parts.append(f"✂️ **Крой**: {data.get('pants_style', '—')}\n")
+            parts.append(f"🧥 **Рукав**: {data.get('sleeve', '—')}\n")
+            parts.append(f"👀 **Угол**: {data.get('info_angle', '—')}\n")
+            parts.append(f"📏 **Ракурс**: {data.get('info_dist', '—')}\n")
+            parts.append(f"🧘 **Поза**: {data.get('info_pose', '—')}\n")
+            parts.append(f"👗 **Длина**: {data.get('length', '—')}\n")
             
-        parts.extend([
-            f"🖼️ **Формат**: {aspect.replace('x', ':')}\n\n",
-            "Все верно? Нажмите кнопку ниже для генерации."
-        ])
-    # ... остальная логика ...
-        # Универсальная сборка параметров для остальных категорий
-        cloth = data.get("cloth")
-        height = data.get("height")
-        age_key = data.get("age")
-        age_map = {
-            "20_26": "20-26 лет",
-            "30_38": "30-38 лет",
-            "40_48": "40-48 лет",
-            "55_60": "55-60 лет",
-        }
-        age = age_map.get(age_key, age_key or "—")
-        view_key = data.get("view")
+    elif data.get("random_mode"):
+        parts.append("📦 **Категория**: 🎨 Рандом (Одежда)\n")
+        gender_map = {"male":"Мужчина","female":"Женщина","boy":"Мальчик","girl":"Девочка"}
+        parts.append(f"🚻 **Пол**: {gender_map.get(data.get('rand_gender'), '—')}\n")
+        parts.append(f"📏 **Рост**: {data.get('height', '—')} см\n")
+        age_map = {"20_26": "20-26 лет", "30_38": "30-38 лет", "40_48": "40-48 лет", "55_60": "55-60 лет"}
+        parts.append(f"🎂 **Возраст**: {age_map.get(data.get('age'), '—')}\n")
+        parts.append(f"📐 **Телосложение**: {data.get('size', '—')}\n")
+        
+        loc_map = {"inside_restaurant":"В ресторане","photo_studio":"В фотостудии","coffee_shop":"В кофейне","city":"В городе","building":"У здания","wall":"У стены","park":"В парке","coffee_shop_out":"У кофейни","forest":"В лесу","car":"У машины"}
+        location = data.get("rand_location")
+        if location == "custom":
+            parts.append(f"📍 **Локация**: {data.get('rand_location_custom', '—')}\n")
+        else:
+            parts.append(f"📍 **Локация**: {loc_map.get(location, location or '—')}\n")
+            
+        vibe_map = {"summer":"Лето","winter":"Зима","autumn":"Осень","spring":"Весна"}
+        parts.append(f"🎞 **Вайб**: {vibe_map.get(data.get('rand_vibe'), data.get('rand_vibe', '—'))}\n")
+        
         view_map = {"close": "Близкий", "far": "Дальний", "medium": "Средний", "front": "Спереди", "back": "Сзади", "side": "Сбоку"}
-        view = view_map.get(view_key, "Средний")
-        sleeve = data.get("sleeve") or "—"
-        length = data.get("length") or "—"
-        size = data.get("size") or "—"
-        
+        parts.append(f"👀 **Ракурс**: {view_map.get(data.get('view'), 'Средний')}\n")
+
+    else:
+        # Обычная модель
         cat_name = "Женская" if category == "female" else "Мужская" if category == "male" else "Детская" if category == "child" else category
+        parts.append(f"📦 **Категория**: {cat_name}\n")
+        parts.append(f"👕 **Тип одежды**: {data.get('cloth', '—')}\n")
+        parts.append(f"📏 **Рост**: {data.get('height', '—')} см\n")
+        age_map = {"20_26": "20-26 лет", "30_38": "30-38 лет", "40_48": "40-48 лет", "55_60": "55-60 лет"}
+        parts.append(f"🎂 **Возраст**: {age_map.get(data.get('age'), '—')}\n")
         
-        parts = [
-            "📋 Проверьте выбранные параметры:\n\n",
-            f"📦 **Категория**: {cat_name}\n",
-            f"👕 **Тип одежды**: {cloth}\n",
-            f"📏 **Рост**: {height} см\n",
-            f"🎂 **Возраст**: {age}\n",
-            f"📏 **Длина изделия**: {length}\n",
-            f"📐 **Телосложение**: {size}\n",
-            f"🧥 **Рукав**: {sleeve}\n",
-            f"👀 **Ракурс**: {view}\n",
-            f"🖼️ **Формат**: {aspect.replace('x', ':')}\n\n",
-            "Все верно? Нажмите кнопку ниже для генерации."
-        ]
+        if data.get("plus_mode"):
+            loc_map = {"outdoor":"На улице","wall":"Возле стены","car":"Возле машины","park":"В парке","bench":"У лавочки","restaurant":"Возле ресторана","studio":"Фотостудия"}
+            parts.append(f"📍 **Локация**: {loc_map.get(data.get('plus_loc'), '—')}\n")
+            season_map = {"winter":"Зима","summer":"Лето","spring":"Весна","autumn":"Осень"}
+            parts.append(f"🕒 **Сезон**: {season_map.get(data.get('plus_season'), '—')}\n")
+            vibe_map = {"decor":"С декором","plain":"Без декора","normal":"Обычный"}
+            parts.append(f"🎞 **Вайб**: {vibe_map.get(data.get('plus_vibe'), '—')}\n")
         
+        parts.append(f"📏 **Длина изделия**: {data.get('length', '—')}\n")
+        parts.append(f"📐 **Телосложение**: {data.get('size', '—')}\n")
+        parts.append(f"🧥 **Рукав**: {data.get('sleeve', '—')}\n")
+        view_map = {"close": "Близкий", "far": "Дальний", "medium": "Средний", "front": "Спереди", "back": "Сзади", "side": "Сбоку"}
+        parts.append(f"👀 **Ракурс**: {view_map.get(data.get('view'), 'Средний')}\n")
+
+    parts.append(f"🖼️ **Формат**: {aspect.replace('x', ':')}\n\n")
+    parts.append("Все верно? Нажмите кнопку ниже для генерации.")
+    
     await _replace_with_text(callback, "".join(parts), reply_markup=form_generate_keyboard())
     await _safe_answer(callback)
 
@@ -2172,110 +2209,8 @@ async def handle_user_photo(message: Message, state: FSMContext, db: Database) -
         await state.set_state(CreateForm.waiting_info_gender)
         return
 
-    # Собираем параметры для других режимов
-    # ... (код ниже остается прежним, но мы добавляем переход в waiting_aspect В КОНЦЕ)
-
-    # Собираем параметры для других режимов
-    category = data.get("category")
-    cloth = data.get("cloth")
-    # Тип фигуры (телосложение) теперь используется — берём из state
-    height = data.get("height")
-    length = data.get("length") or "—"
-    age_key = data.get("age")
-    age_map = {
-        "20_26": "Молодая модель возраста 20-26 лет",
-        "30_38": "Взрослая модель возраста 30-38 лет",
-        "40_48": "Зрелая модель возраста 40-48 лет",
-        "55_60": "Пожилая модель возраста 55-60 лет",
-    }
-    age = age_map.get(age_key, age_key or "—")
-    view_key = data.get("view")
-    view_map_readable = {"close": "Близкий", "far": "Дальний", "medium": "Средний", "front": "Спереди", "back": "Сзади", "side": "Сбоку"}
-    view = view_map_readable.get(view_key, "Средний")
-    aspect = data.get("aspect", "auto")
-    sleeve = data.get("sleeve") or "—"
-    size_desc = data.get("size") or "—"
-    foot_size = data.get("foot_size")
-    gender = data.get("gender")
-
-    # Формируем текст подтверждения безопасно через список частей
-    parts = []
-    
-    parts.append("📋 Проверьте выбранные параметры:\n\n")
-    parts.append(f"📦 **Категория**: {('Женская' if category=='female' else 'Мужская' if category=='male' else 'Детская')}\n")
-    if gender:
-        parts.append(f"🚻 **Пол**: {gender}\n")
-    parts.append(f"👕 **Тип одежды**: {cloth}\n")
-    rm = data.get("random_mode")
-    parts.append("**Режим**: 🎨 Рандом\n" if rm else "**Режим**: 🎨 Модель (фон)\n")
-    parts.append(f"📏 **Рост модели**: {height} см\n")
-    parts.append(f"🎂 **Возраст модели**: {age}\n")
-    # Плюс-режим: дополнительные поля
-    if data.get("plus_mode"):
-        loc_map = {
-            "outdoor":"На улице",
-            "wall":"Возле стены",
-            "car":"Возле машины",
-            "park":"В парке",
-            "bench":"У лавочки",
-            "restaurant":"Возле ресторана",
-            "studio":"Фотостудия",
-        }
-        season_map = {"winter":"Зима","summer":"Лето","spring":"Весна","autumn":"Осень"}
-        vibe_map = {"decor":"С декором элементами","plain":"Без декора","normal":"Обычный"}
-        if data.get('plus_loc'):
-            parts.append(f"📍 **Локация**: {loc_map.get(data.get('plus_loc'))}\n")
-        if data.get('plus_season'):
-            parts.append(f"🕒 **Сезон**: {season_map.get(data.get('plus_season'))}\n")
-        if data.get('plus_vibe'):
-            parts.append(f"🎞 **Вайб**: {vibe_map.get(data.get('plus_vibe'))}\n")
-    if category in ("female","male") and cloth != 'shoes':
-        parts.append(f"📐 **Телосложение**: {size_desc}\n")
-    parts.append(f"👀 **Ракурс**: {view}\n")
-    if not (category == 'child' and cloth=='shoes') and cloth != 'pants':
-        parts.append(f"🧥 **Длина рукав**: {sleeve}\n")
-    if cloth == 'shoes' and foot_size:
-        parts.append(f"👣 **Размер ноги**: {foot_size}\n")
-    # Рандом — дополнительные поля
-    if rm:
-        loc_group = data.get("rand_loc_group")
-        location = data.get("rand_location")
-        vibe = data.get("rand_vibe")
-        decor = data.get("rand_decor")
-        shot = data.get("rand_shot")
-        pants_style = data.get("pants_style")
-        gender_map = {"male":"Мужчина","female":"Женщина","boy":"Мальчик","girl":"Девочка"}
-        parts.append(f"🚻 **Пол**: {gender_map.get(data.get('rand_gender'),'—')}\n")
-        loc_map = {"inside_restaurant":"Внутри ресторана","photo_studio":"В фотостудии","coffee_shop":"У кофейни (внутри)","city":"В городе","building":"У здания","wall":"У стены","park":"В парке","coffee_shop_out":"У кофейни (снаружи)","forest":"В лесу","car":"У машины"}
-        vibe_map = {"summer":"Лето","winter":"Зима","autumn":"Осень","spring":"Весна"}
-        if location:
-            if location == 'custom':
-                custom = (data.get('rand_location_custom') or '').strip()
-                if custom:
-                    parts.append(f"📍 **Локация**: {custom}\n")
-            else:
-                parts.append(f"📍 **Локация**: {loc_map.get(location, location)}\n")
-        if vibe:
-            parts.append(f"🎞 **Вайб**: {vibe_map.get(vibe, vibe)}\n")
-        if location == 'photo_studio' and decor:
-            parts.append(f"🎀 **Декор студии**: {'С декором' if decor=='decor' else 'Без декора'}\n")
-        if shot:
-            shot_view = "В полный рост" if shot == 'full' else "Близкий ракурс"
-            parts.append(f"🎯 **Ракурс**: {shot_view}\n")
-        if pants_style and pants_style != 'skip':
-            style_map = {"relaxed":"Свободный крой","slim":"Зауженный","banana":"Бананы","flare_knee":"Клеш от колен","baggy":"Багги","mom":"Мом","straight":"Прямые"}
-            parts.append(f"👖 **Крой штанов**: {style_map.get(pants_style, pants_style)}\n")
-    # Плюс-режим: отобразим выбранный крой
-    if data.get('plus_mode'):
-        pstyle = data.get('pants_style')
-        if pstyle and pstyle != 'skip':
-            style_map = {"relaxed":"Свободный крой","slim":"Зауженный","banana":"Бананы","flare_knee":"Клеш от колен","baggy":"Багги","mom":"Мом","straight":"Прямые"}
-            parts.append(f"👖 **Крой штанов**: {style_map.get(pstyle, pstyle)}\n")
-    if aspect and aspect != "auto":
-        parts.append(f"🖼️ **Формат**: {aspect.replace('x', ':')}")
-    text = ''.join(parts)
-    
-    lang = await db.get_user_language(message.from_user.id)
+    # Для всех остальных режимов — переходим к выбору формата
+    from bot.keyboards import aspect_ratio_keyboard
     await message.answer(get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
     await state.set_state(CreateForm.waiting_aspect)
 

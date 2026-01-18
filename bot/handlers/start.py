@@ -594,7 +594,8 @@ async def on_storefront_category(callback: CallbackQuery, db: Database, state: F
     await state.clear()
     await state.update_data(category="storefront")
     lang = await db.get_user_language(callback.from_user.id)
-    await _replace_with_text(callback, get_string("select_gender", lang), reply_markup=female_clothes_keyboard(lang, back_data="menu_market"))
+    from bot.keyboards import gender_selection_keyboard
+    await _replace_with_text(callback, get_string("select_gender", lang), reply_markup=gender_selection_keyboard("storefront", lang, back_data="menu_market"))
     await _safe_answer(callback)
 
 
@@ -611,7 +612,25 @@ async def on_whitebg_category(callback: CallbackQuery, db: Database, state: FSMC
     await state.clear()
     await state.update_data(category="whitebg")
     lang = await db.get_user_language(callback.from_user.id)
-    await _replace_with_text(callback, get_string("select_gender", lang), reply_markup=female_clothes_keyboard(lang, back_data="menu_market"))
+    from bot.keyboards import gender_selection_keyboard
+    await _replace_with_text(callback, get_string("select_gender", lang), reply_markup=gender_selection_keyboard("whitebg", lang, back_data="menu_market"))
+    await _safe_answer(callback)
+
+@router.callback_query(F.data.startswith("gender_select:"))
+async def on_generic_gender_select(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    parts = callback.data.split(":")
+    category = parts[1]
+    gender = parts[2]
+    
+    # Сохраняем данные
+    await state.update_data(category=category, gender=gender, cloth="all")
+    
+    # Если это категория child, дополнительно помечаем child_gender для совместимости
+    if category == "child":
+        await state.update_data(child_gender=gender)
+        
+    # Сразу показываем модели для этой категории и пола
+    await _show_models_for_category(callback, db, category, "all")
     await _safe_answer(callback)
 
 # --- РАЗДЕЛ ИНФОГРАФИКА ---

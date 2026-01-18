@@ -89,6 +89,22 @@ def marketplace_menu_keyboard(enabled: dict[str, bool], lang="ru") -> InlineKeyb
     rows.append([InlineKeyboardButton(text=get_string("back", lang), callback_data="back_main")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
+def gender_selection_keyboard(category: str, lang="ru", back_data="menu_market") -> InlineKeyboardMarkup:
+    """Универсальная клавиатура выбора пола для разных категорий"""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text=get_string("cat_female", lang), callback_data=f"gender_select:{category}:female"),
+                InlineKeyboardButton(text=get_string("cat_male", lang), callback_data=f"gender_select:{category}:male")
+            ],
+            [
+                InlineKeyboardButton(text=get_string("gender_boy", lang), callback_data=f"gender_select:{category}:boy"),
+                InlineKeyboardButton(text=get_string("gender_girl", lang), callback_data=f"gender_select:{category}:girl")
+            ],
+            [InlineKeyboardButton(text=get_string("back", lang), callback_data=back_data)]
+        ]
+    )
+
 def plans_keyboard(plans: list[tuple], lang="ru") -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
     for plan in plans:

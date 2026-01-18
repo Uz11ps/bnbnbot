@@ -556,8 +556,9 @@ async def on_rand_other_angle(callback: CallbackQuery, state: FSMContext, db: Da
     view = callback.data.split(":")[1]
     await state.update_data(view=view)
     lang = await db.get_user_language(callback.from_user.id)
+    # После угла — Ракурс (Дальний/Средний/Близкий) (п. 5)
     from bot.keyboards import camera_dist_keyboard
-    await _replace_with_text(callback, get_string("select_view", lang), reply_markup=camera_dist_keyboard(lang))
+    await _replace_with_text(callback, "Выберите ракурс фотографии (Дальний/Средний/Близкий):", reply_markup=camera_dist_keyboard(lang))
     await state.set_state(CreateForm.waiting_rand_other_dist)
     await _safe_answer(callback)
 
@@ -567,16 +568,9 @@ async def on_rand_other_dist(callback: CallbackQuery, state: FSMContext, db: Dat
     await state.update_data(dist=dist)
     lang = await db.get_user_language(callback.from_user.id)
     
-    data = await state.get_data()
-    if data.get("random_other_mode"):
-        # Для Рандом прочее: после ракурса — к позе (п. 13)
-        from bot.keyboards import pose_keyboard
-        await _replace_with_text(callback, "Выберите позу модели:", reply_markup=pose_keyboard(lang))
-        await state.set_state(CreateForm.waiting_info_pose)
-    else:
-        # Стандарт
-        await _replace_with_text(callback, get_string("enter_height_cm", lang), reply_markup=skip_step_keyboard("rand_height", lang))
-        await state.set_state(CreateForm.waiting_rand_other_height)
+    # После ракурса — Высота (п. 8: сперва высоту потом ширину и потом длину)
+    await _replace_with_text(callback, "Введите высоту (см):", reply_markup=skip_step_keyboard("rand_height", lang))
+    await state.set_state(CreateForm.waiting_rand_other_height)
     await _safe_answer(callback)
 
 @router.message(CreateForm.waiting_rand_other_height)
@@ -589,7 +583,8 @@ async def on_rand_other_height(message_or_callback: Message | CallbackQuery, sta
     else:
         await state.update_data(height_cm="")
     
-    msg_text = get_string("enter_width_cm", lang)
+    # После высоты — Ширина (п. 8)
+    msg_text = "Введите ширину (см):"
     markup = skip_step_keyboard("rand_width", lang)
     if isinstance(message_or_callback, Message):
         await message_or_callback.answer(msg_text, reply_markup=markup)
@@ -608,7 +603,8 @@ async def on_rand_other_width(message_or_callback: Message | CallbackQuery, stat
     else:
         await state.update_data(width_cm="")
     
-    msg_text = get_string("enter_length_cm", lang)
+    # После ширины — Длина (п. 8)
+    msg_text = "Введите длину (см):"
     markup = skip_step_keyboard("rand_length", lang)
     if isinstance(message_or_callback, Message):
         await message_or_callback.answer(msg_text, reply_markup=markup)
@@ -627,15 +623,26 @@ async def on_rand_other_length(message_or_callback: Message | CallbackQuery, sta
     else:
         await state.update_data(length_cm="")
     
-    msg_text = get_string("select_vibe", lang)
-    from bot.keyboards import plus_season_keyboard
-    markup = plus_season_keyboard(lang)
+    # После длины — Сезон (п. 9)
+    msg_text = "Введите сезон или вайб (например: лето, зимний):"
+    markup = back_step_keyboard(lang)
     if isinstance(message_or_callback, Message):
         await message_or_callback.answer(msg_text, reply_markup=markup)
     else:
         await _replace_with_text(message_or_callback, msg_text, reply_markup=markup)
         await _safe_answer(message_or_callback)
     await state.set_state(CreateForm.waiting_rand_other_season)
+
+@router.message(CreateForm.waiting_rand_other_season)
+async def on_rand_other_season_input(message: Message, state: FSMContext, db: Database) -> None:
+    text = (message.text or "").strip()
+    await state.update_data(season=text)
+    lang = await db.get_user_language(message.from_user.id)
+    # После сезона — Стиль (п. 10)
+    from bot.keyboards import style_keyboard
+    await message.answer(get_string("select_style", lang), reply_markup=style_keyboard(lang))
+    await state.set_state(CreateForm.waiting_rand_other_style)
+
 
 @router.callback_query(CreateForm.waiting_rand_other_season, F.data.startswith("plus_season:"))
 async def on_rand_other_season(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
@@ -768,9 +775,17 @@ async def on_infographic_gender(callback: CallbackQuery, state: FSMContext, db: 
     g = callback.data.split(":")[1]
     await state.update_data(info_gender=g)
     lang = await db.get_user_language(callback.from_user.id)
-    # После пола в инфографике одежда — нагруженность (как в п. 11)
-    await _replace_with_text(callback, get_string("enter_info_load", lang), reply_markup=skip_step_keyboard("info_load", lang))
-    await state.set_state(CreateForm.waiting_info_load)
+    data = await state.get_data()
+    
+    if data.get("random_mode"):
+        # Одежда и обувь РАНДОМ: убираем нагруженность и стиль, сразу к локации (п. 7)
+        from bot.keyboards import random_loc_group_keyboard
+        await _replace_with_text(callback, get_string("select_loc_group", lang), reply_markup=random_loc_group_keyboard(lang))
+        await state.set_state(CreateForm.waiting_rand_loc_group)
+    else:
+        # Обычная инфографика: нагруженность (как и было)
+        await _replace_with_text(callback, get_string("enter_info_load", lang), reply_markup=skip_step_keyboard("info_load", lang))
+        await state.set_state(CreateForm.waiting_info_load)
     await _safe_answer(callback)
 
 

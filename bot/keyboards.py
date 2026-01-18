@@ -236,9 +236,9 @@ def yes_no_keyboard(lang="ru") -> InlineKeyboardMarkup:
 def style_keyboard(lang="ru") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=get_string("style_modern", lang), callback_data="style:modern"), InlineKeyboardButton(text=get_string("style_brutal", lang), callback_data="style:brutal")],
-            [InlineKeyboardButton(text=get_string("style_techno", lang), callback_data="style:techno"), InlineKeyboardButton(text=get_string("style_art", lang), callback_data="style:art")],
-            [InlineKeyboardButton(text=get_string("style_design", lang), callback_data="style:design"), InlineKeyboardButton(text=get_string("style_festive", lang), callback_data="style:festive")],
+            [InlineKeyboardButton(text="Современный", callback_data="style:modern"), InlineKeyboardButton(text="Брутальный", callback_data="style:brutal")],
+            [InlineKeyboardButton(text="Техно", callback_data="style:techno"), InlineKeyboardButton(text="Арт", callback_data="style:art")],
+            [InlineKeyboardButton(text="Дизайнерский", callback_data="style:design"), InlineKeyboardButton(text="Праздничный", callback_data="style:festive")],
             [InlineKeyboardButton(text=get_string("custom_variant", lang), callback_data="style:custom")],
             [InlineKeyboardButton(text=get_string("skip", lang), callback_data="style:skip")],
             [InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")]

@@ -318,7 +318,7 @@ async def on_marketplace_menu(callback: CallbackQuery, db: Database) -> None:
         settings = load_settings()
         if callback.from_user.id not in (settings.admin_ids or []):
             await _safe_answer(callback, get_string("maintenance_alert", lang), show_alert=True)
-        return
+            return
     balance = await db.get_user_balance(callback.from_user.id)
     if balance <= 0:
         await _safe_answer(callback, get_string("limit_rem_zero", lang), show_alert=True)

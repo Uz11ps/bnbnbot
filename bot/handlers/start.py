@@ -307,7 +307,6 @@ async def on_create_photo(callback: CallbackQuery, db: Database, state: FSMConte
     text = get_string("upload_photo", lang)
     await _replace_with_text(callback, text, reply_markup=back_main_keyboard(lang))
     await state.set_state(CreateForm.waiting_view)
-    await _safe_answer(callback)
 
 
 @router.callback_query(F.data == "menu_market")

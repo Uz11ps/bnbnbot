@@ -307,7 +307,7 @@ async def on_create_photo(callback: CallbackQuery, db: Database, state: FSMConte
     text = get_string("upload_photo", lang)
     await _replace_with_text(callback, text, reply_markup=back_main_keyboard(lang))
     await state.set_state(CreateForm.waiting_view)
-        await _safe_answer(callback)
+    await _safe_answer(callback)
 
 
 @router.callback_query(F.data == "menu_market")
@@ -324,7 +324,7 @@ async def on_marketplace_menu(callback: CallbackQuery, db: Database) -> None:
         await _safe_answer(callback, get_string("limit_rem_zero", lang), show_alert=True)
         return
     
-        statuses = await db.list_categories_enabled()
+    statuses = await db.list_categories_enabled()
     from bot.keyboards import marketplace_menu_keyboard
     await _replace_with_text(callback, get_string("marketplace_menu", lang), reply_markup=marketplace_menu_keyboard(statuses, lang))
     await _safe_answer(callback)

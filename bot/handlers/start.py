@@ -44,6 +44,8 @@ from bot.keyboards import (
     plus_season_keyboard,
     plus_vibe_keyboard,
     plus_gender_keyboard,
+    info_lang_keyboard,
+    skip_step_keyboard,
 )
 from bot.db import Database
 from bot.strings import get_string
@@ -483,7 +485,7 @@ async def on_rand_other_has_person(callback: CallbackQuery, state: FSMContext, d
         await state.set_state(CreateForm.waiting_rand_other_gender)
     else:
         # Если нет — переходим к нагруженности инфографики (шаг 3 в списке пользователя, но по логике шаг 2 без человека)
-        await _replace_with_text(callback, get_string("enter_info_load", lang), reply_markup=back_step_keyboard(lang))
+        await _replace_with_text(callback, get_string("enter_info_load", lang), reply_markup=skip_step_keyboard("info_load", lang))
         await state.set_state(CreateForm.waiting_rand_other_load)
     await _safe_answer(callback)
 
@@ -492,7 +494,7 @@ async def on_rand_other_gender(callback: CallbackQuery, state: FSMContext, db: D
     gender = callback.data.split(":")[1]
     await state.update_data(gender=gender)
     lang = await db.get_user_language(callback.from_user.id)
-    await _replace_with_text(callback, get_string("enter_info_load", lang), reply_markup=back_step_keyboard(lang))
+    await _replace_with_text(callback, get_string("enter_info_load", lang), reply_markup=skip_step_keyboard("info_load", lang))
     await state.set_state(CreateForm.waiting_rand_other_load)
     await _safe_answer(callback)
 
@@ -698,7 +700,7 @@ async def on_infographic_category(callback: CallbackQuery, state: FSMContext, db
         await _replace_with_text(callback, get_string("select_gender", lang), reply_markup=infographic_gender_keyboard(lang, back_data="create_cat:infographics"))
     else: # infographic_other
         # Для остальных товаров сразу переходим к нагруженности
-        await _replace_with_text(callback, get_string("enter_info_load", lang), reply_markup=back_step_keyboard(lang))
+        await _replace_with_text(callback, get_string("enter_info_load", lang), reply_markup=skip_step_keyboard("info_load", lang))
         await state.set_state(CreateForm.waiting_info_load)
     await _safe_answer(callback)
 
@@ -708,6 +710,7 @@ async def on_infographic_gender(callback: CallbackQuery, state: FSMContext, db: 
     g = callback.data.split(":")[1]
     await state.update_data(info_gender=g)
     lang = await db.get_user_language(callback.from_user.id)
+    from bot.keyboards import infographic_style_keyboard
     await _replace_with_text(callback, get_string("select_info_style", lang), reply_markup=infographic_style_keyboard(lang))
     await _safe_answer(callback)
 
@@ -718,7 +721,7 @@ async def on_infographic_style(callback: CallbackQuery, state: FSMContext, db: D
     await state.update_data(info_style=val)
     lang = await db.get_user_language(callback.from_user.id)
     # Запрашиваем нагруженность как текстовый ввод от 1 до 10
-    await _replace_with_text(callback, get_string("enter_info_load", lang), reply_markup=back_step_keyboard(lang))
+    await _replace_with_text(callback, get_string("enter_info_load", lang), reply_markup=skip_step_keyboard("info_load", lang))
     await state.set_state(CreateForm.waiting_info_load)
     await _safe_answer(callback)
 
@@ -760,15 +763,6 @@ async def on_infographic_load_skip(callback: CallbackQuery, state: FSMContext, d
     await _safe_answer(callback)
 
 
-@router.callback_query(F.data.startswith("info_load:"))
-async def on_infographic_load_skip(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
-    # Обработка пропуска через кнопку (если осталась где-то)
-    await state.update_data(info_load="")
-    lang = await db.get_user_language(callback.from_user.id)
-    await _replace_with_text(callback, get_string("select_info_lang", lang), reply_markup=info_lang_keyboard(lang))
-    await _safe_answer(callback)
-
-
 @router.callback_query(F.data == "back_step", CreateForm.waiting_info_load)
 async def on_back_from_info_load(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     lang = await db.get_user_language(callback.from_user.id)
@@ -784,7 +778,6 @@ async def on_back_from_info_load(callback: CallbackQuery, state: FSMContext, db:
 @router.callback_query(F.data == "back_step", CreateForm.waiting_info_brand)
 async def on_back_from_info_brand(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     lang = await db.get_user_language(callback.from_user.id)
-    from bot.keyboards import info_lang_keyboard
     await _replace_with_text(callback, get_string("select_info_lang", lang), reply_markup=info_lang_keyboard(lang))
     await state.set_state(None) # Callback handles state transition
     await _safe_answer(callback)
@@ -2266,7 +2259,6 @@ async def on_back_from_pants_style(callback: CallbackQuery, state: FSMContext, d
 @router.callback_query(F.data == "back_step", CreateForm.waiting_info_lang_custom)
 async def on_back_from_info_lang_custom(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     lang = await db.get_user_language(callback.from_user.id)
-    from bot.keyboards import info_lang_keyboard
     await _replace_with_text(callback, get_string("select_info_lang", lang), reply_markup=info_lang_keyboard(lang))
     await state.set_state(None)
     await _safe_answer(callback)
@@ -2298,7 +2290,7 @@ async def on_back_from_rand_other_load(callback: CallbackQuery, state: FSMContex
 @router.callback_query(F.data == "back_step", CreateForm.waiting_rand_other_name)
 async def on_back_from_rand_other_name(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     lang = await db.get_user_language(callback.from_user.id)
-    await _replace_with_text(callback, get_string("enter_info_load", lang), reply_markup=back_step_keyboard(lang))
+    await _replace_with_text(callback, get_string("enter_info_load", lang), reply_markup=skip_step_keyboard("info_load", lang))
     await state.set_state(CreateForm.waiting_rand_other_load)
 
 @router.callback_query(F.data == "back_step", CreateForm.waiting_rand_other_angle)

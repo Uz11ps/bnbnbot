@@ -862,17 +862,33 @@ class Database:
 
     async def get_user_subscription(self, user_id: int) -> tuple | None:
         async with aiosqlite.connect(self._db_path) as db:
-            async with db.execute(
-                "SELECT id, plan_type, expires_at, daily_limit, daily_usage, last_usage_reset, individual_api_key "
-                "FROM subscriptions WHERE user_id=? AND datetime(expires_at) > datetime('now') "
-                "ORDER BY expires_at DESC LIMIT 1",
-                (user_id,)
-            ) as cur:
+            # Используем максимально надежное сравнение дат для SQLite
+            sql = """
+                SELECT id, plan_type, expires_at, daily_limit, daily_usage, last_usage_reset, individual_api_key 
+                FROM subscriptions 
+                WHERE user_id=? AND datetime(expires_at) > datetime('now', 'utc')
+                ORDER BY expires_at DESC LIMIT 1
+            """
+            async with db.execute(sql, (user_id,)) as cur:
                 sub = await cur.fetchone()
                 if not sub:
+                    # Дополнительная проверка: может быть проблема с часовым поясом
+                    # Попробуем без учета UTC
+                    sql_fallback = """
+                        SELECT id, plan_type, expires_at, daily_limit, daily_usage, last_usage_reset, individual_api_key 
+                        FROM subscriptions 
+                        WHERE user_id=? AND datetime(expires_at) > datetime('now')
+                        ORDER BY expires_at DESC LIMIT 1
+                    """
+                    async with db.execute(sql_fallback, (user_id,)) as cur_f:
+                        sub = await cur_f.fetchone()
+                
+                if not sub:
+                    logger.info(f"Subscription not found for user {user_id}")
                     return None
                 
                 sub_id, plan_type, expires_at, daily_limit, daily_usage, last_reset, ind_key = sub
+                logger.info(f"Found sub for {user_id}: {plan_type}, expires: {expires_at}")
                 
                 # Автоматический сброс лимита при наступлении нового дня
                 from datetime import datetime

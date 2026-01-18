@@ -96,12 +96,12 @@
                                         {% if m.photo_file_id %}
                                             <div class="position-relative">
                                                 {% if m.photo_file_id.startswith('data/') %}
-                                                    <img src="/{{ m.photo_file_id }}" class="img-fluid rounded mb-2 shadow-sm" alt="Model">
+                                                    <img src="/{{ m.photo_file_id }}" class="img-fluid rounded mb-2 shadow-sm" alt="Model" style="display: block; width: 100%;">
                                                 {% else %}
                                                     <div class="text-center py-4 bg-light rounded small mb-2">TG Photo<br>{{ m.photo_file_id[:10] }}...</div>
                                                 {% endif %}
-                                                <a href="/models/delete_photo/{{ m.id }}" class="btn btn-xs btn-danger position-absolute top-0 end-0 m-1" title="Удалить фото" onclick="return confirm('Удалить только фото?')">
-                                                    <i class="bi bi-x"></i>
+                                                <a href="/models/delete_photo/{{ m.id }}" class="btn btn-danger btn-sm position-absolute top-0 end-0 m-1 shadow-sm" style="z-index: 10; padding: 2px 6px;" title="Удалить только фото" onclick="return confirm('Удалить только фото?')">
+                                                    <i class="bi bi-trash"></i>
                                                 </a>
                                             </div>
                                         {% else %}

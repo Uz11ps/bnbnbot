@@ -12,6 +12,7 @@ import json
 import shutil
 from aiogram import Bot
 from bot.config import load_settings
+from bot.strings import get_string
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 
@@ -205,6 +206,43 @@ async def run_broadcast(message_text: str):
         except Exception: continue
     await bot.session.close()
     await db.close()
+
+async def send_subscription_notification(user_id: int, plan_name: str, expires_at_str: str, daily_limit: int, lang: str):
+    """Отправляет уведомление пользователю об активации подписки"""
+    if settings.bot_token == "MOCK": return
+    
+    try:
+        # Форматируем дату и время
+        try:
+            expires_str = expires_at_str.replace('Z', '') if 'Z' in expires_at_str else expires_at_str
+            if 'T' in expires_str:
+                expires_dt = datetime.fromisoformat(expires_str)
+            else:
+                expires_dt = datetime.fromisoformat(expires_str + "T00:00:00")
+            expires_date = expires_dt.strftime("%d.%m.%Y")
+            expires_time = expires_dt.strftime("%H:%M")
+        except Exception:
+            if 'T' in expires_at_str:
+                parts = expires_at_str.split('T')
+                date_part = parts[0]
+                time_part = parts[1][:5] if len(parts[1]) >= 5 else "00:00"
+                expires_date = ".".join(reversed(date_part.split("-")))
+                expires_time = time_part
+            else:
+                expires_date = expires_at_str[:10]
+                expires_time = "00:00"
+
+        text = get_string("sub_success_congrats", lang, 
+                         plan_name=plan_name,
+                         expires_date=expires_date,
+                         expires_time=expires_time,
+                         daily_limit=daily_limit)
+        
+        bot = Bot(token=settings.bot_token)
+        await bot.send_message(user_id, text)
+        await bot.session.close()
+    except Exception as e:
+        print(f"Error sending subscription notification to {user_id}: {e}")
 
 # --- Роуты ---
 
@@ -657,6 +695,17 @@ async def edit_subscription(
         )
             
         await db.commit()
+
+        # Отправляем уведомление пользователю
+        try:
+            async with db.execute("SELECT language FROM users WHERE id=?", (user_id,)) as cur:
+                row = await cur.fetchone()
+                lang = row[0] if row and row[0] else "ru"
+            
+            await send_subscription_notification(user_id, plan_type, expires_str, limit, lang)
+        except Exception as e:
+            print(f"Error in post-grant notification: {e}")
+
         return RedirectResponse(url=f"/users?q={user_id}", status_code=303)
     except Exception as e:
         print(f"Error in edit_subscription: {e}")

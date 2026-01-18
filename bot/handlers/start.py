@@ -600,7 +600,7 @@ async def on_rand_other_style(callback: CallbackQuery, state: FSMContext, db: Da
         if val != "skip":
             await state.update_data(style=val)
         else:
-        await state.update_data(style="")
+            await state.update_data(style="")
         await _replace_with_text(callback, get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
         await state.set_state(CreateForm.waiting_aspect)
     await _safe_answer(callback)
@@ -1508,7 +1508,7 @@ async def on_model_pick(callback: CallbackQuery, db: Database, state: FSMContext
                     await _replace_with_text(callback, "Выберите локацию:", reply_markup=plus_location_keyboard())
                     await state.set_state(CreateForm.plus_loc)
                 else:
-        await _replace_with_text(callback, "Выберите телосложение:", reply_markup=form_size_keyboard(category))
+                    await _replace_with_text(callback, "Выберите телосложение:", reply_markup=form_size_keyboard(category))
                     await state.set_state(CreateForm.waiting_size)
     await _safe_answer(callback)
 
@@ -1555,7 +1555,7 @@ async def on_pants_style(callback: CallbackQuery, state: FSMContext, db: Databas
             await _replace_with_text(callback, "Выберите локацию:", reply_markup=plus_location_keyboard())
             await state.set_state(CreateForm.plus_loc)
         else:
-        await _replace_with_text(callback, "Выберите телосложение:", reply_markup=form_size_keyboard(category))
+            await _replace_with_text(callback, "Выберите телосложение:", reply_markup=form_size_keyboard(category))
             await state.set_state(CreateForm.waiting_size)
     await _safe_answer(callback)
 
@@ -1636,7 +1636,7 @@ async def form_set_age_message(message: Message, state: FSMContext, db: Database
             await state.set_state(CreateForm.waiting_view)
             await message.answer(get_string("select_camera_dist", lang), reply_markup=form_view_keyboard(lang))
         else:
-        await _ask_garment_length(message, state, db)
+            await _ask_garment_length(message, state, db)
     else:
         # Взрослые: после возраста — к выбору телосложения
         await state.set_state(CreateForm.waiting_size)
@@ -1765,7 +1765,7 @@ async def on_garment_len_callback(callback: CallbackQuery, state: FSMContext, db
             await state.set_state(CreateForm.waiting_own_cut)
             await _replace_with_text(callback, get_string("select_pants_style", lang), reply_markup=pants_style_keyboard(lang))
         else:
-        await _replace_with_text(callback, get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
+            await _replace_with_text(callback, get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
             await state.set_state(CreateForm.waiting_aspect)
         await _safe_answer(callback)
         return
@@ -1938,7 +1938,7 @@ async def form_set_view(callback: CallbackQuery, state: FSMContext, db: Database
                 await _replace_with_text(callback, get_string("upload_bg_photo", lang), reply_markup=back_step_keyboard(lang))
                 await state.set_state(CreateForm.waiting_own_bg_photo)
             else:
-        await _replace_with_text(callback, get_string("upload_model_photo", lang), reply_markup=back_step_keyboard(lang))
+                await _replace_with_text(callback, get_string("upload_model_photo", lang), reply_markup=back_step_keyboard(lang))
                 await state.set_state(CreateForm.waiting_ref_photo)
             await _safe_answer(callback)
             return
@@ -2205,7 +2205,7 @@ async def on_back_from_view(callback: CallbackQuery, state: FSMContext, db: Data
             await _replace_with_text(callback, "Введите размер ноги ребенка (например: 31) или отправьте 'Пропустить':")
             await state.set_state(CreateForm.waiting_foot)
         else:
-        await _ask_garment_length(callback, state, db)
+            await _ask_garment_length(callback, state, db)
     else:
         await state.set_state(CreateForm.waiting_sleeve)
         await _replace_with_text(callback, "Выберите тип рукава (или пропустите):", reply_markup=sleeve_length_keyboard(lang))
@@ -2739,7 +2739,7 @@ async def form_generate(callback: CallbackQuery, state: FSMContext, db: Database
                     if is_own_variant:
                         await db.record_own_variant_usage(kid)
                     else:
-        await db.record_api_usage(kid)
+                        await db.record_api_usage(kid)
                         
                     # Отправляем результат
                     from aiogram.types import FSInputFile

@@ -126,6 +126,7 @@ class CreateForm(StatesGroup):
     waiting_preset_dist = State()
     waiting_preset_view = State()
     waiting_preset_season = State()
+    waiting_preset_holiday = State()
     # ...
     # Random Other flow
     waiting_rand_other_has_person = State()
@@ -2365,8 +2366,32 @@ async def on_preset_season(callback: CallbackQuery, state: FSMContext, db: Datab
     season_map = {"summer": "Лето", "winter": "Зима", "autumn": "Осень", "spring": "Весна", "skip": ""}
     await state.update_data(season=season_map.get(season, season))
     lang = await db.get_user_language(callback.from_user.id)
+    data = await state.get_data()
     
-    # К выбору формата (пропуская праздник по просьбе юзера)
+    # Праздник нужен в "Одежда и Обувь РАНДОМ"
+    if data.get("random_mode"):
+        from bot.keyboards import random_holiday_keyboard
+        await _replace_with_text(callback, "Выберите праздник (если есть):", reply_markup=random_holiday_keyboard(lang))
+        await state.set_state(CreateForm.waiting_preset_holiday)
+    else:
+        # Для Пресетов пропускаем праздник по просьбе юзера
+        from bot.keyboards import aspect_ratio_keyboard
+        await _replace_with_text(callback, get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
+        await state.set_state(CreateForm.waiting_aspect)
+    await _safe_answer(callback)
+
+@router.callback_query(CreateForm.waiting_preset_holiday, F.data.startswith("rand_holiday:") | F.data.startswith("holiday:"))
+async def on_preset_holiday(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    val = callback.data.split(":", 1)[1]
+    holiday_map = {
+        "wedding": "Свадьба", "bday": "День рождения", "may9": "9 мая",
+        "newyear": "Новый год", "christmas": "Рождество", "feb23": "23 февраля",
+        "march8": "8 марта", "sale": "Распродажа", "skip": ""
+    }
+    await state.update_data(holiday=holiday_map.get(val, val))
+    lang = await db.get_user_language(callback.from_user.id)
+    
+    # К выбору формата
     from bot.keyboards import aspect_ratio_keyboard
     await _replace_with_text(callback, get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
     await state.set_state(CreateForm.waiting_aspect)
@@ -2963,6 +2988,11 @@ async def on_back_from_aspect(callback: CallbackQuery, state: FSMContext, db: Da
             await state.set_state(CreateForm.waiting_view)
     # 4. Рандом одежда
     elif data.get("random_mode"):
+        from bot.keyboards import random_holiday_keyboard
+        await _replace_with_text(callback, "Выберите праздник (если есть):", reply_markup=random_holiday_keyboard(lang))
+        await state.set_state(CreateForm.waiting_preset_holiday)
+    # 5. Пресеты
+    elif data.get("is_preset"):
         from bot.keyboards import random_season_keyboard
         await _replace_with_text(callback, "Выберите сезон:", reply_markup=random_season_keyboard(lang))
         await state.set_state(CreateForm.waiting_preset_season)
@@ -3019,6 +3049,14 @@ async def on_back_from_pants_style(callback: CallbackQuery, state: FSMContext, d
     lang = await db.get_user_language(callback.from_user.id)
     await _replace_with_text(callback, get_string("enter_height", lang))
     await state.set_state(CreateForm.waiting_height)
+    await _safe_answer(callback)
+
+@router.callback_query(F.data == "back_step", CreateForm.waiting_preset_holiday)
+async def on_back_from_preset_holiday(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    lang = await db.get_user_language(callback.from_user.id)
+    from bot.keyboards import random_season_keyboard
+    await _replace_with_text(callback, "Выберите сезон:", reply_markup=random_season_keyboard(lang))
+    await state.set_state(CreateForm.waiting_preset_season)
     await _safe_answer(callback)
 
 @router.callback_query(F.data == "back_step", CreateForm.waiting_preset_season)

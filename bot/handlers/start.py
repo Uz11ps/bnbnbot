@@ -960,6 +960,7 @@ async def on_info_age(message: Message, state: FSMContext, db: Database) -> None
     age_text = (message.text or "").strip()
     await state.update_data(age=age_text)
     lang = await db.get_user_language(message.from_user.id)
+    
     # Далее Нагруженность инфографики (п. 3)
     await message.answer(get_string("enter_info_load", lang), reply_markup=skip_step_keyboard("info_load", lang))
     await state.set_state(CreateForm.waiting_info_load)
@@ -1097,11 +1098,36 @@ async def on_back_from_info_adv3(callback: CallbackQuery, state: FSMContext, db:
     await state.set_state(CreateForm.waiting_info_adv2)
     await _safe_answer(callback)
 
-@router.callback_query(F.data == "back_step", CreateForm.waiting_info_extra)
-async def on_back_from_info_extra(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+@router.callback_query(F.data == "back_step", CreateForm.waiting_info_holiday)
+async def on_back_from_info_holiday(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     lang = await db.get_user_language(callback.from_user.id)
-    await _replace_with_text(callback, get_string("enter_adv3_skip", lang), reply_markup=skip_step_keyboard("info_adv3", lang))
-    await state.set_state(CreateForm.waiting_info_adv3)
+    from bot.keyboards import random_season_keyboard
+    await _replace_with_text(callback, "Выберите сезон:", reply_markup=random_season_keyboard(lang))
+    await state.set_state(CreateForm.waiting_info_season)
+    await _safe_answer(callback)
+
+@router.callback_query(F.data == "back_step", CreateForm.waiting_info_season)
+async def on_back_from_info_season(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    data = await state.get_data()
+    lang = await db.get_user_language(callback.from_user.id)
+    if data.get("has_person"):
+        # Если есть человек - назад к позе
+        from bot.keyboards import pose_keyboard
+        await _replace_with_text(callback, "Выберите позу модели:", reply_markup=pose_keyboard(lang))
+        await state.set_state(CreateForm.waiting_info_pose)
+    else:
+        # Если нет человека - назад к ракурсу
+        from bot.keyboards import angle_keyboard
+        await _replace_with_text(callback, "Выберите ракурс (Дальний/Средний/Близкий):", reply_markup=angle_keyboard(lang))
+        await state.set_state(CreateForm.waiting_preset_dist)
+    await _safe_answer(callback)
+
+@router.callback_query(F.data == "back_step", CreateForm.waiting_info_pose)
+async def on_back_from_info_pose(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    lang = await db.get_user_language(callback.from_user.id)
+    from bot.keyboards import angle_keyboard
+    await _replace_with_text(callback, "Выберите ракурс (Дальний/Средний/Близкий):", reply_markup=angle_keyboard(lang))
+    await state.set_state(CreateForm.waiting_preset_dist)
     await _safe_answer(callback)
 
 @router.callback_query(F.data == "back_step", CreateForm.waiting_info_angle)
@@ -2236,7 +2262,7 @@ async def form_set_view(callback: CallbackQuery, state: FSMContext, db: Database
         await state.update_data(info_angle=view)
         # Далее Ракурс (Дальний/Средний/Близкий) - angle_keyboard
         await _replace_with_text(callback, "Выберите ракурс (Дальний/Средний/Близкий):", reply_markup=angle_keyboard(lang))
-        await state.set_state(CreateForm.waiting_view)
+        await state.set_state(CreateForm.waiting_preset_dist)
         await _safe_answer(callback)
         return
 
@@ -2310,8 +2336,8 @@ async def on_dist_selected(callback: CallbackQuery, state: FSMContext, db: Datab
     lang = await db.get_user_language(callback.from_user.id)
     current_state = await state.get_state()
 
-    # Инфографика (waiting_view + infographic_mode)
-    if data.get("infographic_mode") and current_state == CreateForm.waiting_view.state:
+    # Инфографика (waiting_view или waiting_preset_dist + infographic_mode)
+    if data.get("infographic_mode"):
         await state.update_data(info_dist=dist_val)
         
         # Для всей инфографики (и одежда, и прочее): Поза (если есть человек)
@@ -2412,14 +2438,17 @@ async def on_info_pose(callback: CallbackQuery, state: FSMContext, db: Database)
     lang = await db.get_user_language(callback.from_user.id)
     
     data = await state.get_data()
-    if data.get("infographic_mode") and data.get("category") == "infographic_clothing":
-        # Для инфографики одежда: после позы — к длине изделия (п. 14)
-        await _ask_garment_length(callback, state, db)
-    elif data.get("infographic_mode") and data.get("category") == "infographic_other":
-        # Для инфографики прочее: после позы — к сезону
-        from bot.keyboards import random_season_keyboard
-        await _replace_with_text(callback, "Выберите сезон:", reply_markup=random_season_keyboard(lang))
-        await state.set_state(CreateForm.waiting_info_season)
+    if data.get("infographic_mode"):
+        if data.get("category") == "infographic_clothing":
+            # Для инфографики одежда: после позы — к длине изделия (п. 14)
+            await _ask_garment_length(callback, state, db)
+        else: # infographic_other
+            # Для инфографики прочее: после позы — к сезону
+            from bot.keyboards import random_season_keyboard
+            await _replace_with_text(callback, "Выберите сезон:", reply_markup=random_season_keyboard(lang))
+            await state.set_state(CreateForm.waiting_info_season)
+        await _safe_answer(callback)
+        return
     elif data.get("category") in ("female", "male", "child") and not data.get("random_mode") and not data.get("infographic_mode"):
         # Для пресетов: после позы — к ракурсу (п. 9)
         await state.set_state(CreateForm.waiting_preset_dist)
@@ -2627,16 +2656,23 @@ async def on_back_from_view(callback: CallbackQuery, state: FSMContext, db: Data
     # 1. Свой вариант МОДЕЛИ, ФОНА или ВИТРИНА
     if data.get("own_mode") or category == "own_variant" or category == "storefront":
         if category == "storefront":
-            await _ask_garment_length(callback, state, db)
+            # Для витрины: назад к ракурсу
+            await state.set_state(CreateForm.waiting_preset_dist)
+            from bot.keyboards import angle_keyboard
+            await _replace_with_text(callback, "Выберите ракурс фотографии (Дальний/Средний/Близкий):", reply_markup=angle_keyboard(lang))
         else:
             await _ask_sleeve_length(callback, state, db)
         return
     
     if data.get("infographic_mode"):
-        from bot.keyboards import form_view_keyboard
-        # Для инфографики возврат к углу камеры
-        await _replace_with_text(callback, "Выберите угол камеры (Спереди/Сзади):", reply_markup=form_view_keyboard(lang))
-        await state.set_state(CreateForm.waiting_info_angle)
+        if category == "infographic_clothing":
+            # Назад к длине изделия
+            await _ask_garment_length(callback, state, db)
+        else: # infographic_other
+            # Назад к празднику
+            from bot.keyboards import random_holiday_keyboard
+            await _replace_with_text(callback, "Выберите праздник (если есть):", reply_markup=random_holiday_keyboard(lang))
+            await state.set_state(CreateForm.waiting_info_holiday)
         await _safe_answer(callback)
         return
 
@@ -3034,6 +3070,14 @@ async def on_back_from_preset_dist(callback: CallbackQuery, state: FSMContext, d
     lang = await db.get_user_language(callback.from_user.id)
     data = await state.get_data()
     
+    if data.get("infographic_mode"):
+        # Инфографика: назад к углу камеры
+        from bot.keyboards import form_view_keyboard
+        await _replace_with_text(callback, "Выберите угол камеры (Спереди/Сзади):", reply_markup=form_view_keyboard(lang))
+        await state.set_state(CreateForm.waiting_info_angle)
+        await _safe_answer(callback)
+        return
+
     if data.get("category") == "storefront":
         await state.set_state(CreateForm.waiting_preset_view)
         await _replace_with_text(callback, "Выберите угол камеры (Спереди/Сзади):", reply_markup=form_view_keyboard(lang))

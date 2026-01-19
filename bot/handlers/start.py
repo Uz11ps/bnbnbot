@@ -604,30 +604,8 @@ async def on_rand_other_gender(callback: CallbackQuery, state: FSMContext, db: D
     lang = await db.get_user_language(callback.from_user.id)
     # После пола в Рандом прочее — тоже нагруженность (п. 2)
     await _replace_with_text(callback, get_string("enter_info_load", lang), reply_markup=skip_step_keyboard("info_load", lang))
-    await state.set_state(CreateForm.waiting_rand_other_load)
+    await state.set_state(CreateForm.waiting_info_load)
     await _safe_answer(callback)
-
-@router.message(CreateForm.waiting_rand_other_load)
-@router.callback_query(F.data == "info_load:skip")
-async def on_rand_other_load(message_or_callback: Message | CallbackQuery, state: FSMContext, db: Database) -> None:
-    lang = await db.get_user_language(message_or_callback.from_user.id)
-    if isinstance(message_or_callback, Message):
-        text = (message_or_callback.text or "").strip()
-        if text.isdigit() and 1 <= int(text) <= 10:
-            await state.update_data(info_load=text)
-        else:
-            await message_or_callback.answer(get_string("enter_info_load_error", lang))
-            return
-    else:
-        await state.update_data(info_load="")
-
-    msg_text = get_string("enter_product_name", lang)
-    if isinstance(message_or_callback, Message):
-        await message_or_callback.answer(msg_text, reply_markup=back_step_keyboard(lang))
-    else:
-        await _replace_with_text(message_or_callback, msg_text, reply_markup=back_step_keyboard(lang))
-        await _safe_answer(message_or_callback)
-    await state.set_state(CreateForm.waiting_rand_other_name)
 
 @router.message(CreateForm.waiting_rand_other_name)
 async def on_rand_other_name(message: Message, state: FSMContext, db: Database) -> None:

@@ -1174,7 +1174,7 @@ async def on_create_own(callback: CallbackQuery, state: FSMContext, db: Database
         await _safe_answer(callback, "Категория временно недоступна", show_alert=True)
         return
     await state.clear()
-    await state.update_data(own_mode=True)
+    await state.update_data(own_mode=True, category="own")
     lang = await db.get_user_language(callback.from_user.id)
     await _replace_with_text(callback, get_string("upload_model_photo", lang), reply_markup=back_step_keyboard(lang))
     await state.set_state(CreateForm.waiting_ref_photo)
@@ -1284,10 +1284,8 @@ async def on_aspect_selected(callback: CallbackQuery, state: FSMContext, db: Dat
             parts.append(f"⏳ **Сезон**: {data.get('season', '—')}\n")
             parts.append(f"🎨 **Стиль**: {data.get('style', '—')}\n")
     
-    elif data.get("own_mode") or category == "own":
+    elif category == "own" or data.get("own_mode"):
         parts.append("📦 **Категория**: ✨ Свой вариант МОДЕЛИ\n")
-        view_map = {"close": "Близкий", "far": "Дальний", "medium": "Средний", "front": "Спереди", "back": "Сзади", "side": "Сбоку"}
-        parts.append(f"👀 **Ракурс**: {view_map.get(data.get('view'), 'Средний')}\n")
         parts.append(f"🧥 **Длина рукав**: {data.get('own_sleeve', '—')}\n")
         parts.append(f"📏 **Длина изделия**: {data.get('own_length', '—')}\n")
         
@@ -1373,13 +1371,24 @@ async def on_own_model_product_photo(message: Message, state: FSMContext, db: Da
     data = await state.get_data()
     if data.get("repeat_mode"):
         await state.update_data(repeat_mode=False)
+        from bot.keyboards import aspect_ratio_keyboard
+        lang = await db.get_user_language(message.from_user.id)
+        await message.answer(get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
+        await state.set_state(CreateForm.waiting_aspect)
+        return
         
     prod_id = message.photo[-1].file_id
     await state.update_data(own_product_photo_id=prod_id)
-    # Сразу переходим к выбору формата
-    lang = await db.get_user_language(message.from_user.id)
-    await message.answer(get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
-    await state.set_state(CreateForm.waiting_aspect)
+    
+    # Для режима "Свой вариант модели" переходим к выбору рукава (п. 3)
+    if data.get("own_mode"):
+        await _ask_sleeve_length(message, state, db)
+    else:
+        # Сразу переходим к выбору формата для прочих (если такие есть через этот хендлер)
+        lang = await db.get_user_language(message.from_user.id)
+        from bot.keyboards import aspect_ratio_keyboard
+        await message.answer(get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
+        await state.set_state(CreateForm.waiting_aspect)
 
 
 @router.callback_query(F.data.startswith("own_view:"))
@@ -1897,7 +1906,7 @@ async def on_garment_len_callback(callback: CallbackQuery, state: FSMContext, db
     # Фолбэк для own_mode или own_variant
     if data.get("own_mode") or data.get("category") == "own_variant":
         await state.update_data(own_length=length_text)
-        # Переходим к выбору формата
+        # Если мы в режиме "Свой вариант модели", то это финальный шаг опроса — к формату
         await _replace_with_text(callback, get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
         await state.set_state(CreateForm.waiting_aspect)
         await _safe_answer(callback)
@@ -3123,9 +3132,9 @@ async def form_generate(callback: CallbackQuery, state: FSMContext, db: Database
 
 @router.callback_query(F.data == "result_edit")
 async def on_result_edit(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    # Сохраняем текущее состояние перед правками
     await state.set_state(CreateForm.waiting_edit_text)
     lang = await db.get_user_language(callback.from_user.id)
-    # Не трогаем предыдущее сообщение с фото, отправляем новое
     await callback.message.answer(get_string("enter_edit_description", lang))
     await _safe_answer(callback)
 

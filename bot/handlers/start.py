@@ -1647,37 +1647,37 @@ async def on_random_location_custom_text(message: Message, state: FSMContext) ->
 @router.callback_query(F.data.startswith("model_pick:"))
 async def on_model_pick(callback: CallbackQuery, db: Database, state: FSMContext) -> None:
     try:
-        _, category, cloth, index_str = callback.data.split(":", 3)
-        index = int(index_str)
+        parts = callback.data.split(":")
+        category = parts[1]
+        cloth = parts[2]
+        index = int(parts[3])
     except Exception:
         await _safe_answer(callback)
         return
+        
     total = await db.count_models(category, cloth)
     if total <= 0:
         await _safe_answer(callback, "Модели отсутствуют", show_alert=True)
         return
-    # Получаем выбранную модель и её промт
+        
     model = await db.get_model_by_index(category, cloth, index)
     if not model:
         await _safe_answer(callback, "Модель не найдена", show_alert=True)
         return
+        
     model_id, name, prompt_id, _photo = model
-    # сохраним ранее выставленные флаги (например, plus_mode)
-    prev = await state.get_data()
-    plus_mode_flag = bool(prev.get("plus_mode"))
-    await state.clear()
-    await state.update_data(category=category, cloth=cloth, index=index, model_id=model_id, prompt_id=prompt_id, plus_mode=plus_mode_flag)
+    await state.update_data(category=category, cloth=cloth, index=index, model_id=model_id, prompt_id=prompt_id)
     
     lang = await db.get_user_language(callback.from_user.id)
     
-    # Витринное фото (п. 3)
+    # Витринное фото (НОВЫЙ ФЛОУ)
     if category == "storefront":
         await _replace_with_text(callback, "Выберите угол камеры (Спереди/Сзади):", reply_markup=form_view_keyboard(lang))
         await state.set_state(CreateForm.waiting_preset_view)
         await _safe_answer(callback)
         return
 
-    # 1. Возраст (только для взрослых)
+    # 1. Возраст (для обычных пресетов)
     if category in ("female", "male"):
         await _replace_with_text(callback, get_string("select_age", lang), reply_markup=form_age_keyboard(lang))
         await state.set_state(CreateForm.waiting_age)

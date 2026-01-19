@@ -2075,14 +2075,7 @@ async def on_garment_len_callback(callback: CallbackQuery, state: FSMContext, db
     if data.get("own_mode") or data.get("category") == "own_variant" or data.get("category") == "storefront" or data.get("infographic_mode"):
         await state.update_data(own_length=length_text)
 
-        if data.get("category") == "own_variant":
-            # Для "Свой вариант фона" ПОСЛЕ параметров запрашиваем фото фона (1-ое фото)
-            await _replace_with_text(callback, get_string("upload_background", lang), reply_markup=back_step_keyboard(lang))
-            await state.set_state(CreateForm.waiting_own_bg_photo)
-            await _safe_answer(callback)
-            return
-
-        # Для других — просим фото товара (если это инфографика/свой вариант модели/витрина)
+        # Для всех (включая Свой вариант фона) теперь только ОДНО фото товара в конце
         back_kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")]])
         await _replace_with_text(callback, get_string("upload_photo", lang), reply_markup=back_kb)
         await state.set_state(CreateForm.waiting_view)

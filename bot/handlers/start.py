@@ -2097,6 +2097,8 @@ async def on_body_type_skip(callback: CallbackQuery, state: FSMContext, db: Data
     await _replace_with_text(callback, get_string("select_pants_style", lang), reply_markup=pants_style_keyboard(lang))
     await state.set_state(CreateForm.waiting_pants_style)
     await _safe_answer(callback)
+
+@router.message(CreateForm.waiting_height)
 async def form_set_height(message: Message, state: FSMContext, db: Database) -> None:
     text = message.text.strip()
     # простая валидация числа

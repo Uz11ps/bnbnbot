@@ -1723,6 +1723,13 @@ async def on_pants_style(callback: CallbackQuery, state: FSMContext, db: Databas
         await _replace_with_text(callback, "Введите возраст ребенка (в годах):")
         await state.set_state(CreateForm.waiting_age)
     else:
+        # Для пресетов: после кроя — к рукавам (п. 5)
+        if data.get("category") in ("female", "male", "child") and not data.get("random_mode") and not data.get("infographic_mode"):
+            await state.set_state(CreateForm.waiting_sleeve)
+            await _replace_with_text(callback, get_string("select_sleeve_length", lang), reply_markup=sleeve_length_keyboard(lang))
+            await _safe_answer(callback)
+            return
+
         # Для взрослых брюк: если режим Большой размер — далее локация; иначе телосложение
         if data.get("plus_mode"):
             await _replace_with_text(callback, "Выберите локацию:", reply_markup=plus_location_keyboard())

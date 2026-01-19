@@ -1326,8 +1326,8 @@ async def on_create_own_variant(callback: CallbackQuery, state: FSMContext, db: 
     await state.clear()
     await state.update_data(category="own_variant")
     lang = await db.get_user_language(callback.from_user.id)
-    await _replace_with_text(callback, get_string("upload_background", lang), reply_markup=back_step_keyboard(lang))
-    await state.set_state(CreateForm.waiting_own_bg_photo)
+    # СРАЗУ к параметрам (рукава), а фото переносим в конец
+    await _ask_sleeve_length(callback, state, db)
     await _safe_answer(callback)
 
 
@@ -2080,17 +2080,19 @@ async def on_garment_len_callback(callback: CallbackQuery, state: FSMContext, db
     
     # Фолбэк для own_mode или own_variant или storefront или инфографика
     if data.get("own_mode") or data.get("category") == "own_variant" or data.get("category") == "storefront" or data.get("infographic_mode"):
-        if data.get("infographic_mode"):
-            # Для всей инфографики это финальный шаг опроса — к формату
-            await _replace_with_text(callback, get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
-            await state.set_state(CreateForm.waiting_aspect)
+        await state.update_data(own_length=length_text)
+
+        if data.get("category") == "own_variant":
+            # Для "Свой вариант фона" ПОСЛЕ параметров запрашиваем фото фона (1-ое фото)
+            await _replace_with_text(callback, get_string("upload_background", lang), reply_markup=back_step_keyboard(lang))
+            await state.set_state(CreateForm.waiting_own_bg_photo)
             await _safe_answer(callback)
             return
-            
-        await state.update_data(own_length=length_text)
-        # Если мы в режиме "Свой вариант модели" или "Витринное фото", то это финальный шаг опроса — к формату
-        await _replace_with_text(callback, get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
-        await state.set_state(CreateForm.waiting_aspect)
+
+        # Для других — просим фото товара (если это инфографика/свой вариант модели/витрина)
+        back_kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")]])
+        await _replace_with_text(callback, get_string("upload_photo", lang), reply_markup=back_kb)
+        await state.set_state(CreateForm.waiting_view)
         await _safe_answer(callback)
         return
 
@@ -2385,10 +2387,10 @@ async def on_preset_holiday(callback: CallbackQuery, state: FSMContext, db: Data
     await state.update_data(holiday=holiday_map.get(val, val))
     lang = await db.get_user_language(callback.from_user.id)
     
-    # К выбору формата
-    from bot.keyboards import aspect_ratio_keyboard
-    await _replace_with_text(callback, get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
-    await state.set_state(CreateForm.waiting_aspect)
+    # Праздник — финальный шаг в Рандоме. Теперь просим фото (п. 1.1)
+    back_kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")]])
+    await _replace_with_text(callback, get_string("upload_photo", lang), reply_markup=back_kb)
+    await state.set_state(CreateForm.waiting_view)
     await _safe_answer(callback)
 
 @router.callback_query(CreateForm.waiting_info_pose, F.data.startswith("pose:"))

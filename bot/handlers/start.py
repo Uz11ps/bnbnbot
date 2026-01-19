@@ -2527,6 +2527,142 @@ async def on_back_step_fallback(callback: CallbackQuery, state: FSMContext, db: 
     await on_back_main(callback, state, db)
 
 
+async def _build_final_prompt(data: dict, db: Database) -> str:
+    category = data.get("category")
+    
+    prompt_text = ""
+    if data.get("random_mode"):
+        prompt_text = ""
+    elif category == "own_variant":
+        base = await db.get_own_variant_prompt() or "Professional fashion photography. Place the product from the second image onto the background from the first image. Maintain natural lighting, shadows, and perspective. High quality, 8k resolution."
+        prompt_text = base
+    else:
+        if category == "whitebg":
+            base = await db.get_whitebg_prompt()
+            prompt_text = base or ""
+        else:
+            pid = data.get('prompt_id')
+            prompt_text = await db.get_prompt_text(int(pid)) if pid else ""
+
+    age_key = data.get('age')
+    age_map = {
+        "20_26": "Молодая модель возраста 20-26 лет",
+        "30_38": "Взрослая модель возраста 30-38 лет",
+        "40_48": "Зрелая модель возраста 40-48 лет",
+        "55_60": "Пожилая модель возраста 55-60 лет",
+    }
+    age_text = age_map.get(age_key, age_key or "")
+    sleeve_text = data.get('sleeve') or ""
+    size_text = data.get('size') or ""
+        
+    prompt_filled = ""
+    if data.get("own_mode"):
+        own_length = (data.get("own_length") or "")
+        own_sleeve = (data.get("own_sleeve") or "")
+        view_key = data.get("view")
+        view_word = {"close": "close shot", "far": "far shot", "medium": "medium shot"}.get(view_key, "medium shot")
+        
+        base = await db.get_own_prompt3() or "Professional fashion photography. Place the product from the second image on the model from the first image, maintaining the same pose, lighting, and background style. High quality, realistic, natural lighting."
+        prompt_filled = base
+        if own_length: prompt_filled += f" Garment length: {own_length}."
+        if own_sleeve: prompt_filled += f" Sleeve length: {own_sleeve}."
+        if view_word: prompt_filled += f" Camera distance: {view_word}."
+    elif category == "own_variant":
+        own_length = (data.get("own_length") or "")
+        own_sleeve = (data.get("own_sleeve") or "")
+        view_key = data.get("view")
+        view_word = {"close": "close shot", "far": "far shot", "medium": "medium shot"}.get(view_key, "medium shot")
+        
+        prompt_filled = prompt_text
+        if own_length: prompt_filled += f" Garment length: {own_length}."
+        if own_sleeve: prompt_filled += f" Sleeve length: {own_sleeve}."
+        if view_word: prompt_filled += f" Camera distance: {view_word}."
+    elif data.get("random_other_mode"):
+        has_person = data.get("has_person")
+        gender = data.get("gender")
+        load = data.get("info_load")
+        product_name = data.get("product_name")
+        view_key = data.get("view")
+        dist = data.get("dist")
+        h_cm = data.get("height_cm"); w_cm = data.get("width_cm"); l_cm = data.get("length_cm")
+        season = data.get("season")
+        style = data.get("style")
+        
+        view_word = {"close": "близкий", "far": "дальний", "medium": "средний", "back": "сзади", "front": "спереди", "side": "сбоку"}.get(view_key, "спереди")
+        dist_word = {"far": "дальний", "medium": "средний", "close": "близкий"}.get(dist, "средний")
+        gender_word = {"male": "Мужчина", "female": "Женщина", "boy": "Мальчик", "girl": "Девочка"}.get(gender, "")
+        
+        p_parts = ["Professional commercial product photography. High quality, ultra realistic lighting. "]
+        p_parts.append(f"Product: {product_name}. ")
+        if has_person: p_parts.append(f"A {gender_word} is in the scene with the product. ")
+        else: p_parts.append("No people in the shot, focus strictly on the product itself. ")
+        p_parts.append(f"Infographic load: {load}/10. ")
+        p_parts.append(f"Camera angle: {view_word}, Distance: {dist_word}. ")
+        dims = []
+        if h_cm: dims.append(f"height {h_cm}cm")
+        if w_cm: dims.append(f"width {w_cm}cm")
+        if l_cm: dims.append(f"length {l_cm}cm")
+        if dims: p_parts.append(f"Product dimensions: {', '.join(dims)}. ")
+        if season: p_parts.append(f"Season/Vibe: {season}. ")
+        if style: p_parts.append(f"Style: {style}. ")
+        p_parts.append("8k resolution, cinematic lighting, sharp focus on product.")
+        prompt_filled = "".join(p_parts)
+    elif data.get("normal_gen_mode"):
+        prompt_filled = data.get("prompt") or ""
+    elif data.get("random_mode"):
+        gender = data.get("rand_gender")
+        gender_map = {"male":"мужчина","female":"женщина","boy":"мальчик","girl":"девочка"}
+        loc_map = {"inside_restaurant":"внутри ресторана","photo_studio":"в фотостудии","coffee_shop":"в кофейне","city":"в городе","building":"у здания","wall":"у стены","park":"в парке","coffee_shop_out":"у кофейни","forest":"в лесу","car":"у машины"}
+        vibe_map = {"summer":"летний", "winter":"зимний", "autumn":"осенний", "spring":"весенний"}
+        p_parts = []
+        p_parts.append(f"{gender_map.get(gender, 'модель')} ")
+        if age_text: p_parts.append(f"{age_text}. ")
+        h = data.get("height")
+        if h: p_parts.append(f"Рост {h} см. ")
+        if size_text: p_parts.append(f"{size_text}. ")
+        loc = data.get("rand_location")
+        if loc:
+            if loc == 'custom':
+                custom = (data.get('rand_location_custom') or '').strip()
+                if custom: p_parts.append(f"Съёмка {custom}. ")
+            else: p_parts.append(f"Съёмка {loc_map.get(loc, loc)}. ")
+        vibe = data.get("rand_vibe")
+        if vibe: p_parts.append(f"Вайб: {vibe_map.get(vibe, vibe)}. ")
+        shot = data.get("rand_shot")
+        if shot:
+            shot_map = {"full":"в полный рост", "close":"близкий ракурс"}
+            p_parts.append(f"Ракурс: {shot_map.get(shot, shot)}. ")
+        L = (data.get("length") or "").strip()
+        if L: p_parts.append(f"Длина изделия: {L}. ")
+        if sleeve_text: p_parts.append(f"Длина рукава: {sleeve_text}. ")
+        view_key = data.get("view")
+        view_txt = {"close": "близкий", "far": "дальний", "medium": "средний", "back": "сзади", "front": "спереди"}.get(view_key, "средний")
+        p_parts.append(f"Вид: {view_txt}. Профессиональное фото, реалистичный свет, высокое качество.")
+        base_random = await db.get_random_prompt() or ""
+        prompt_filled = (base_random + "\n\n" + ''.join(p_parts)).strip()
+    else:
+        view_key = data.get("view")
+        view_word = {"close": "близкий", "far": "дальний", "medium": "средний", "back": "сзади", "front": "спереди", "side": "сбоку"}.get(view_key, "спереди")
+        replacements = {
+            "{размер}": size_text, "{Размер модели}": size_text, "{Размер тела модели}": size_text,
+            "{рост}": str(data.get("height", "")), "{Рост модели}": str(data.get("height", "")),
+            "{длина изделия}": str(data.get("length", "")), "{Длина изделия}": str(data.get("length", "")),
+            "{возраст}": age_text, "{Возраст модели}": age_text,
+            "{длина рукав}": sleeve_text, "{Тип рукава}": sleeve_text,
+            "{сзади/спереди}": view_word, "{Угол камеры}": view_word,
+            "{Пол модели}": "мужчина" if category == "male" else "женщина" if category == "female" else "ребенок",
+        }
+        prompt_filled = prompt_text or ""
+        for placeholder, value in replacements.items():
+            prompt_filled = prompt_filled.replace(placeholder, str(value))
+        if category == "whitebg":
+            prompt_filled += f" Ракурс: {view_word}. Белый фон, студийный свет."
+
+    # Добавляем брендинг
+    prompt_filled = db.add_ai_room_branding(prompt_filled)
+    return prompt_filled
+
+
 @router.callback_query(F.data == "form_generate")
 async def form_generate(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     user_id = callback.from_user.id
@@ -2572,173 +2708,8 @@ async def form_generate(callback: CallbackQuery, state: FSMContext, db: Database
             await _safe_answer(callback, "Недостаточно средств на балансе.", show_alert=True)
             return
 
-        prompt_text = ""
-        if data.get("random_mode"):
-            prompt_text = ""
-        elif data.get("category") == "own_variant":
-            # Промпт для своего варианта фона
-            base = await db.get_own_variant_prompt() or "Professional fashion photography. Place the product from the second image onto the background from the first image. Maintain natural lighting, shadows, and perspective. High quality, 8k resolution."
-            prompt_text = base
-        else:
-            if data.get("category") == "whitebg":
-                base = await db.get_whitebg_prompt()
-                prompt_text = base or ""
-            else:
-                pid = data.get('prompt_id')
-                prompt_text = await db.get_prompt_text(int(pid)) if pid else ""
-        
-        # Приводим возраст и длину рукава к финальному виду для промта
-        age_key = data.get('age')
-        age_map = {
-            "20_26": "Молодая модель возраста 20-26 лет",
-            "30_38": "Взрослая модель возраста 30-38 лет",
-            "40_48": "Зрелая модель возраста 40-48 лет",
-            "55_60": "Пожилая модель возраста 55-60 лет",
-        }
-        age_text = age_map.get(age_key, age_key or "")
-        sleeve_text = data.get('sleeve') or ""
-        size_text = data.get('size') or ""
-            
-        prompt_filled = ""
-        if data.get("own_mode"):
-            own_length = (data.get("own_length") or "")
-            own_sleeve = (data.get("own_sleeve") or "")
-            view_key = data.get("view")
-            view_word = {"close": "close shot", "far": "far shot", "medium": "medium shot"}.get(view_key, "medium shot")
-            
-            base = await db.get_own_prompt3() or "Professional fashion photography. Place the product from the second image on the model from the first image, maintaining the same pose, lighting, and background style. High quality, realistic, natural lighting."
-            prompt_filled = base
-            if own_length:
-                prompt_filled += f" Garment length: {own_length}."
-            if own_sleeve:
-                prompt_filled += f" Sleeve length: {own_sleeve}."
-            if view_word:
-                prompt_filled += f" Camera distance: {view_word}."
-        elif category == "own_variant":
-            own_length = (data.get("own_length") or "")
-            own_sleeve = (data.get("own_sleeve") or "")
-            view_key = data.get("view")
-            view_word = {"close": "close shot", "far": "far shot", "medium": "medium shot"}.get(view_key, "medium shot")
-            
-            prompt_filled = prompt_text
-            if own_length:
-                prompt_filled += f" Garment length: {own_length}."
-            if own_sleeve:
-                prompt_filled += f" Sleeve length: {own_sleeve}."
-            if view_word:
-                prompt_filled += f" Camera distance: {view_word}."
-        elif data.get("random_other_mode"):
-            has_person = data.get("has_person")
-            gender = data.get("gender")
-            load = data.get("info_load")
-            product_name = data.get("product_name")
-            view_key = data.get("view")
-            dist = data.get("dist")
-            h_cm = data.get("height_cm")
-            w_cm = data.get("width_cm")
-            l_cm = data.get("length_cm")
-            season = data.get("season")
-            style = data.get("style")
-            
-            view_word = {"close": "близкий", "far": "дальний", "medium": "средний", "back": "сзади", "front": "спереди", "side": "сбоку"}.get(view_key, "спереди")
-            dist_word = {"far": "дальний", "medium": "средний", "close": "близкий"}.get(dist, "средний")
-            gender_word = {"male": "Мужчина", "female": "Женщина", "boy": "Мальчик", "girl": "Девочка"}.get(gender, "")
-            
-            p_parts = ["Professional commercial product photography. High quality, ultra realistic lighting. "]
-            p_parts.append(f"Product: {product_name}. ")
-            
-            if has_person:
-                p_parts.append(f"A {gender_word} is in the scene with the product. ")
-            else:
-                p_parts.append("No people in the shot, focus strictly on the product itself. ")
-            
-            p_parts.append(f"Infographic load: {load}/10. ")
-            p_parts.append(f"Camera angle: {view_word}, Distance: {dist_word}. ")
-            
-            dims = []
-            if h_cm: dims.append(f"height {h_cm}cm")
-            if w_cm: dims.append(f"width {w_cm}cm")
-            if l_cm: dims.append(f"length {l_cm}cm")
-            if dims:
-                p_parts.append(f"Product dimensions: {', '.join(dims)}. ")
-            
-            if season:
-                p_parts.append(f"Season/Vibe: {season}. ")
-            
-            if style:
-                p_parts.append(f"Style: {style}. ")
-                
-            p_parts.append("8k resolution, cinematic lighting, sharp focus on product.")
-            prompt_filled = "".join(p_parts)
-        elif data.get("normal_gen_mode"):
-            prompt_filled = data.get("prompt") or ""
-        elif data.get("random_mode"):
-            gender = data.get("rand_gender")
-            gender_map = {"male":"мужчина","female":"женщина","boy":"мальчик","girl":"девочка"}
-            loc_map = {"inside_restaurant":"внутри ресторана","photo_studio":"в фотостудии","coffee_shop":"в кофейне","city":"в городе","building":"у здания","wall":"у стены","park":"в парке","coffee_shop_out":"у кофейни","forest":"в лесу","car":"у машины"}
-            vibe_map = {"summer":"летний", "winter":"зимний", "autumn":"осенний", "spring":"весенний"}
-            p_parts: list[str] = []
-            p_parts.append(f"{gender_map.get(gender, 'модель')} ")
-            if age_text:
-                p_parts.append(f"{age_text}. ")
-            h = data.get("height")
-            if h:
-                p_parts.append(f"Рост {h} см. ")
-            if size_text:
-                p_parts.append(f"{size_text}. ")
-            loc = data.get("rand_location")
-            if loc:
-                if loc == 'custom':
-                    custom = (data.get('rand_location_custom') or '').strip()
-                    if custom:
-                        p_parts.append(f"Съёмка {custom}. ")
-                else:
-                    p_parts.append(f"Съёмка {loc_map.get(loc, loc)}. ")
-            vibe = data.get("rand_vibe")
-            if vibe:
-                p_parts.append(f"Вайб: {vibe_map.get(vibe, vibe)}. ")
-            shot = data.get("rand_shot")
-            if shot:
-                shot_map = {"full":"в полный рост", "close":"близкий ракурс"}
-                p_parts.append(f"Ракурс: {shot_map.get(shot, shot)}. ")
-            L = (data.get("length") or "").strip()
-            if L:
-                p_parts.append(f"Длина изделия: {L}. ")
-            if sleeve_text:
-                p_parts.append(f"Длина рукава: {sleeve_text}. ")
-            view_key = data.get("view")
-            view_txt = {"close": "близкий", "far": "дальний", "medium": "средний", "back": "сзади", "front": "спереди"}.get(view_key, "средний")
-            p_parts.append(f"Вид: {view_txt}. Профессиональное фото, реалистичный свет, высокое качество.")
-            base_random = await db.get_random_prompt() or ""
-            prompt_filled = (base_random + "\n\n" + ''.join(p_parts)).strip()
-        else:
-            view_key = data.get("view")
-            view_word = {"close": "близкий", "far": "дальний", "medium": "средний", "back": "сзади", "front": "спереди", "side": "сбоку"}.get(view_key, "спереди")
-            
-            # Собираем все возможные замены для промпта
-            replacements = {
-                "{размер}": size_text,
-                "{Размер модели}": size_text,
-                "{Размер тела модели}": size_text,
-                "{рост}": str(data.get("height", "")),
-                "{Рост модели}": str(data.get("height", "")),
-                "{длина изделия}": str(data.get("length", "")),
-                "{Длина изделия}": str(data.get("length", "")),
-                "{возраст}": age_text,
-                "{Возраст модели}": age_text,
-                "{длина рукав}": sleeve_text,
-                "{Тип рукава}": sleeve_text,
-                "{сзади/спереди}": view_word,
-                "{Угол камеры}": view_word,
-                "{Пол модели}": "мужчина" if data.get("category") == "male" else "женщина" if data.get("category") == "female" else "ребенок",
-            }
-            
-            prompt_filled = prompt_text or ""
-            for placeholder, value in replacements.items():
-                prompt_filled = prompt_filled.replace(placeholder, str(value))
-                
-            if data.get("category") == "whitebg":
-                prompt_filled += f" Ракурс: {view_word}. Белый фон, студийный свет."
+        prompt_filled = await _build_final_prompt(data, db)
+        lang = await db.get_user_language(user_id)
 
         if quality == '4K':
             prompt_filled += " High quality, 4K resolution, ultra detailed."
@@ -2945,129 +2916,158 @@ async def on_result_edit(callback: CallbackQuery, state: FSMContext, db: Databas
 
 @router.message(CreateForm.waiting_edit_text)
 async def on_result_edit_text(message: Message, state: FSMContext, db: Database) -> None:
-    edit_text = message.text.strip()
+    edit_text = (message.text or "").strip()
     data = await state.get_data()
-    # Восстановим последние параметры (если нужно — можно хранить их отдельно перед генерацией)
-    category = data.get("category")
-    cloth = data.get("cloth")
-    prompt_id = data.get("prompt_id")
-    if data.get("random_mode"):
-        # Сборка промта как в form_generate для рандома
-        age_key = data.get('age')
-        age_map = {
-            "20_26": "Молодая модель возраста 20-26 лет",
-            "30_38": "Взрослая модель возраста 30-38 лет",
-            "40_48": "Зрелая модель возраста 40-48 лет",
-            "55_60": "Пожилая модель возраста 55-60 лет",
-        }
-        age_text = age_map.get(age_key, age_key or "")
-        sleeve_text = data.get('sleeve') or ""
-        size_text = data.get('size') or ""
-        gender = data.get("rand_gender")
-        gender_map = {"male":"мужчина","female":"женщина","boy":"мальчик","girl":"девочка"}
-        loc_map = {"inside_restaurant":"внутри ресторана","photo_studio":"в фотостудии","coffee_shop":"в кофейне","city":"в городе","building":"у здания","wall":"у стены","park":"в парке","coffee_shop_out":"у кофейни","forest":"в лесу","car":"у машины"}
-        vibe_map = {"summer":"летний", "winter":"зимний", "autumn":"осенний", "spring":"весенний"}
-        parts: list[str] = []
-        parts.append(f"{gender_map.get(gender, 'модель')} ")
-        if age_text:
-            parts.append(f"{age_text}. ")
-        h = data.get("height")
-        if h:
-            parts.append(f"Рост {h} см. ")
-        if size_text:
-            parts.append(f"{size_text}. ")
-        loc = data.get("rand_location")
-        if loc:
-            parts.append(f"Съёмка {loc_map.get(loc, loc)}. ")
-        vibe = data.get("rand_vibe")
-        if vibe:
-            parts.append(f"Вайб: {vibe_map.get(vibe, vibe)}. ")
-        shot = data.get("rand_shot")
-        if shot:
-            shot_map = {"full":"в полный рост", "close":"близкий ракурс"}
-            parts.append(f"Ракурс: {shot_map.get(shot, shot)}. ")
-        if loc == 'photo_studio':
-            decor = data.get("rand_decor")
-            if decor:
-                parts.append(f"Студия: {'с декором' if decor=='decor' else 'без декора'}. ")
-        L = (data.get("length") or "").strip()
-        if L:
-            parts.append(f"Длина изделия: {L}. ")
-        if sleeve_text:
-            parts.append(f"Длина рукава: {sleeve_text}. ")
-        pants_style = data.get("pants_style")
-        if pants_style and pants_style != 'skip':
-            style_map = {"relaxed":"Свободный крой","slim":"Зауженный","banana":"Бананы","flare_knee":"Клеш от колен","baggy":"Багги","mom":"Мом","straight":"Прямые"}
-            parts.append(f"Крой штанов: {style_map.get(pants_style, pants_style)}. ")
-        view_txt = "сзади" if data.get("view") == "back" else "спереди"
-        parts.append(f"Вид: {view_txt}. Профессиональное фото, реалистичный свет, высокое качество.")
-        base_random = await db.get_random_prompt() or ""
-        prompt_filled = (base_random + "\n\n" + ''.join(parts) + "\n\nПравки: " + edit_text).strip()
-    else:
-        if not prompt_id:
-            await message.answer("Сессия недоступна. Начните заново.")
-            await state.clear()
-            return
-        base_prompt = await db.get_prompt_text(int(prompt_id))
-        prompt_filled = base_prompt + "\n\nПравки: " + edit_text
-
-    # Берём последнее фото пользователя
-    user_photo_id = data.get("user_photo_id")
-    if not user_photo_id:
-        await message.answer("Не найдено исходное фото. Начните заново.")
+    user_id = message.from_user.id
+    lang = await db.get_user_language(user_id)
+    
+    logger.info(f"[on_result_edit_text] Пользователь {user_id} ввел правки: {edit_text}")
+    
+    if not data:
+        await message.answer(get_string("session_not_found", lang))
         await state.clear()
         return
-    file = await message.bot.get_file(user_photo_id)
-    f = await message.bot.download_file(file.file_path)
-    user_image_bytes = f.read()
 
-    # Ротация ключей для правок
-    from bot.gemini import generate_image
+    # Проверка баланса
+    balance = await db.get_user_balance(user_id)
+    frac = await db.get_user_fraction(user_id)
+    total_tenths = balance * 10 + frac
+    category = data.get("category", "female")
+    price_tenths = await db.get_category_price(category)
     
-    # Определяем, какую таблицу ключей использовать
-    is_own_variant = (category == "own_variant")
-    if is_own_variant:
-        keys_with_ids = await db.list_own_variant_api_keys()
-        tokens_order = [(kid, tok) for kid, tok, is_active in keys_with_ids if is_active]
-    else:
-        keys_with_ids = await db.list_api_keys()
-        tokens_order = []
-        for kid, tok, is_active, prio, du, tu, lr, ca, ua in keys_with_ids:
-            if is_active:
-                can_use, _ = await db.check_api_key_limits(kid)
-                if can_use: tokens_order.append((kid, tok))
-
-    if not tokens_order:
-        await message.answer(get_string("api_limit_reached", lang))
+    if total_tenths < price_tenths:
+        await message.answer("Недостаточно средств на балансе для правок.")
         return
 
-    result_bytes = None
-    for key_id, token in tokens_order:
+    # Строим базовый промпт и добавляем правки
+    base_prompt = await _build_final_prompt(data, db)
+    prompt_filled = f"{base_prompt}\n\nПравки: {edit_text}"
+    
+    # Качество из подписки
+    sub = await db.get_user_subscription(user_id)
+    quality = 'HD'
+    if sub and '4K' in sub[0].upper():
+        quality = '4K'
+
+    # Собираем фото
+    input_photos = data.get("photos", [])
+    if not data.get("normal_gen_mode"):
+        if category == "own_variant":
+            input_photos = [data.get("own_bg_photo_id"), data.get("own_product_photo_id")]
+        elif data.get("own_mode"):
+            input_photos = [data.get("own_ref_photo_id"), data.get("own_product_photo_id")]
+        else:
+            input_photos = [data.get("user_photo_id")]
+    
+    input_photos = [fid for fid in input_photos if fid]
+    if not input_photos:
+        logger.error(f"[on_result_edit_text] Фото не найдены в данных сессии: {data}")
+        await message.answer("Не найдены исходные фото. Начните заново.")
+        return
+
+    # Анимация
+    process_msg = await message.answer("🎨 ⚡️ ⏳")
+    async def animate_gen(msg):
+        frames = ["🎨 ⏳ Применяем правки...", "🎨 ⌛️ Перерисовываем...", "🎨 ✨ Магия нейросетей...", "🎨 🔄 Финализируем..."]
         try:
-            # Используем FSInputFile для консистентности или оставляем как есть если gemini.py возвращает байты
-            result_bytes = await generate_image(token, prompt_filled, user_image_bytes, None, key_id=key_id, db_instance=db)
-            if result_bytes:
-                if key_id and not is_own_variant:
-                    await db.record_api_usage(key_id)
-                break
-        except Exception as e:
-            logger.error(f"Error during edit with key {key_id}: {e}")
-            continue
-
-    if not result_bytes:
-        await message.answer(get_string("gen_no_image", lang))
-        return
+            for i in range(20):
+                await asyncio.sleep(1.5)
+                await msg.edit_text(frames[i % len(frames)])
+        except: pass
+    anim_task = asyncio.create_task(animate_gen(process_msg))
 
     try:
-        # Списываем 1 генерацию при успехе
-        await db.increment_user_balance(message.from_user.id, -1)
-        # ...
-        photo_file = BufferedInputFile(result_bytes, filename="result.png")
-        # после правок оставляем только кнопку «Главное меню»
-        await message.answer_document(document=photo_file, caption=get_string("gen_ready", lang), reply_markup=back_main_keyboard(lang))
+        # Скачиваем фото
+        downloaded_paths = []
+        import uuid, os
+        for fid in input_photos:
+            f_info = await message.bot.get_file(fid)
+            ext = f_info.file_path.split('.')[-1]
+            p = f"data/temp_edit_{uuid.uuid4()}.{ext}"
+            await message.bot.download_file(f_info.file_path, p)
+            downloaded_paths.append(p)
+
+        # Выбор API ключей
+        is_own_variant = (category == "own_variant")
+        if is_own_variant: api_keys = await db.list_own_variant_api_keys()
+        else: api_keys = await db.list_api_keys()
+        
+        active_keys = [k for k in api_keys if k[2]]
+        import random
+        random.shuffle(active_keys)
+        
+        result_path = None
+        kid_used = None
+        
+        from bot.gemini import generate_image
+        aspect = data.get("aspect", "1:1").replace(":", "x")
+        if aspect == "auto": aspect = "1x1" # Для Gemini лучше передать конкретный формат
+
+        for key_tuple in active_keys:
+            kid, token = key_tuple[0], key_tuple[1]
+            if is_own_variant: ok, _ = await db.check_own_variant_rate_limit(kid)
+            else: ok, _ = await db.check_api_key_limits(kid)
+            if not ok: continue
+            
+            try:
+                result_path = await generate_image(
+                    api_key=token, prompt=prompt_filled, image_paths=downloaded_paths,
+                    aspect_ratio=aspect, quality=quality, key_id=kid, db_instance=db
+                )
+                if result_path:
+                    kid_used = kid
+                    break
+            except Exception as e:
+                logger.error(f"Edit error key {kid}: {e}")
+                continue
+
+        # Чистим временные фото
+        for p in downloaded_paths:
+            try: os.remove(p)
+            except: pass
+
+        anim_task.cancel()
+        try: await process_msg.delete()
+        except: pass
+
+        if result_path:
+            # Успех
+            if is_own_variant: await db.record_own_variant_usage(kid_used)
+            else: await db.record_api_usage(kid_used)
+            
+            # Списываем баланс
+            await db.increment_user_balance(user_id, -(price_tenths // 10))
+            rem = price_tenths % 10
+            if rem > 0:
+                cur_frac = await db.get_user_fraction(user_id)
+                new_frac = cur_frac - rem
+                if new_frac < 0:
+                    await db.increment_user_balance(user_id, -1)
+                    new_frac += 10
+                await db.set_user_fraction(user_id, new_frac)
+            
+            await db.update_daily_usage(user_id)
+
+            from aiogram.types import FSInputFile
+            from bot.keyboards import result_actions_keyboard
+            await message.answer_photo(
+                photo=FSInputFile(result_path),
+                caption=f"✅ Правки применены!\n\nТекст правок: {edit_text}",
+                reply_markup=result_actions_keyboard(lang)
+            )
+            try: os.remove(result_path)
+            except: pass
+            # Не очищаем стейт полностью, чтобы можно было еще раз править или повторить
+            await state.set_state(CreateForm.result_ready)
+        else:
+            await message.answer(get_string("gen_error", lang))
+
     except Exception as e:
-        await message.answer(get_string("gen_error_contact_support", lang))
-    await state.clear()
+        logger.error(f"Critical error in on_result_edit_text: {e}")
+        anim_task.cancel()
+        try: await process_msg.delete()
+        except: pass
+        await message.answer(get_string("gen_error", lang))
 
 
 @router.callback_query(F.data == "result_repeat")

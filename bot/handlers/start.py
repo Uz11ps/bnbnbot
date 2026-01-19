@@ -165,8 +165,9 @@ WELCOME_TEXT = (
 
 async def _safe_answer(callback: CallbackQuery, text: str | None = None, show_alert: bool = False) -> None:
     try:
-        await callback.answer(text, show_alert=show_alert)
-    except TelegramBadRequest:
+        if callback.id != "0":
+            await callback.answer(text, show_alert=show_alert)
+    except Exception:
         pass
 
 
@@ -2532,7 +2533,7 @@ async def handle_user_photo(message: Message, state: FSMContext, db: Database) -
             chat_instance="0",
             message=message,
             data=f"form_aspect:{data.get('aspect', '1:1')}"
-        )
+        ).as_(message.bot)
         await on_aspect_selected(dummy_callback, state, db)
         return
 

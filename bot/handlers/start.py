@@ -2127,25 +2127,8 @@ async def form_set_view(callback: CallbackQuery, state: FSMContext, db: Database
         await state.update_data(info_angle=view)
         # Далее Ракурс (Дальний/Средний/Близкий) - angle_keyboard
         from bot.keyboards import angle_keyboard
-        await _replace_with_text(callback, get_string("select_camera_dist", lang), reply_markup=angle_keyboard(lang))
+        await _replace_with_text(callback, "Выберите ракурс (Дальний/Средний/Близкий):", reply_markup=angle_keyboard(lang))
         await state.set_state(CreateForm.waiting_view)
-        await _safe_answer(callback)
-        return
-
-    # Если это окончательный выбор дистанции для инфографики
-    if current_state == CreateForm.waiting_view.state and data.get("infographic_mode"):
-        await state.update_data(info_dist=view)
-        
-        if data.get("category") == "infographic_other":
-            # Для прочих товаров: Сезон (новое требование)
-            from bot.keyboards import random_season_keyboard
-            await _replace_with_text(callback, "Выберите сезон:", reply_markup=random_season_keyboard(lang))
-            await state.set_state(CreateForm.waiting_info_season)
-        else:
-            # Для одежды: Поза (как и было)
-            from bot.keyboards import pose_keyboard
-            await _replace_with_text(callback, "Выберите позу модели:", reply_markup=pose_keyboard(lang))
-            await state.set_state(CreateForm.waiting_info_pose)
         await _safe_answer(callback)
         return
 
@@ -2208,21 +2191,52 @@ async def on_preset_pose(callback: CallbackQuery, state: FSMContext, db: Databas
     await _replace_with_text(callback, "Выберите ракурс фотографии:", reply_markup=angle_keyboard(lang))
     await _safe_answer(callback)
 
-@router.callback_query(CreateForm.waiting_preset_dist, F.data.startswith("form_dist:"))
-async def on_preset_dist(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+@router.callback_query(CreateForm.waiting_preset_dist, F.data.startswith("form_dist:") | F.data.startswith("angle:"))
+@router.callback_query(CreateForm.waiting_view, F.data.startswith("form_dist:") | F.data.startswith("angle:"))
+@router.callback_query(CreateForm.waiting_rand_other_dist, F.data.startswith("form_dist:") | F.data.startswith("angle:"))
+async def on_dist_selected(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     val = callback.data.split(":", 1)[1]
     dist_map = {"far": "Дальний", "medium": "Средний", "close": "Близкий", "skip": ""}
-    await state.update_data(dist=dist_map.get(val, val))
-    lang = await db.get_user_language(callback.from_user.id)
-    data = await state.get_data()
+    dist_val = dist_map.get(val, val)
     
-    # Витринное фото (п. 5)
+    data = await state.get_data()
+    lang = await db.get_user_language(callback.from_user.id)
+    current_state = await state.get_state()
+
+    # Инфографика (waiting_view + infographic_mode)
+    if data.get("infographic_mode") and current_state == CreateForm.waiting_view.state:
+        await state.update_data(info_dist=dist_val)
+        if data.get("category") == "infographic_other":
+            # Для прочих товаров: Сезон
+            from bot.keyboards import random_season_keyboard
+            await _replace_with_text(callback, "Выберите сезон:", reply_markup=random_season_keyboard(lang))
+            await state.set_state(CreateForm.waiting_info_season)
+        else:
+            # Для одежды: Поза
+            from bot.keyboards import pose_keyboard
+            await _replace_with_text(callback, "Выберите позу модели:", reply_markup=pose_keyboard(lang))
+            await state.set_state(CreateForm.waiting_info_pose)
+        await _safe_answer(callback)
+        return
+
+    # Рандом для остальных товаров
+    if data.get("random_other_mode"):
+        await state.update_data(dist=dist_val)
+        await _replace_with_text(callback, get_string("enter_height_cm", lang), reply_markup=skip_step_keyboard("rand_height", lang))
+        await state.set_state(CreateForm.waiting_rand_other_height)
+        await _safe_answer(callback)
+        return
+
+    # Остальные (Пресеты, Витрина и т.д.)
+    await state.update_data(dist=dist_val)
+    
+    # Витринное фото
     if data.get("category") == "storefront":
         await _ask_garment_length(callback, state, db)
         await _safe_answer(callback)
         return
 
-    # 10. Вид фотографии (Спереди - Сзади)
+    # Готовые пресеты -> Вид (Спереди/Сзади)
     await state.set_state(CreateForm.waiting_preset_view)
     await _replace_with_text(callback, "Выберите вид фотографии (Спереди/Сзади):", reply_markup=form_view_keyboard(lang))
     await _safe_answer(callback)
@@ -2288,29 +2302,6 @@ async def on_info_pose(callback: CallbackQuery, state: FSMContext, db: Database)
     await _safe_answer(callback)
 
 
-
-@router.callback_query(CreateForm.waiting_view, F.data.startswith("angle:"))
-async def on_info_dist_selected(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
-    dist = callback.data.split(":", 1)[1]
-    lang = await db.get_user_language(callback.from_user.id)
-    dist_map = {"close": "Близкий", "medium": "Средний", "far": "Дальний"}
-    await state.update_data(info_dist=dist_map.get(dist, dist))
-    
-    data = await state.get_data()
-    if data.get("infographic_mode") and data.get("category") == "infographic_clothing":
-        # Для инфографики одежда: после ракурса — к позе (п. 13)
-        await _replace_with_text(callback, "Выберите позу модели:", reply_markup=pose_keyboard(lang))
-        await state.set_state(CreateForm.waiting_info_pose)
-    elif data.get("infographic_mode") and data.get("category") == "infographic_other":
-        # Для инфографики прочее: после ракурса — к сезону
-        from bot.keyboards import random_season_keyboard
-        await _replace_with_text(callback, "Выберите сезон:", reply_markup=random_season_keyboard(lang))
-        await state.set_state(CreateForm.waiting_info_season)
-    else:
-        # Для прочих инфографик (старый код) — к формату
-        await _replace_with_text(callback, get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
-        await state.set_state(CreateForm.waiting_aspect)
-    await _safe_answer(callback)
 
 @router.message(CreateForm.waiting_view, F.photo)
 async def handle_user_photo(message: Message, state: FSMContext, db: Database) -> None:

@@ -293,8 +293,15 @@ async def _answer_model_photo(callback: CallbackQuery, photo: str, caption: str,
 async def on_child_gender_select(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     gender = callback.data.split(":")[1]
     # gender is 'boy' or 'girl'
-    await state.update_data(child_gender=gender, category="child", cloth=gender)
-    await _show_models_for_category(callback, db, "child", gender)
+    await state.clear()
+    await state.update_data(child_gender=gender, category="child", cloth=gender, is_preset=True)
+    lang = await db.get_user_language(callback.from_user.id)
+    
+    # Для детей ПРОПУСКАЕМ возраст, сразу к телосложению
+    from bot.keyboards import form_size_keyboard
+    await _replace_with_text(callback, get_string("select_body_type", lang), reply_markup=form_size_keyboard(gender, lang))
+    await state.set_state(CreateForm.waiting_size)
+    await _safe_answer(callback)
     await _safe_answer(callback)
 
 
@@ -474,12 +481,14 @@ async def on_female_category(callback: CallbackQuery, db: Database, state: FSMCo
         await _safe_answer(callback, get_string("no_models_in_category_alert", await db.get_user_language(callback.from_user.id)), show_alert=True)
         return
     
-    # Сбрасываем стейт и устанавливаем категорию
     await state.clear()
-    await state.update_data(category="female", cloth="all")
+    await state.update_data(category="female", cloth="all", is_preset=True)
+    lang = await db.get_user_language(callback.from_user.id)
     
-    # СРАЗУ показываем модели (пропуская выбор категорий одежды)
-    await _show_models_for_category(callback, db, "female", "all")
+    # СРАЗУ к возрасту (п. 1.1)
+    from bot.keyboards import form_age_keyboard
+    await _replace_with_text(callback, get_string("select_age", lang), reply_markup=form_age_keyboard(lang))
+    await state.set_state(CreateForm.waiting_age)
     await _safe_answer(callback)
 
 @router.callback_query(F.data == "create_cat:male")
@@ -493,12 +502,14 @@ async def on_male_category(callback: CallbackQuery, db: Database, state: FSMCont
         await _safe_answer(callback, get_string("no_models_in_category_alert", await db.get_user_language(callback.from_user.id)), show_alert=True)
         return
     
-    # Сбрасываем стейт и устанавливаем категорию
     await state.clear()
-    await state.update_data(category="male", cloth="all")
+    await state.update_data(category="male", cloth="all", is_preset=True)
+    lang = await db.get_user_language(callback.from_user.id)
     
-    # СРАЗУ показываем модели (пропуская выбор категорий одежды)
-    await _show_models_for_category(callback, db, "male", "all")
+    # СРАЗУ к возрасту (п. 1.1)
+    from bot.keyboards import form_age_keyboard
+    await _replace_with_text(callback, get_string("select_age", lang), reply_markup=form_age_keyboard(lang))
+    await state.set_state(CreateForm.waiting_age)
     await _safe_answer(callback)
 
 async def _show_models_for_category(callback: CallbackQuery, db: Database, category: str, cloth: str, index: int = 0, logic_category: str = None) -> None:
@@ -1484,7 +1495,9 @@ async def on_aspect_selected(callback: CallbackQuery, state: FSMContext, db: Dat
         # Обычная модель (Пресеты)
         cat_name = "Женская" if category == "female" else "Мужская" if category == "male" else "Детская" if category == "child" else category
         parts.append(f"📦 **Категория**: {cat_name}\n")
-        parts.append(f"👕 **Тип одежды**: {data.get('cloth', '—')}\n")
+        
+        if not data.get("is_preset"):
+            parts.append(f"👕 **Тип одежды**: {data.get('cloth', '—')}\n")
         
         age_map = {"20_26": "20-26 лет", "30_38": "30-38 лет", "40_48": "40-48 лет", "55_60": "55-60 лет"}
         if data.get("age"):
@@ -2509,6 +2522,20 @@ async def on_back_from_size(callback: CallbackQuery, state: FSMContext, db: Data
         await _safe_answer(callback)
         return
 
+    if data.get("is_preset"):
+        category = data.get("category")
+        if category == "child":
+            # Для детей назад к выбору пола в пресетах
+            await on_ready_presets(callback, db)
+            return
+        else:
+            # Для м/ж назад к возрасту
+            from bot.keyboards import form_age_keyboard
+            await _replace_with_text(callback, get_string("select_age", lang), reply_markup=form_age_keyboard(lang))
+            await state.set_state(CreateForm.waiting_age)
+            await _safe_answer(callback)
+            return
+
     category = data.get("category")
     cloth = data.get("cloth")
     index = data.get("index", 0)
@@ -2528,11 +2555,16 @@ async def on_back_from_age(callback: CallbackQuery, state: FSMContext, db: Datab
         await _safe_answer(callback)
         return
 
+    if data.get("is_preset"):
+        # Для пресетов назад к выбору пола
+        await on_ready_presets(callback, db)
+        return
+
     if data.get("plus_mode"):
         await _replace_with_text(callback, "Выберите вайб:", reply_markup=plus_vibe_keyboard(lang))
         await state.set_state(CreateForm.plus_vibe)
     else:
-        # Для пресетов — возврат к моделям
+        # Фолбэк к моделям
         cloth = data.get("cloth")
         index = data.get("index", 0)
         await _show_models_for_category(callback, db, category, cloth, index)
@@ -3305,28 +3337,64 @@ async def _build_final_prompt(data: dict, db: Database) -> str:
         p_parts.append("Clean composition, commercial lighting, professional studio look.")
         prompt_filled = "".join(p_parts)
     else:
-        # Обычная модель (Пресеты)
-        view_key = data.get("view")
-        view_word = {"close": "близкий", "far": "дальний", "medium": "средний", "back": "сзади", "front": "спереди", "side": "сбоку"}.get(view_key, "спереди")
+        # Обычный режим (Пресеты)
+        model_id = data.get("model_id")
         
-        replacements = {
-            "{размер}": size_text, "{Размер модели}": size_text, "{Размер тела модели}": size_text,
-            "{рост}": str(data.get("height", "")), "{Рост модели}": str(data.get("height", "")),
-            "{длина изделия}": str(data.get("length", "")), "{Длина изделия}": str(data.get("length", "")),
-            "{возраст}": age_text, "{Возраст модели}": age_text,
-            "{длина рукав}": sleeve_text, "{Тип рукава}": sleeve_text,
-            "{сзади/спереди}": view_word, "{Угол камеры}": view_word,
-            "{Пол модели}": "мужчина" if category == "male" else "женщина" if category == "female" else "ребенок",
-        }
-        prompt_filled = prompt_text or ""
-        for placeholder, value in replacements.items():
-            prompt_filled = prompt_filled.replace(placeholder, str(value))
+        if not model_id and data.get("is_preset"):
+            # ПРЕСЕТЫ БЕЗ МОДЕЛИ (п. 1)
+            gender_map = {"male":"мужчина","female":"женщина","boy":"мальчик","girl":"девочка"}
+            actual_gender = data.get("child_gender") or category
             
-        # Дополнительные уточнения для пресетов
-        if data.get("pants_style"): prompt_filled += f" Cut of pants: {data.get('pants_style')}."
-        if data.get("pose"): prompt_filled += f" Model pose: {data.get('pose')}."
-        if data.get("dist"): prompt_filled += f" Camera distance: {data.get('dist')}."
-        if data.get("season"): prompt_filled += f" Season: {data.get('season')}."
+            p_parts = ["Professional commercial fashion photography. High quality, realistic lighting. "]
+            p_parts.append(f"Model: {gender_map.get(actual_gender, 'person')}. ")
+            if age_text: p_parts.append(f"Age: {age_text}. ")
+            if size_text: p_parts.append(f"Body type: {size_text}. ")
+            h = data.get("height")
+            if h: p_parts.append(f"Height: {h}cm. ")
+            
+            pants = data.get("pants_style")
+            if pants: p_parts.append(f"Pants cut: {pants}. ")
+            sleeve = data.get("sleeve")
+            if sleeve: p_parts.append(f"Sleeve type: {sleeve}. ")
+            L = (data.get("length") or "").strip()
+            if L: p_parts.append(f"Garment length: {L}. ")
+            
+            pose = data.get("pose")
+            if pose: p_parts.append(f"Pose: {pose}. ")
+            
+            dist = data.get("dist")
+            view = data.get("view")
+            if dist: p_parts.append(f"Camera distance: {dist}. ")
+            if view: p_parts.append(f"View: {view}. ")
+            
+            season = data.get("season")
+            if season: p_parts.append(f"Season: {season}. ")
+            
+            p_parts.append("8k resolution, cinematic lighting, professional studio look.")
+            base_random = await db.get_random_prompt() or ""
+            prompt_filled = (base_random + "\n\n" + "".join(p_parts)).strip()
+        else:
+            # Обычная модель (если ID есть)
+            view_key = data.get("view")
+            view_word = {"close": "близкий", "far": "дальний", "medium": "средний", "back": "сзади", "front": "спереди", "side": "сбоку"}.get(view_key, "спереди")
+            
+            replacements = {
+                "{размер}": size_text, "{Размер модели}": size_text, "{Размер тела модели}": size_text,
+                "{рост}": str(data.get("height", "")), "{Рост модели}": str(data.get("height", "")),
+                "{длина изделия}": str(data.get("length", "")), "{Длина изделия}": str(data.get("length", "")),
+                "{возраст}": age_text, "{Возраст модели}": age_text,
+                "{длина рукав}": sleeve_text, "{Тип рукава}": sleeve_text,
+                "{сзади/спереди}": view_word, "{Угол камеры}": view_word,
+                "{Пол модели}": "мужчина" if category == "male" else "женщина" if category == "female" else "ребенок",
+            }
+            prompt_filled = prompt_text or ""
+            for placeholder, value in replacements.items():
+                prompt_filled = prompt_filled.replace(placeholder, str(value))
+                
+            if data.get("pants_style"): prompt_filled += f" Cut of pants: {data.get('pants_style')}."
+            if data.get("pose"): prompt_filled += f" Model pose: {data.get('pose')}."
+            if data.get("dist"): prompt_filled += f" Camera distance: {data.get('dist')}."
+            if data.get("season"): prompt_filled += f" Season: {data.get('season')}."
 
     # Добавляем брендинг
     prompt_filled = db.add_ai_room_branding(prompt_filled)

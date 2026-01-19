@@ -250,19 +250,28 @@ async def _run_generation_progress(bot, chat_id: int, message_id: int, stop_even
             continue
 
 
-async def _answer_model_photo(callback: CallbackQuery, file_id: str, caption: str, reply_markup=None) -> None:
+async def _answer_model_photo(callback: CallbackQuery, photo: str, caption: str, reply_markup=None) -> None:
     try:
         await callback.message.delete()
     except TelegramBadRequest:
         pass
+    
     try:
-        await callback.message.answer_photo(photo=file_id, caption=caption, reply_markup=reply_markup)
-    except TelegramBadRequest:
-        # file_id может быть от другого бота — падаем в текстовый фолбэк
-        try:
-            await callback.message.answer(caption, reply_markup=reply_markup)
-        except TelegramBadRequest:
-            pass
+        if photo.startswith("AgAC"): # Telegram file_id
+            await callback.message.answer_photo(photo=photo, caption=caption, reply_markup=reply_markup)
+        else: # Локальный файл
+            from aiogram.types import FSInputFile
+            import os
+            # Пробуем найти файл в корне или в /app/
+            file_path = photo if os.path.exists(photo) else os.path.join("/app", photo)
+            if os.path.exists(file_path):
+                await callback.message.answer_photo(photo=FSInputFile(file_path), caption=caption, reply_markup=reply_markup)
+            else:
+                logger.error(f"Файл фото модели не найден: {photo}")
+                await callback.message.answer(caption, reply_markup=reply_markup)
+    except Exception as e:
+        logger.error(f"Ошибка отправки фото модели: {e}")
+        await callback.message.answer(caption, reply_markup=reply_markup)
 
 
 @router.callback_query(F.data.startswith("child_gender:"))

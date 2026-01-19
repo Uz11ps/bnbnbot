@@ -125,6 +125,7 @@ class CreateForm(StatesGroup):
     waiting_preset_dist = State()
     waiting_preset_view = State()
     waiting_preset_season = State()
+    waiting_preset_holiday = State()
     # Random Other flow
     waiting_rand_other_has_person = State()
     waiting_rand_other_gender = State()
@@ -542,18 +543,52 @@ async def on_create_random(callback: CallbackQuery, state: FSMContext, db: Datab
     await state.clear()
     await state.update_data(random_mode=True, category="random")
     lang = await db.get_user_language(callback.from_user.id)
-    # Сразу спрашиваем пол модели
-    await _replace_with_text(callback, get_string("select_model_gender", lang), reply_markup=random_gender_keyboard(lang))
+    
+    # 1. Тип локации
+    from bot.keyboards import random_loc_group_keyboard
+    await _replace_with_text(callback, get_string("select_loc_group", lang), reply_markup=random_loc_group_keyboard(lang))
+    await state.set_state(CreateForm.waiting_rand_loc_group)
     await _safe_answer(callback)
+
+@router.callback_query(CreateForm.waiting_rand_loc, F.data.startswith("rand_location:"))
+@router.callback_query(CreateForm.waiting_custom_location)
+async def on_random_location_after(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    # Сохраняем локацию если она пришла из колбэка
+    if callback.data.startswith("rand_location:"):
+        loc = callback.data.split(":", 1)[1]
+        await state.update_data(rand_location=loc)
+    
+    lang = await db.get_user_language(callback.from_user.id)
+    # 2. Пол
+    await _replace_with_text(callback, get_string("select_model_gender", lang), reply_markup=random_gender_keyboard(lang))
+    await state.set_state(None) # Обработает rand_gender:
+    await _safe_answer(callback)
+
+@router.message(CreateForm.waiting_custom_location)
+async def on_random_location_custom_msg(message: Message, state: FSMContext, db: Database) -> None:
+    text = (message.text or "").strip()
+    await state.update_data(rand_location_custom=text, rand_location="custom")
+    lang = await db.get_user_language(message.from_user.id)
+    # 2. Пол
+    await message.answer(get_string("select_model_gender", lang), reply_markup=random_gender_keyboard(lang))
+    await state.set_state(None)
 
 @router.callback_query(F.data.startswith("rand_gender:"))
 async def on_random_gender(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     gender = callback.data.split(":")[1]
-    await state.update_data(gender=gender)
+    await state.update_data(rand_gender=gender)
     lang = await db.get_user_language(callback.from_user.id)
-    # После пола — нагруженность (пользователь попросил вернуть)
-    await _replace_with_text(callback, get_string("enter_info_load", lang), reply_markup=skip_step_keyboard("info_load", lang))
-    await state.set_state(CreateForm.waiting_info_load)
+    
+    # 2.1 Если юзер выбирает Женский/Мужской то мы уточняем возраст
+    if gender in ("male", "female"):
+        from bot.keyboards import form_age_keyboard
+        await _replace_with_text(callback, get_string("select_age", lang), reply_markup=form_age_keyboard(lang))
+        await state.set_state(CreateForm.waiting_age)
+    else:
+        # Для мальчик/девочка сразу к размеру
+        from bot.keyboards import form_size_keyboard
+        await _replace_with_text(callback, get_string("select_body_type", lang), reply_markup=form_size_keyboard(gender, lang))
+        await state.set_state(CreateForm.waiting_size)
     await _safe_answer(callback)
 
 
@@ -1412,10 +1447,6 @@ async def on_aspect_selected(callback: CallbackQuery, state: FSMContext, db: Dat
         parts.append("📦 **Категория**: 🎨 Рандом (Одежда)\n")
         gender_map = {"male":"Мужчина","female":"Женщина","boy":"Мальчик","girl":"Девочка"}
         parts.append(f"🚻 **Пол**: {gender_map.get(data.get('rand_gender'), '—')}\n")
-        parts.append(f"📏 **Рост**: {data.get('height', '—')} см\n")
-        age_map = {"20_26": "20-26 лет", "30_38": "30-38 лет", "40_48": "40-48 лет", "55_60": "55-60 лет"}
-        parts.append(f"🎂 **Возраст**: {age_map.get(data.get('age'), '—')}\n")
-        parts.append(f"📐 **Телосложение**: {data.get('size', '—')}\n")
         
         loc_map = {"inside_restaurant":"В ресторане","photo_studio":"В фотостудии","coffee_shop":"В кофейне","city":"В городе","building":"У здания","wall":"У стены","park":"В парке","coffee_shop_out":"У кофейни","forest":"В лесу","car":"У машины"}
         location = data.get("rand_location")
@@ -1423,6 +1454,18 @@ async def on_aspect_selected(callback: CallbackQuery, state: FSMContext, db: Dat
             parts.append(f"📍 **Локация**: {data.get('rand_location_custom', '—')}\n")
         else:
             parts.append(f"📍 **Локация**: {loc_map.get(location, location or '—')}\n")
+
+        parts.append(f"🎂 **Возраст**: {data.get('age', '—')}\n")
+        parts.append(f"📏 **Рост**: {data.get('height', '—')} см\n")
+        parts.append(f"📐 **Телосложение**: {data.get('size', '—')}\n")
+        parts.append(f"✂️ **Крой**: {data.get('pants_style', '—')}\n")
+        parts.append(f"🧥 **Рукав**: {data.get('sleeve', '—')}\n")
+        parts.append(f"👗 **Длина**: {data.get('length', '—')}\n")
+        parts.append(f"🧘 **Поза**: {data.get('pose', '—')}\n")
+        parts.append(f"📏 **Ракурс**: {data.get('dist', '—')}\n")
+        parts.append(f"👀 **Вид**: {data.get('view', '—')}\n")
+        parts.append(f"⏳ **Сезон**: {data.get('season', '—')}\n")
+        parts.append(f"🎉 **Праздник**: {data.get('holiday', '—')}\n")
             
         vibe_map = {"summer":"Лето","winter":"Зима","autumn":"Осень","spring":"Весна"}
         parts.append(f"🎞 **Вайб**: {vibe_map.get(data.get('rand_vibe'), data.get('rand_vibe', '—'))}\n")
@@ -1834,8 +1877,9 @@ async def on_pants_style(callback: CallbackQuery, state: FSMContext, db: Databas
         return
 
     if data.get("random_mode"):
-        await _replace_with_text(callback, get_string("select_camera_dist", lang), reply_markup=form_view_keyboard(lang))
-        await state.set_state(CreateForm.waiting_view)
+        # Рандом Одежда: к рукавам (п. 7)
+        await state.set_state(CreateForm.waiting_sleeve)
+        await _replace_with_text(callback, get_string("select_sleeve_length", lang), reply_markup=sleeve_length_keyboard(lang))
     else:
         # Для случаев, не попавших под условия выше
         if data.get("plus_mode"):
@@ -2028,8 +2072,8 @@ async def on_garment_len_callback(callback: CallbackQuery, state: FSMContext, db
         await _safe_answer(callback)
         return
 
-    # Для пресетов: после длины — к позе (п. 8)
-    if data.get("category") in ("female", "male", "child") and not data.get("random_mode") and not data.get("infographic_mode"):
+    # Для пресетов и Рандом Одежда: после длины — к позе (п. 9)
+    if (data.get("category") in ("female", "male", "child") or data.get("random_mode")) and not data.get("infographic_mode"):
         await state.set_state(CreateForm.waiting_preset_pose)
         await _replace_with_text(callback, "Выберите тип позы:", reply_markup=pose_keyboard(lang))
         await _safe_answer(callback)
@@ -2134,8 +2178,8 @@ async def form_set_sleeve(callback: CallbackQuery, state: FSMContext, db: Databa
         return
 
     if data.get("random_mode"):
-        await _replace_with_text(callback, "Тип кроя штанов (опционально):", reply_markup=pants_style_keyboard(lang))
-        await state.set_state(CreateForm.waiting_pants_style)
+        # Рандом Одежда: к длине изделия (п. 8)
+        await _ask_garment_length(callback, state, db)
     else:
         await _replace_with_text(callback, get_string("select_camera_dist", lang), reply_markup=form_view_keyboard(lang))
         await state.set_state(CreateForm.waiting_view)
@@ -2301,6 +2345,23 @@ async def on_preset_season(callback: CallbackQuery, state: FSMContext, db: Datab
     await state.update_data(season=season_map.get(season, season))
     lang = await db.get_user_language(callback.from_user.id)
     
+    # 13. Праздник
+    from bot.keyboards import random_holiday_keyboard
+    await _replace_with_text(callback, "Выберите праздник (если есть):", reply_markup=random_holiday_keyboard(lang))
+    await state.set_state(CreateForm.waiting_preset_holiday)
+    await _safe_answer(callback)
+
+@router.callback_query(CreateForm.waiting_preset_holiday, F.data.startswith("rand_holiday:"))
+async def on_preset_holiday(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    val = callback.data.split(":", 1)[1]
+    holiday_map = {
+        "wedding": "Свадьба", "bday": "День рождения", "may9": "9 мая",
+        "newyear": "Новый год", "christmas": "Рождество", "feb23": "23 февраля",
+        "march8": "8 марта", "sale": "Распродажа", "skip": ""
+    }
+    await state.update_data(holiday=holiday_map.get(val, val))
+    lang = await db.get_user_language(callback.from_user.id)
+    
     # К выбору формата
     await _replace_with_text(callback, get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
     await state.set_state(CreateForm.waiting_aspect)
@@ -2420,6 +2481,19 @@ async def on_back_from_size(callback: CallbackQuery, state: FSMContext, db: Data
     data = await state.get_data()
     lang = await db.get_user_language(callback.from_user.id)
     
+    if data.get("random_mode"):
+        # Рандом: возврат к возрасту (для м/ж) или к полу (для детей)
+        gender = data.get("rand_gender")
+        if gender in ("male", "female"):
+            from bot.keyboards import form_age_keyboard
+            await _replace_with_text(callback, get_string("select_age", lang), reply_markup=form_age_keyboard(lang))
+            await state.set_state(CreateForm.waiting_age)
+        else:
+            await _replace_with_text(callback, get_string("select_model_gender", lang), reply_markup=random_gender_keyboard(lang))
+            await state.set_state(None)
+        await _safe_answer(callback)
+        return
+
     if data.get("infographic_mode"):
         # Для инфографики возврат к доп. инфо
         await _replace_with_text(callback, get_string("enter_extra_info_skip", lang), reply_markup=skip_step_keyboard("info_extra", lang))
@@ -2438,12 +2512,22 @@ async def on_back_from_age(callback: CallbackQuery, state: FSMContext, db: Datab
     data = await state.get_data()
     category = data.get("category")
     lang = await db.get_user_language(callback.from_user.id)
+    
+    if data.get("random_mode"):
+        # Рандом: возврат к выбору пола
+        await _replace_with_text(callback, get_string("select_model_gender", lang), reply_markup=random_gender_keyboard(lang))
+        await state.set_state(None)
+        await _safe_answer(callback)
+        return
+
     if data.get("plus_mode"):
         await _replace_with_text(callback, "Выберите вайб:", reply_markup=plus_vibe_keyboard(lang))
         await state.set_state(CreateForm.plus_vibe)
     else:
-        await _replace_with_text(callback, "Выберите телосложение:", reply_markup=form_size_keyboard(category, lang))
-        await state.set_state(CreateForm.waiting_size)
+        # Для пресетов — возврат к моделям
+        cloth = data.get("cloth")
+        index = data.get("index", 0)
+        await _show_models_for_category(callback, db, category, cloth, index)
     await _safe_answer(callback)
 
 @router.callback_query(F.data == "back_step", CreateForm.waiting_height)
@@ -2451,6 +2535,13 @@ async def on_back_from_height(callback: CallbackQuery, state: FSMContext, db: Da
     data = await state.get_data()
     lang = await db.get_user_language(callback.from_user.id)
     
+    if data.get("random_mode"):
+        # Рандом: возврат к размеру
+        await _replace_with_text(callback, get_string("select_body_type", lang), reply_markup=form_size_keyboard(data.get("rand_gender"), lang))
+        await state.set_state(CreateForm.waiting_size)
+        await _safe_answer(callback)
+        return
+
     if data.get("infographic_mode"):
         from bot.keyboards import form_size_keyboard
         # Для инфографики возврат к телосложению
@@ -2480,6 +2571,10 @@ async def on_back_from_length(callback: CallbackQuery, state: FSMContext, db: Da
     elif data.get("infographic_mode") and category == "infographic_clothing":
         await _replace_with_text(callback, "Выберите позу модели:", reply_markup=pose_keyboard(lang))
         await state.set_state(CreateForm.waiting_info_pose)
+    elif data.get("random_mode"):
+        # Рандом: возврат к рукавам
+        await state.set_state(CreateForm.waiting_sleeve)
+        await _replace_with_text(callback, get_string("select_sleeve_length", lang), reply_markup=sleeve_length_keyboard(lang))
     else:
         # Для пресетов и остальных — к росту
         await _replace_with_text(callback, "📏 Введите рост модели в см (например: 170):")
@@ -2496,6 +2591,14 @@ async def on_back_from_sleeve(callback: CallbackQuery, state: FSMContext, db: Da
     if data.get("infographic_mode"):
         from bot.keyboards import pants_style_keyboard
         # Для инфографики возврат к крою штанов
+        await _replace_with_text(callback, get_string("select_pants_style", lang), reply_markup=pants_style_keyboard(lang))
+        await state.set_state(CreateForm.waiting_pants_style)
+        await _safe_answer(callback)
+        return
+
+    if data.get("random_mode"):
+        # Рандом: возврат к крою штанов
+        from bot.keyboards import pants_style_keyboard
         await _replace_with_text(callback, get_string("select_pants_style", lang), reply_markup=pants_style_keyboard(lang))
         await state.set_state(CreateForm.waiting_pants_style)
         await _safe_answer(callback)
@@ -2566,11 +2669,26 @@ async def on_back_from_plus_vibe(callback: CallbackQuery, state: FSMContext, db:
     await state.set_state(CreateForm.plus_season)
     await _safe_answer(callback)
 
+@router.callback_query(F.data == "back_step", CreateForm.waiting_rand_loc_group)
+async def on_back_from_rand_locgroup(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    await on_marketplace_menu(callback, db)
+
+@router.callback_query(F.data == "back_step", CreateForm.waiting_rand_loc)
+async def on_back_from_rand_loc(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    lang = await db.get_user_language(callback.from_user.id)
+    from bot.keyboards import random_loc_group_keyboard
+    await _replace_with_text(callback, get_string("select_loc_group", lang), reply_markup=random_loc_group_keyboard(lang))
+    await state.set_state(CreateForm.waiting_rand_loc_group)
+    await _safe_answer(callback)
+
 @router.callback_query(F.data == "back_step", CreateForm.waiting_custom_location)
 async def on_back_from_custom_loc(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    data = await state.get_data()
     lang = await db.get_user_language(callback.from_user.id)
-    await _replace_with_text(callback, "Где будет находиться товар?", reply_markup=random_loc_group_keyboard(lang))
-    await state.set_state(None)
+    group = data.get("rand_loc_group", "outdoor")
+    from bot.keyboards import random_location_keyboard
+    await _replace_with_text(callback, get_string("select_location", lang), reply_markup=random_location_keyboard(group, lang))
+    await state.set_state(CreateForm.waiting_rand_loc)
     await _safe_answer(callback)
 
 @router.callback_query(F.data == "back_step", CreateForm.waiting_has_person)
@@ -2813,7 +2931,12 @@ async def on_back_from_aspect(callback: CallbackQuery, state: FSMContext, db: Da
         else:
             await _replace_with_text(callback, get_string("select_camera_dist", lang), reply_markup=form_view_keyboard(lang))
             await state.set_state(CreateForm.waiting_view)
-    # 4. Рандом для прочих товаров
+    # 4. Рандом одежда
+    elif data.get("random_mode"):
+        from bot.keyboards import random_holiday_keyboard
+        await _replace_with_text(callback, "Выберите праздник (если есть):", reply_markup=random_holiday_keyboard(lang))
+        await state.set_state(CreateForm.waiting_preset_holiday)
+    # 5. Рандом для прочих товаров
     elif data.get("random_other_mode"):
         if data.get("has_person"):
             from bot.keyboards import style_keyboard
@@ -2861,25 +2984,19 @@ async def on_back_from_size(callback: CallbackQuery, state: FSMContext, db: Data
         await _show_models_for_category(callback, db, category, data.get("cloth", "all"), data.get("index", 0))
     await _safe_answer(callback)
 
-@router.callback_query(F.data == "back_step", CreateForm.waiting_age)
-async def on_back_from_age(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
-    data = await state.get_data()
-    await _show_models_for_category(callback, db, data.get("category"), data.get("cloth", "all"), data.get("index", 0))
-    await _safe_answer(callback)
-
-@router.callback_query(F.data == "back_step", CreateForm.waiting_height)
-async def on_back_from_height(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
-    data = await state.get_data()
-    lang = await db.get_user_language(callback.from_user.id)
-    await _replace_with_text(callback, get_string("select_body_type", lang), reply_markup=form_size_keyboard(data.get("category"), lang))
-    await state.set_state(CreateForm.waiting_size)
-    await _safe_answer(callback)
-
 @router.callback_query(F.data == "back_step", CreateForm.waiting_pants_style)
 async def on_back_from_pants_style(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     lang = await db.get_user_language(callback.from_user.id)
     await _replace_with_text(callback, get_string("enter_height", lang))
     await state.set_state(CreateForm.waiting_height)
+    await _safe_answer(callback)
+
+@router.callback_query(F.data == "back_step", CreateForm.waiting_preset_holiday)
+async def on_back_from_preset_holiday(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    lang = await db.get_user_language(callback.from_user.id)
+    from bot.keyboards import random_season_keyboard
+    await _replace_with_text(callback, "Выберите сезон:", reply_markup=random_season_keyboard(lang))
+    await state.set_state(CreateForm.waiting_preset_season)
     await _safe_answer(callback)
 
 @router.callback_query(F.data == "back_step", CreateForm.waiting_preset_season)
@@ -3060,36 +3177,50 @@ async def _build_final_prompt(data: dict, db: Database) -> str:
     elif data.get("normal_gen_mode"):
         prompt_filled = data.get("prompt") or ""
     elif data.get("random_mode"):
+        # Рандом Одежда и Обувь (полный флоу из 13 шагов)
         gender = data.get("rand_gender")
         gender_map = {"male":"мужчина","female":"женщина","boy":"мальчик","girl":"девочка"}
-        loc_map = {"inside_restaurant":"внутри ресторана","photo_studio":"в фотостудии","coffee_shop":"в кофейне","city":"в городе","building":"у здания","wall":"у стены","park":"в парке","coffee_shop_out":"у кофейни","forest":"в лесу","car":"у машины"}
-        vibe_map = {"summer":"летний", "winter":"зимний", "autumn":"осенний", "spring":"весенний"}
-        p_parts = []
-        p_parts.append(f"{gender_map.get(gender, 'модель')} ")
-        if age_text: p_parts.append(f"{age_text}. ")
-        h = data.get("height")
-        if h: p_parts.append(f"Рост {h} см. ")
-        if size_text: p_parts.append(f"{size_text}. ")
+        
         loc = data.get("rand_location")
+        loc_map = {"inside_restaurant":"внутри ресторана","photo_studio":"в фотостудии","coffee_shop":"в кофейне","city":"в городе","building":"у здания","wall":"у стены","park":"в парке","coffee_shop_out":"у кофейни","forest":"в лесу","car":"у машины"}
+        
+        p_parts = ["Professional commercial fashion photography. High quality, realistic lighting. "]
+        p_parts.append(f"Model: {gender_map.get(gender, 'person')}. ")
+        if age_text: p_parts.append(f"Age: {age_text}. ")
+        if size_text: p_parts.append(f"Body type: {size_text}. ")
+        h = data.get("height")
+        if h: p_parts.append(f"Height: {h}cm. ")
+        
         if loc:
             if loc == 'custom':
                 custom = (data.get('rand_location_custom') or '').strip()
-                if custom: p_parts.append(f"Съёмка {custom}. ")
-            else: p_parts.append(f"Съёмка {loc_map.get(loc, loc)}. ")
-        vibe = data.get("rand_vibe")
-        if vibe: p_parts.append(f"Вайб: {vibe_map.get(vibe, vibe)}. ")
-        shot = data.get("rand_shot")
-        if shot:
-            shot_map = {"full":"в полный рост", "close":"близкий ракурс"}
-            p_parts.append(f"Ракурс: {shot_map.get(shot, shot)}. ")
+                if custom: p_parts.append(f"Location: {custom}. ")
+            else:
+                p_parts.append(f"Location: {loc_map.get(loc, loc)}. ")
+        
+        pants = data.get("pants_style")
+        if pants: p_parts.append(f"Pants cut: {pants}. ")
+        sleeve = data.get("sleeve")
+        if sleeve: p_parts.append(f"Sleeve type: {sleeve}. ")
         L = (data.get("length") or "").strip()
-        if L: p_parts.append(f"Длина изделия: {L}. ")
-        if sleeve_text: p_parts.append(f"Длина рукава: {sleeve_text}. ")
-        view_key = data.get("view")
-        view_txt = {"close": "близкий", "far": "дальний", "medium": "средний", "back": "сзади", "front": "спереди"}.get(view_key, "средний")
-        p_parts.append(f"Вид: {view_txt}. Профессиональное фото, реалистичный свет, высокое качество.")
+        if L: p_parts.append(f"Garment length: {L}. ")
+        
+        pose = data.get("pose")
+        if pose: p_parts.append(f"Pose: {pose}. ")
+        
+        dist = data.get("dist")
+        view = data.get("view")
+        if dist: p_parts.append(f"Camera distance: {dist}. ")
+        if view: p_parts.append(f"View: {view}. ")
+        
+        season = data.get("season")
+        if season: p_parts.append(f"Season: {season}. ")
+        holiday = data.get("holiday")
+        if holiday: p_parts.append(f"Occasion/Holiday: {holiday}. ")
+        
+        p_parts.append("8k resolution, cinematic lighting, professional studio look.")
         base_random = await db.get_random_prompt() or ""
-        prompt_filled = (base_random + "\n\n" + ''.join(p_parts)).strip()
+        prompt_filled = (base_random + "\n\n" + "".join(p_parts)).strip()
     elif category == "whitebg":
         prompt_filled = prompt_text or "Professional commercial product photography on a pure white background. High resolution, studio lighting, sharp focus on the product."
     elif category == "storefront":

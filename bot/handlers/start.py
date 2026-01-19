@@ -1,5 +1,5 @@
 from aiogram import Router, F, Bot
-from aiogram.types import Message, CallbackQuery, FSInputFile
+from aiogram.types import Message, CallbackQuery, FSInputFile, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.types import BufferedInputFile
 from aiogram.filters import CommandStart
 from aiogram.exceptions import TelegramBadRequest, TelegramRetryAfter
@@ -791,8 +791,10 @@ async def on_whitebg_category(callback: CallbackQuery, db: Database, state: FSMC
     await state.clear()
     await state.update_data(category="whitebg")
     lang = await db.get_user_language(callback.from_user.id)
-    from bot.keyboards import gender_selection_keyboard
-    await _replace_with_text(callback, get_string("select_gender", lang), reply_markup=gender_selection_keyboard("whitebg", lang, back_data="menu_market"))
+    # Кнопка назад в меню маркетплейсов
+    back_kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=get_string("back", lang), callback_data="menu_market")]])
+    await _replace_with_text(callback, get_string("upload_photo", lang), reply_markup=back_kb)
+    await state.set_state(CreateForm.waiting_view)
     await _safe_answer(callback)
 
 @router.callback_query(F.data.startswith("gender_select:"))
@@ -1305,8 +1307,11 @@ async def on_aspect_selected(callback: CallbackQuery, state: FSMContext, db: Dat
             parts.append(f"🧥 **Рукав**: {data.get('sleeve', '—')}\n")
             parts.append(f"👀 **Угол**: {data.get('info_angle', '—')}\n")
             parts.append(f"📏 **Ракурс**: {data.get('info_dist', '—')}\n")
-            parts.append(f"🧘 **Поза**: {data.get('info_pose', '—')}\n")
-            parts.append(f"👗 **Длина**: {data.get('length', '—')}\n")
+        parts.append(f"🧘 **Поза**: {data.get('info_pose', '—')}\n")
+        parts.append(f"👗 **Длина**: {data.get('length', '—')}\n")
+        
+    elif category == "whitebg":
+        parts.append("📦 **Категория**: ⚪ На белом фоне\n")
             
     elif data.get("random_mode"):
         parts.append("📦 **Категория**: 🎨 Рандом (Одежда)\n")
@@ -1425,29 +1430,6 @@ async def on_own_length(message: Message, state: FSMContext, db: Database) -> No
     await state.set_state(CreateForm.waiting_own_sleeve)
     await message.answer(get_string("select_sleeve_length", lang), reply_markup=sleeve_length_keyboard(lang))
 
-
-@router.callback_query(CreateForm.waiting_own_sleeve, F.data.startswith("form_sleeve:"))
-async def on_own_sleeve(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
-    val = callback.data.split(":", 1)[1]
-    sleeve_map = {
-        "normal": "Обычный",
-        "long": "Длинные",
-        "three_quarter": "Три четверти",
-        "elbow": "До локтей",
-        "short": "Короткие",
-        "none": "Без рукав",
-        "skip": "",
-    }
-    current = await state.get_data()
-    if current.get("own_mode"):
-        await state.update_data(own_sleeve=sleeve_map.get(val, ""))
-        # Переходим к выбору формата
-        lang = await db.get_user_language(callback.from_user.id)
-        await _replace_with_text(callback, get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
-        await state.set_state(CreateForm.waiting_aspect)
-        await _safe_answer(callback)
-        return
-    await _safe_answer(callback)
 
 
 @router.callback_query(F.data.startswith("cut_type:"))
@@ -2240,6 +2222,13 @@ async def handle_user_photo(message: Message, state: FSMContext, db: Database) -
         await state.set_state(CreateForm.waiting_info_gender)
         return
 
+    if data.get("category") == "whitebg":
+        # Для белого фона — СРАЗУ к формату
+        from bot.keyboards import aspect_ratio_keyboard
+        await message.answer(get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
+        await state.set_state(CreateForm.waiting_aspect)
+        return
+
     # Для пресетов: начинаем цепочку вопросов (п. 1.1)
     category = data.get("category")
     if category in ("female", "male", "child"):
@@ -2541,14 +2530,22 @@ async def on_back_from_own_cut(callback: CallbackQuery, state: FSMContext, db: D
 async def on_back_from_aspect(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     data = await state.get_data()
     lang = await db.get_user_language(callback.from_user.id)
+    category = data.get("category")
+
     # 1. Свой вариант ФОНА
-    if data.get("category") == "own_variant":
+    if category == "own_variant":
         await _ask_garment_length(callback, state, db)
     # 2. Свой вариант МОДЕЛИ
     elif data.get("own_mode"):
-        await _replace_with_text(callback, get_string("upload_product", lang), reply_markup=back_step_keyboard(lang))
-        await state.set_state(CreateForm.waiting_product_photo)
-    # 3. Рандом для прочих товаров
+        await _ask_garment_length(callback, state, db)
+    # 3. Инфографика
+    elif data.get("infographic_mode"):
+        if category == "infographic_clothing":
+            await _ask_garment_length(callback, state, db)
+        else:
+            await _replace_with_text(callback, get_string("select_camera_dist", lang), reply_markup=form_view_keyboard(lang))
+            await state.set_state(CreateForm.waiting_view)
+    # 4. Рандом для прочих товаров
     elif data.get("random_other_mode"):
         if data.get("has_person"):
             from bot.keyboards import style_keyboard
@@ -2558,11 +2555,6 @@ async def on_back_from_aspect(callback: CallbackQuery, state: FSMContext, db: Da
             from bot.keyboards import yes_no_keyboard
             await _replace_with_text(callback, get_string("has_person_ask", lang), reply_markup=yes_no_keyboard(lang))
             await state.set_state(CreateForm.waiting_rand_other_has_person)
-    # 4. Пресеты (наш новый флоу)
-    elif data.get("category") in ("female", "male", "child") and not data.get("random_mode") and not data.get("infographic_mode"):
-        from bot.keyboards import random_vibe_keyboard
-        await state.set_state(CreateForm.waiting_preset_season)
-        await _replace_with_text(callback, "Выберите сезон:", reply_markup=random_vibe_keyboard(lang))
     # 5. Рандом (Одежда)
     elif data.get("random_mode"):
         if data.get("rand_location") == "photo_studio":
@@ -2571,6 +2563,16 @@ async def on_back_from_aspect(callback: CallbackQuery, state: FSMContext, db: Da
         else:
             from bot.keyboards import random_shot_keyboard
             await _replace_with_text(callback, get_string("select_view", lang), reply_markup=random_shot_keyboard(lang))
+    # 6. На белом фоне
+    elif category == "whitebg":
+        back_kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=get_string("back", lang), callback_data="menu_market")]])
+        await _replace_with_text(callback, get_string("upload_photo", lang), reply_markup=back_kb)
+        await state.set_state(CreateForm.waiting_view)
+    # 7. Пресеты
+    elif category in ("female", "male", "child"):
+        from bot.keyboards import random_season_keyboard
+        await state.set_state(CreateForm.waiting_preset_season)
+        await _replace_with_text(callback, "Выберите сезон:", reply_markup=random_season_keyboard(lang))
     else:
         await on_create_photo(callback, db, state)
     await _safe_answer(callback)
@@ -2647,30 +2649,6 @@ async def on_back_from_edit_text(callback: CallbackQuery, state: FSMContext, db:
     else:
         kb = result_actions_keyboard(lang)
     await _replace_with_text(callback, get_string("gen_ready", lang), reply_markup=kb)
-    await _safe_answer(callback)
-
-@router.callback_query(F.data == "back_step", CreateForm.waiting_aspect)
-async def on_back_from_aspect(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
-    data = await state.get_data()
-    lang = await db.get_user_language(callback.from_user.id)
-    if data.get("category") == "own_variant" or data.get("own_mode"):
-        await _ask_garment_length(callback, state, db)
-    elif data.get("infographic_mode"):
-        # Для инфографики (одежда) возвращаемся к длине, для прочих — к ракурсу
-        if data.get("category") == "infographic_clothing":
-            await _ask_garment_length(callback, state, db)
-        else:
-            from bot.keyboards import form_view_keyboard
-            await _replace_with_text(callback, get_string("select_camera_dist", lang), reply_markup=form_view_keyboard(lang))
-            await state.set_state(CreateForm.waiting_view)
-    elif data.get("random_mode"):
-        await _replace_with_text(callback, get_string("select_camera_dist", lang), reply_markup=form_view_keyboard(lang))
-        await state.set_state(CreateForm.waiting_view)
-    else:
-        # Для пресетов: назад к сезону
-        from bot.keyboards import random_season_keyboard
-        await state.set_state(CreateForm.waiting_preset_season)
-        await _replace_with_text(callback, "Выберите сезон:", reply_markup=random_season_keyboard(lang))
     await _safe_answer(callback)
 
 @router.callback_query(F.data == "back_step", CreateForm.waiting_length)
@@ -2827,6 +2805,8 @@ async def _build_final_prompt(data: dict, db: Database) -> str:
         p_parts.append(f"Вид: {view_txt}. Профессиональное фото, реалистичный свет, высокое качество.")
         base_random = await db.get_random_prompt() or ""
         prompt_filled = (base_random + "\n\n" + ''.join(p_parts)).strip()
+    elif category == "whitebg":
+        prompt_filled = prompt_text or "Professional commercial product photography on a pure white background. High resolution, studio lighting, sharp focus on the product."
     else:
         # Обычная модель (Пресеты)
         view_key = data.get("view")
@@ -2850,9 +2830,6 @@ async def _build_final_prompt(data: dict, db: Database) -> str:
         if data.get("pose"): prompt_filled += f" Model pose: {data.get('pose')}."
         if data.get("dist"): prompt_filled += f" Camera distance: {data.get('dist')}."
         if data.get("season"): prompt_filled += f" Season: {data.get('season')}."
-        
-        if category == "whitebg":
-            prompt_filled += f" Ракурс: {view_word}. Белый фон, студийный свет."
 
     # Добавляем брендинг
     prompt_filled = db.add_ai_room_branding(prompt_filled)

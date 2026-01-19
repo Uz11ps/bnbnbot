@@ -202,6 +202,9 @@ async def _ask_sleeve_length(message_or_callback: Message | CallbackQuery, state
 @router.callback_query(F.data.startswith("own_sleeve:"))
 async def on_own_sleeve(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     val = callback.data.split(":", 1)[1]
+    data = await state.get_data()
+    lang = await db.get_user_language(callback.from_user.id)
+    
     sleeve_map = {
         "normal": "Обычный",
         "long": "Длинные",
@@ -209,10 +212,19 @@ async def on_own_sleeve(callback: CallbackQuery, state: FSMContext, db: Database
         "elbow": "До локтей",
         "short": "Короткие",
         "none": "Без рукав",
-        "skip": "",
+        "skip": "Пропустить",
     }
-    sleeve_text = sleeve_map.get(val, "")
+    sleeve_text = sleeve_map.get(val, "Пропустить")
     await state.update_data(own_sleeve=sleeve_text)
+    
+    if data.get("own_mode"):
+        # Для "Свой вариант модели" после рукавов просим ФОТО ТОВАРА (п. 8.3)
+        back_kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")]])
+        await _replace_with_text(callback, get_string("upload_product", lang), reply_markup=back_kb)
+        await state.set_state(CreateForm.waiting_view)
+        await _safe_answer(callback)
+        return
+
     # Далее длина изделия
     await _ask_garment_length(callback, state, db)
     await _safe_answer(callback)
@@ -1516,9 +1528,8 @@ async def on_aspect_selected(callback: CallbackQuery, state: FSMContext, db: Dat
 async def on_own_ref_photo(message: Message, state: FSMContext, db: Database) -> None:
     ref_id = message.photo[-1].file_id
     await state.update_data(own_ref_photo_id=ref_id)
-    lang = await db.get_user_language(message.from_user.id)
-    await state.set_state(CreateForm.waiting_product_photo)
-    await message.answer(get_string("upload_product", lang), reply_markup=back_step_keyboard(lang))
+    # Далее длина изделия (п. 8.1)
+    await _ask_garment_length(message, state, db)
 
 
 @router.message(CreateForm.waiting_product_photo, F.photo)
@@ -2073,6 +2084,12 @@ async def on_garment_len_callback(callback: CallbackQuery, state: FSMContext, db
     if data.get("own_mode") or data.get("category") == "own_variant" or data.get("category") == "storefront" or data.get("infographic_mode"):
         await state.update_data(own_length=length_text)
 
+        if data.get("own_mode"):
+            # Для "Свой вариант модели" после длины идет Выбор рукава (п. 8.2)
+            await _ask_sleeve_length(callback, state, db)
+            await _safe_answer(callback)
+            return
+
         if data.get("category") == "own_variant":
             # Для "Свой вариант фона" — Длина изделия это ФИНАЛЬНЫЙ шаг опроса — к формату (п. 9.5)
             from bot.keyboards import aspect_ratio_keyboard
@@ -2602,6 +2619,13 @@ async def on_back_from_sleeve(callback: CallbackQuery, state: FSMContext, db: Da
 async def on_back_from_view(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     data = await state.get_data()
     lang = await db.get_user_language(callback.from_user.id)
+    category = data.get("category")
+
+    # 1. Свой вариант МОДЕЛИ или ФОНА
+    if data.get("own_mode") or category == "own_variant":
+        # Назад к выбору рукава
+        await _ask_sleeve_length(callback, state, db)
+        return
     
     if data.get("infographic_mode"):
         from bot.keyboards import form_view_keyboard
@@ -3047,9 +3071,24 @@ async def on_back_from_edit_text(callback: CallbackQuery, state: FSMContext, db:
 async def on_back_from_length(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     data = await state.get_data()
     lang = await db.get_user_language(callback.from_user.id)
-    if data.get("category") == "own_variant" or data.get("own_mode"):
-        await _ask_sleeve_length(callback, state, db)
-    elif data.get("category") == "storefront":
+    
+    # 1. Свой вариант МОДЕЛИ
+    if data.get("own_mode"):
+        # Назад от длины к фото модели
+        await _replace_with_text(callback, get_string("upload_model_photo", lang), reply_markup=back_step_keyboard(lang))
+        await state.set_state(CreateForm.waiting_ref_photo)
+        await _safe_answer(callback)
+        return
+
+    # 2. Свой вариант ФОНА
+    if data.get("category") == "own_variant":
+        # Назад от длины изделия к фото товара (п. 9.4 -> 9.2)
+        await _replace_with_text(callback, get_string("upload_product", lang), reply_markup=back_step_keyboard(lang))
+        await state.set_state(CreateForm.waiting_own_product_photo)
+        await _safe_answer(callback)
+        return
+
+    if data.get("category") == "storefront":
         await state.set_state(CreateForm.waiting_preset_dist)
         from bot.keyboards import angle_keyboard
         await _replace_with_text(callback, "Выберите ракурс фотографии (Дальний/Средний/Близкий):", reply_markup=angle_keyboard(lang))

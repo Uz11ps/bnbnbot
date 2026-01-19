@@ -2035,9 +2035,14 @@ async def form_set_sleeve(callback: CallbackQuery, state: FSMContext, db: Databa
 
     # Инфографика одежда (п. 11)
     if data.get("infographic_mode") and data.get("category") == "infographic_clothing":
-        from bot.keyboards import form_view_keyboard
         await _replace_with_text(callback, "Выберите угол камеры (Спереди/Сзади):", reply_markup=form_view_keyboard(lang))
         await state.set_state(CreateForm.waiting_info_angle)
+        await _safe_answer(callback)
+        return
+
+    # Пресеты (Готовые модели) - ПЕРЕХОД К ДЛИНЕ ИЗДЕЛИЯ
+    if data.get("category") in ("female", "male", "child") and not data.get("random_mode") and not data.get("infographic_mode"):
+        await _ask_garment_length(callback, state, db)
         await _safe_answer(callback)
         return
 
@@ -2048,7 +2053,7 @@ async def form_set_sleeve(callback: CallbackQuery, state: FSMContext, db: Databa
         return
 
     if data.get("random_mode"):
-        await _replace_with_text(callback, "Тип кроя штанов (опционально):", reply_markup=pants_style_keyboard())
+        await _replace_with_text(callback, "Тип кроя штанов (опционально):", reply_markup=pants_style_keyboard(lang))
         await state.set_state(CreateForm.waiting_pants_style)
     else:
         await _replace_with_text(callback, get_string("select_camera_dist", lang), reply_markup=form_view_keyboard(lang))
@@ -2192,6 +2197,11 @@ async def on_info_pose(callback: CallbackQuery, state: FSMContext, db: Database)
     if data.get("infographic_mode") and data.get("category") == "infographic_clothing":
         # Для инфографики одежда: после позы — к длине изделия (п. 14)
         await _ask_garment_length(callback, state, db)
+    elif data.get("category") in ("female", "male", "child") and not data.get("random_mode") and not data.get("infographic_mode"):
+        # Для пресетов: после позы — к ракурсу (п. 9)
+        from bot.keyboards import angle_keyboard
+        await state.set_state(CreateForm.waiting_preset_dist)
+        await _replace_with_text(callback, "Выберите ракурс фотографии:", reply_markup=angle_keyboard(lang))
     elif data.get("random_other_mode"):
         # Для Рандом прочее: после позы — к росту (п. 8)
         await _replace_with_text(callback, get_string("enter_height_cm", lang), reply_markup=skip_step_keyboard("rand_height", lang))

@@ -581,10 +581,10 @@ async def delete_key(table: str, key_id: int, db: aiosqlite.Connection = Depends
 @app.get("/tg_img/{file_id}")
 async def get_telegram_image(file_id: str, user: str = Depends(get_current_username)):
     """Прокси-роут для отображения фото из Telegram по file_id"""
-    if not file_id or file_id == "None":
-        raise HTTPException(status_code=400, detail="Invalid file_id")
+    if not file_id or file_id == "None" or file_id == "FILE_ID_MOCK":
+        return Response(status_code=404)
     if settings.bot_token == "MOCK":
-        raise HTTPException(status_code=500, detail="Bot token not configured")
+        return Response(status_code=500, content="Bot token not configured")
     
     bot = Bot(token=settings.bot_token)
     try:
@@ -592,20 +592,31 @@ async def get_telegram_image(file_id: str, user: str = Depends(get_current_usern
         file = await bot.get_file(file_id)
         file_url = f"https://api.telegram.org/file/bot{settings.bot_token}/{file.file_path}"
         
-        # Используем httpx для скачивания и проксирования в ответ браузеру
-        async with httpx.AsyncClient() as client:
+        # Используем httpx для скачивания
+        async with httpx.AsyncClient(follow_redirects=True) as client:
             # Настраиваем прокси для запроса к Telegram, если они есть
             proxy_url = settings.proxy.as_url() if hasattr(settings, "proxy") else None
-            proxies = {"https": proxy_url, "http": proxy_url} if proxy_url else None
             
-            resp = await client.get(file_url, proxies=proxies, timeout=20)
+            # Важно: для httpx прокси передаются в конструктор или через mount
+            # Но здесь мы можем просто попробовать без них, если прокси только для Gemini
+            resp = await client.get(file_url, timeout=30)
+            
             if resp.status_code == 200:
                 return Response(content=resp.content, media_type="image/jpeg")
-            else:
-                raise HTTPException(status_code=404, detail=f"Telegram returned {resp.status_code}")
+            
+            # Если без прокси не вышло и прокси есть, пробуем с ними
+            if proxy_url:
+                async with httpx.AsyncClient(proxy=proxy_url, follow_redirects=True) as p_client:
+                    resp = await p_client.get(file_url, timeout=30)
+                    if resp.status_code == 200:
+                        return Response(content=resp.content, media_type="image/jpeg")
+            
+            print(f"Telegram image {file_id} error: {resp.status_code}")
+            return Response(status_code=resp.status_code)
+            
     except Exception as e:
-        print(f"Error proxying Telegram image {file_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"Critical error proxying Telegram image {file_id}: {e}")
+        return Response(status_code=500, content=str(e))
     finally:
         await bot.session.close()
 

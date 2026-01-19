@@ -1665,18 +1665,11 @@ async def on_random_location_custom_text(message: Message, state: FSMContext) ->
 async def on_model_pick(callback: CallbackQuery, db: Database, state: FSMContext) -> None:
     try:
         parts = callback.data.split(":")
-        # model_pick:logic_cat:display_cat:cloth:index (if logic_cat != display_cat)
-        # OR model_pick:logic_cat:cloth:index (if they are the same)
-        if len(parts) == 5:
-            category = parts[1] # logic
-            display_cat = parts[2]
-            cloth = parts[3]
-            index = int(parts[4])
-        else:
-            category = parts[1] # logic == display
-            display_cat = category
-            cloth = parts[2]
-            index = int(parts[3])
+        # model_pick:logic_cat:display_cat:cloth:index
+        category = parts[1] # logic (e.g. storefront)
+        display_cat = parts[2] # actual db cat (e.g. female)
+        cloth = parts[3]
+        index = int(parts[4])
     except Exception:
         await _safe_answer(callback)
         return
@@ -1693,7 +1686,14 @@ async def on_model_pick(callback: CallbackQuery, db: Database, state: FSMContext
         
     model_id, name, prompt_id, _photo = model
     # Сохраняем данные
-    await state.update_data(category=category, display_category=display_cat, cloth=cloth, index=index, model_id=model_id, prompt_id=prompt_id)
+    await state.update_data(
+        category=category, 
+        display_category=display_cat, 
+        cloth=cloth, 
+        index=index, 
+        model_id=model_id, 
+        prompt_id=prompt_id
+    )
     
     lang = await db.get_user_language(callback.from_user.id)
     

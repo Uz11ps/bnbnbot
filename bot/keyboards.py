@@ -405,7 +405,7 @@ def model_select_keyboard(category: str, cloth: str, index: int, total: int, lan
 
     nav_row = [
         InlineKeyboardButton(text="⬅️", callback_data=f"model_nav:{category}:{cloth}:{index-1}{logic_suffix}"),
-        InlineKeyboardButton(text="✅ " + get_string("confirm_btn", lang), callback_data=f"model_pick:{pick_cat}:{category}:{index}"),
+        InlineKeyboardButton(text=get_string("confirm_btn", lang), callback_data=f"model_pick:{pick_cat}:{category}:{cloth}:{index}"),
         InlineKeyboardButton(text="➡️", callback_data=f"model_nav:{category}:{cloth}:{index+1}{logic_suffix}"),
     ]
     rows.append(nav_row)

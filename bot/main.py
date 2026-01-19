@@ -84,24 +84,29 @@ import logging
 
 class AccessMiddleware:
     async def __call__(self, handler, event, data):
+        # Извлекаем фактическое событие из Update
+        actual_event = event.message or event.callback_query
+        if not actual_event:
+            return await handler(event, data)
+
         # Работаем только в личных чатах
-        if not (isinstance(event, (Message, CallbackQuery)) and event.chat.type == ChatType.PRIVATE):
+        chat = actual_event.chat if event.message else actual_event.message.chat
+        if chat.type != ChatType.PRIVATE:
             return await handler(event, data)
         
-        # Проверяем, не является ли это командой /start или системными кнопками
-        is_callback = isinstance(event, CallbackQuery)
-        callback_data = event.data if is_callback else None
+        user_id = actual_event.from_user.id
+        is_callback = bool(event.callback_query)
         
         # Список исключений (где проверка не нужна)
-        exceptions = ["accept_terms", "check_subscription", "menu_agreement"]
-        if not is_callback and event.text and event.text.startswith("/start"):
+        if not is_callback and actual_event.text and actual_event.text.startswith("/start"):
             return await handler(event, data)
-        if is_callback and callback_data in exceptions:
+            
+        exceptions = ["accept_terms", "check_subscription", "menu_agreement"]
+        if is_callback and event.callback_query.data in exceptions:
             return await handler(event, data)
             
         # Пропускаем администраторов
         settings = data.get("settings")
-        user_id = event.from_user.id
         if settings and user_id in (settings.admin_ids or []):
             return await handler(event, data)
             
@@ -109,11 +114,10 @@ class AccessMiddleware:
         db = data.get("db")
         bot = data.get("bot")
         
-        # Вызываем нашу функцию проверки
-        if await _ensure_access(event, db, bot):
+        # Вызываем нашу функцию проверки (передаем actual_event вместо Update)
+        if await _ensure_access(actual_event, db, bot):
             return await handler(event, data)
             
-        # Если проверка не прошла, _ensure_access сам отправит нужное сообщение
         return
 
 async def main() -> None:

@@ -287,15 +287,17 @@ async def _check_subscription(user_id: int, bot: Bot, db: Database) -> bool:
     """Проверяет подписку пользователя на обязательный канал"""
     channel_id = await db.get_app_setting("required_channel_id")
     if not channel_id:
-        return True # Канал не настроен — пропускаем
+        return True 
     try:
-        # Пробуем получить статус участника
+        # Пытаемся получить статус участника
         member = await bot.get_chat_member(chat_id=channel_id, user_id=user_id)
         # Статусы, которые считаются "подписан"
-        return member.status in ("member", "administrator", "creator")
+        is_subbed = member.status in ("member", "administrator", "creator")
+        logger.debug(f"Subscription check for {user_id} in {channel_id}: {member.status} (is_subbed: {is_subbed})")
+        return is_subbed
     except Exception as e:
         logger.error(f"Error checking subscription for {user_id} in {channel_id}: {e}")
-        # Если бот не в канале или ошибка API — разрешаем работу (fallback)
+        # Если бот не в канале или канал не найден — разрешаем работу, чтобы не блокировать всех
         return True
 
 async def _ensure_access(message_or_callback, db: Database, bot: Bot) -> bool:

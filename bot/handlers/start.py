@@ -1326,8 +1326,9 @@ async def on_create_own_variant(callback: CallbackQuery, state: FSMContext, db: 
     await state.clear()
     await state.update_data(category="own_variant")
     lang = await db.get_user_language(callback.from_user.id)
-    # Начинаем с параметров, фото в конце (п. 9)
-    await _ask_sleeve_length(callback, state, db)
+    # 1. Фото фона (п. 9.1)
+    await _replace_with_text(callback, get_string("upload_background", lang), reply_markup=back_step_keyboard(lang))
+    await state.set_state(CreateForm.waiting_own_bg_photo)
     await _safe_answer(callback)
 
 
@@ -1344,11 +1345,8 @@ async def on_own_bg_photo(message: Message, state: FSMContext, db: Database) -> 
 async def on_own_variant_product_photo(message: Message, state: FSMContext, db: Database) -> None:
     photo_id = message.photo[-1].file_id
     await state.update_data(own_product_photo_id=photo_id)
-    lang = await db.get_user_language(message.from_user.id)
-    # Финальный шаг — выбор ФОРМАТА
-    from bot.keyboards import aspect_ratio_keyboard
-    await message.answer(get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
-    await state.set_state(CreateForm.waiting_aspect)
+    # 3. Длина рукава (п. 9.3)
+    await _ask_sleeve_length(message, state, db)
 
 
 @router.message(CreateForm.waiting_prompt, F.text)
@@ -2076,13 +2074,14 @@ async def on_garment_len_callback(callback: CallbackQuery, state: FSMContext, db
         await state.update_data(own_length=length_text)
 
         if data.get("category") == "own_variant":
-            # Для "Свой вариант фона" ПОСЛЕ параметров запрашиваем фото фона (1-ое фото)
-            await _replace_with_text(callback, get_string("upload_background", lang), reply_markup=back_step_keyboard(lang))
-            await state.set_state(CreateForm.waiting_own_bg_photo)
+            # Для "Свой вариант фона" — Длина изделия это ФИНАЛЬНЫЙ шаг опроса — к формату (п. 9.5)
+            from bot.keyboards import aspect_ratio_keyboard
+            await _replace_with_text(callback, get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
+            await state.set_state(CreateForm.waiting_aspect)
             await _safe_answer(callback)
             return
 
-        # Для других — просим фото товара
+        # Для других (Свой вариант модели, Витрина, Инфографика) — просим фото товара в конце
         back_kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")]])
         await _replace_with_text(callback, get_string("upload_photo", lang), reply_markup=back_kb)
         await state.set_state(CreateForm.waiting_view)

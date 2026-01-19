@@ -800,9 +800,11 @@ async def on_rand_other_style(callback: CallbackQuery, state: FSMContext, db: Da
             await state.update_data(style=val)
         else:
             await state.update_data(style="")
-        from bot.keyboards import aspect_ratio_keyboard
-        await _replace_with_text(callback, get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
-        await state.set_state(CreateForm.waiting_aspect)
+        
+        # 11. ФОТО ТОВАРА (в конце)
+        back_kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")]])
+        await _replace_with_text(callback, get_string("upload_photo", lang), reply_markup=back_kb)
+        await state.set_state(CreateForm.waiting_view)
     await _safe_answer(callback)
 
 @router.message(CreateForm.waiting_rand_other_style_custom)
@@ -810,8 +812,11 @@ async def on_rand_other_style_custom(message: Message, state: FSMContext, db: Da
     text = (message.text or "").strip()
     await state.update_data(style=text)
     lang = await db.get_user_language(message.from_user.id)
-    await message.answer(get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
-    await state.set_state(CreateForm.waiting_aspect)
+    
+    # 11. ФОТО ТОВАРА (в конце)
+    back_kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")]])
+    await message.answer(get_string("upload_photo", lang), reply_markup=back_kb)
+    await state.set_state(CreateForm.waiting_view)
 
 
 @router.callback_query(F.data == "create_cat:storefront")
@@ -2740,6 +2745,11 @@ async def on_back_from_view(callback: CallbackQuery, state: FSMContext, db: Data
             await state.set_state(CreateForm.waiting_foot)
         else:
             await _ask_garment_length(callback, state, db)
+    elif data.get("random_other_mode"):
+        # Назад к стилю
+        from bot.keyboards import style_keyboard
+        await _replace_with_text(callback, get_string("select_style", lang), reply_markup=style_keyboard(lang))
+        await state.set_state(CreateForm.waiting_rand_other_style)
     else:
         await state.set_state(CreateForm.waiting_sleeve)
         await _replace_with_text(callback, "Выберите тип рукава (или пропустите):", reply_markup=sleeve_length_keyboard(lang))
@@ -3052,14 +3062,9 @@ async def on_back_from_aspect(callback: CallbackQuery, state: FSMContext, db: Da
         await state.set_state(CreateForm.waiting_preset_season)
     # 5. Рандом для прочих товаров
     elif data.get("random_other_mode"):
-        if data.get("has_person"):
-            from bot.keyboards import style_keyboard
-            await _replace_with_text(callback, get_string("select_style", lang), reply_markup=style_keyboard(lang))
-            await state.set_state(CreateForm.waiting_rand_other_style)
-        else:
-            from bot.keyboards import yes_no_keyboard
-            await _replace_with_text(callback, get_string("has_person_ask", lang), reply_markup=yes_no_keyboard(lang))
-            await state.set_state(CreateForm.waiting_rand_other_has_person)
+        back_kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")]])
+        await _replace_with_text(callback, get_string("upload_photo", lang), reply_markup=back_kb)
+        await state.set_state(CreateForm.waiting_view)
     # 5. Рандом (Одежда)
     elif data.get("random_mode"):
         if data.get("rand_location") == "photo_studio":

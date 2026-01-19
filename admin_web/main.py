@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Request, Form, Depends, HTTPException, status, BackgroundTasks, File, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, Response
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
@@ -577,6 +577,37 @@ async def delete_key(table: str, key_id: int, db: aiosqlite.Connection = Depends
     await db.execute(f"DELETE FROM {table_name} WHERE id=?", (key_id,))
     await db.commit()
     return RedirectResponse(url="/api_keys", status_code=303)
+
+@app.get("/tg_img/{file_id}")
+async def get_telegram_image(file_id: str, user: str = Depends(get_current_username)):
+    """Прокси-роут для отображения фото из Telegram по file_id"""
+    if not file_id or file_id == "None":
+        raise HTTPException(status_code=400, detail="Invalid file_id")
+    if settings.bot_token == "MOCK":
+        raise HTTPException(status_code=500, detail="Bot token not configured")
+    
+    bot = Bot(token=settings.bot_token)
+    try:
+        # Получаем путь к файлу через Telegram API
+        file = await bot.get_file(file_id)
+        file_url = f"https://api.telegram.org/file/bot{settings.bot_token}/{file.file_path}"
+        
+        # Используем httpx для скачивания и проксирования в ответ браузеру
+        async with httpx.AsyncClient() as client:
+            # Настраиваем прокси для запроса к Telegram, если они есть
+            proxy_url = settings.proxy.as_url() if hasattr(settings, "proxy") else None
+            proxies = {"https": proxy_url, "http": proxy_url} if proxy_url else None
+            
+            resp = await client.get(file_url, proxies=proxies, timeout=20)
+            if resp.status_code == 200:
+                return Response(content=resp.content, media_type="image/jpeg")
+            else:
+                raise HTTPException(status_code=404, detail=f"Telegram returned {resp.status_code}")
+    except Exception as e:
+        print(f"Error proxying Telegram image {file_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        await bot.session.close()
 
 @app.get("/history", response_class=HTMLResponse)
 async def list_history(request: Request, q: str = "", db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):

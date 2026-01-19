@@ -30,12 +30,21 @@
                     <td>{{ item.category }}</td>
                     <td>
                         <div class="d-flex flex-wrap justify-content-center gap-1" style="min-width: 100px;">
-                            {% if item.input_paths %}
+                            {% if item.input_paths and (item.input_paths | from_json) %}
                                 {% set inps = item.input_paths | from_json %}
                                 {% for p in inps %}
                                     <div class="position-relative">
                                         <img src="/{{ p }}" class="rounded shadow-sm border history-img clickable" style="width: 50px; height: 50px; object-fit: cover; cursor: pointer;" alt="Input" onclick="showModal('/{{ p }}')">
                                     </div>
+                                {% endfor %}
+                            {% elif item.input_photos and (item.input_photos | from_json) %}
+                                {% set inps_ids = item.input_photos | from_json %}
+                                {% for fid in inps_ids %}
+                                    {% if fid %}
+                                    <div class="position-relative">
+                                        <img src="/tg_img/{{ fid }}" class="rounded shadow-sm border history-img clickable" style="width: 50px; height: 50px; object-fit: cover; cursor: pointer;" alt="Input" onclick="showModal('/tg_img/{{ fid }}')">
+                                    </div>
+                                    {% endif %}
                                 {% endfor %}
                             {% else %}
                                 <span class="text-muted small">Нет фото</span>
@@ -45,8 +54,10 @@
                     <td class="text-center">
                         {% if item.result_path %}
                             <img src="/{{ item.result_path }}" class="rounded shadow-sm border border-success border-2 history-img clickable" style="width: 80px; height: 80px; object-fit: cover; cursor: pointer;" alt="Result" onclick="showModal('/{{ item.result_path }}')">
+                        {% elif item.result_photo_id %}
+                            <img src="/tg_img/{{ item.result_photo_id }}" class="rounded shadow-sm border border-success border-2 history-img clickable" style="width: 80px; height: 80px; object-fit: cover; cursor: pointer;" alt="Result" onclick="showModal('/tg_img/{{ item.result_photo_id }}')">
                         {% else %}
-                            <div class="badge bg-secondary">В Telegram</div>
+                            <div class="badge bg-secondary">Нет фото</div>
                         {% endif %}
                     </td>
                     <td>

@@ -1336,26 +1336,19 @@ async def on_own_bg_photo(message: Message, state: FSMContext, db: Database) -> 
     photo_id = message.photo[-1].file_id
     await state.update_data(own_bg_photo_id=photo_id)
     lang = await db.get_user_language(message.from_user.id)
+    # После фото фона просим фото ТОВАРА
     await message.answer(get_string("upload_product", lang), reply_markup=back_step_keyboard(lang))
     await state.set_state(CreateForm.waiting_own_product_photo)
-
 
 @router.message(CreateForm.waiting_own_product_photo, F.photo)
 async def on_own_variant_product_photo(message: Message, state: FSMContext, db: Database) -> None:
     photo_id = message.photo[-1].file_id
     await state.update_data(own_product_photo_id=photo_id)
-    data = await state.get_data()
     lang = await db.get_user_language(message.from_user.id)
-    
-    if data.get("repeat_mode"):
-        await state.update_data(repeat_mode=False)
-        from bot.keyboards import aspect_ratio_keyboard
-        await message.answer(get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
-        await state.set_state(CreateForm.waiting_aspect)
-        return
-
-    # Переходим к выбору рукава
-    await _ask_sleeve_length(message, state, db)
+    # Финальный шаг — ФОРМАТ
+    from bot.keyboards import aspect_ratio_keyboard
+    await message.answer(get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
+    await state.set_state(CreateForm.waiting_aspect)
 
 
 @router.message(CreateForm.waiting_prompt, F.text)
@@ -2430,7 +2423,7 @@ async def handle_user_photo(message: Message, state: FSMContext, db: Database) -
     if not data:
         return
     
-    # Проверяем, не перешли ли мы уже в другое состояние (защита от гонки при альбомах)
+    # Проверяем, не перешли ли мы уже в другое состояние
     current_state = await state.get_state()
     if current_state != CreateForm.waiting_view.state:
         return
@@ -2439,8 +2432,7 @@ async def handle_user_photo(message: Message, state: FSMContext, db: Database) -
     await state.update_data(user_photo_id=photo_id)
     lang = await db.get_user_language(message.from_user.id)
 
-    # Теперь для всех режимов (Пресеты, Рандом, Инфографика, Свой вариант)
-    # после получения фото в КОНЦЕ флоу — переходим к формату
+    # ДЛЯ ВСЕХ РЕЖИМОВ: фото — это ПОСЛЕДНИЙ шаг перед форматом
     from bot.keyboards import aspect_ratio_keyboard
     await message.answer(get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
     await state.set_state(CreateForm.waiting_aspect)

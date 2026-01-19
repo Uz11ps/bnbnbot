@@ -106,6 +106,7 @@ class CreateForm(StatesGroup):
     cloth = State()
     # Infographic flow
     waiting_info_load = State()
+    waiting_info_lang = State()     # Добавлено
     waiting_info_lang_custom = State()
     waiting_info_brand = State()
     waiting_info_adv1 = State()
@@ -114,6 +115,10 @@ class CreateForm(StatesGroup):
     waiting_info_extra = State()
     waiting_info_angle = State()
     waiting_info_pose = State()
+    waiting_info_age = State()
+    waiting_info_holiday = State()
+    waiting_info_season = State()
+    waiting_info_has_person = State()
     # Presets flow
     waiting_preset_pose = State()
     waiting_preset_dist = State()
@@ -862,7 +867,24 @@ async def on_infographic_category(callback: CallbackQuery, state: FSMContext, db
         await _replace_with_text(callback, get_string("select_gender", lang), reply_markup=infographic_gender_keyboard(lang, back_data="create_cat:infographics"))
         await state.set_state(CreateForm.waiting_info_gender)
     else: # infographic_other
-        # Для остальных товаров сразу переходим к нагруженности
+        # Сначала спрашиваем Присутствие человека (новые требования)
+        await _replace_with_text(callback, "👤 Присутствует ли человек на фото?", reply_markup=yes_no_keyboard(lang))
+        await state.set_state(CreateForm.waiting_info_has_person)
+    await _safe_answer(callback)
+
+@router.callback_query(CreateForm.waiting_info_has_person, F.data.startswith("choice:"))
+async def on_info_has_person(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    choice = callback.data.split(":")[1]
+    has_person = (choice == "yes")
+    await state.update_data(has_person=has_person)
+    lang = await db.get_user_language(callback.from_user.id)
+    
+    if has_person:
+        from bot.keyboards import infographic_gender_keyboard
+        await _replace_with_text(callback, get_string("select_gender", lang), reply_markup=infographic_gender_keyboard(lang))
+        await state.set_state(CreateForm.waiting_info_gender)
+    else:
+        # Если нет человека — сразу к нагрузке (п. 2 в списке пользователя)
         await _replace_with_text(callback, get_string("enter_info_load", lang), reply_markup=skip_step_keyboard("info_load", lang))
         await state.set_state(CreateForm.waiting_info_load)
     await _safe_answer(callback)
@@ -876,15 +898,29 @@ async def on_infographic_gender(callback: CallbackQuery, state: FSMContext, db: 
     data = await state.get_data()
     
     if data.get("random_mode"):
-        # Одежда и обувь РАНДОМ: убираем нагруженность и стиль, сразу к локации (п. 7)
+        # Одежда и обувь РАНДОМ: сразу к локации
         from bot.keyboards import random_loc_group_keyboard
         await _replace_with_text(callback, get_string("select_loc_group", lang), reply_markup=random_loc_group_keyboard(lang))
         await state.set_state(CreateForm.waiting_rand_loc_group)
+    elif data.get("category") == "infographic_other":
+        # Для инфографики прочее (если есть человек) — спрашиваем возраст
+        await _replace_with_text(callback, "🔢 Введите возраст модели:", reply_markup=back_step_keyboard(lang))
+        await state.set_state(CreateForm.waiting_info_age)
     else:
-        # Обычная инфографика: нагруженность (как и было)
+        # Обычная инфографика одежда: нагруженность
         await _replace_with_text(callback, get_string("enter_info_load", lang), reply_markup=skip_step_keyboard("info_load", lang))
         await state.set_state(CreateForm.waiting_info_load)
     await _safe_answer(callback)
+
+@router.message(CreateForm.waiting_info_age)
+async def on_info_age(message: Message, state: FSMContext, db: Database) -> None:
+    age_text = (message.text or "").strip()
+    await state.update_data(age=age_text)
+    lang = await db.get_user_language(message.from_user.id)
+    # Далее поза модели
+    from bot.keyboards import pose_keyboard
+    await message.answer("🧘 Выберите позу модели:", reply_markup=pose_keyboard(lang))
+    await state.set_state(CreateForm.waiting_info_pose)
 
 
 @router.callback_query(F.data.startswith("info_style:"))
@@ -921,7 +957,7 @@ async def on_infographic_load_input(message: Message, state: FSMContext, db: Dat
         await message.answer(get_string("select_loc_group", lang), reply_markup=random_loc_group_keyboard(lang))
         await state.set_state(CreateForm.waiting_rand_loc_group)
     else:
-        # Для инфографики (и одежда, и прочее) — выбор языка (п. 3)
+        # Для инфографики (и одежда, и прочее) — выбор языка (п. 3 в списке пользователя)
         from bot.keyboards import info_lang_keyboard
         await message.answer(get_string("select_info_lang", lang), reply_markup=info_lang_keyboard(lang))
         await state.set_state(None) # Колбэк выбора языка обработает переход
@@ -1011,15 +1047,35 @@ async def on_back_from_info_extra(callback: CallbackQuery, state: FSMContext, db
 @router.callback_query(F.data == "back_step", CreateForm.waiting_info_angle)
 async def on_back_from_info_angle(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     lang = await db.get_user_language(callback.from_user.id)
-    await _replace_with_text(callback, get_string("enter_info_extra_skip", lang), reply_markup=skip_step_keyboard("info_extra", lang))
+    await _replace_with_text(callback, get_string("enter_extra_info_skip", lang), reply_markup=skip_step_keyboard("info_extra", lang))
     await state.set_state(CreateForm.waiting_info_extra)
     await _safe_answer(callback)
 
 @router.callback_query(F.data == "back_step", CreateForm.waiting_info_pose)
 async def on_back_from_info_pose(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     lang = await db.get_user_language(callback.from_user.id)
-    await _replace_with_text(callback, get_string("select_camera_dist", lang), reply_markup=form_view_keyboard(lang))
-    await state.set_state(CreateForm.waiting_info_angle)
+    # Возврат к ракурсу (dist)
+    from bot.keyboards import angle_keyboard
+    await _replace_with_text(callback, get_string("select_camera_dist", lang), reply_markup=angle_keyboard(lang))
+    await state.set_state(CreateForm.waiting_view)
+    await _safe_answer(callback)
+
+@router.callback_query(F.data == "back_step", CreateForm.waiting_info_season)
+async def on_back_from_info_season(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    lang = await db.get_user_language(callback.from_user.id)
+    # Возврат к ракурсу (dist) или позе (если есть)
+    from bot.keyboards import angle_keyboard
+    await _replace_with_text(callback, get_string("select_camera_dist", lang), reply_markup=angle_keyboard(lang))
+    await state.set_state(CreateForm.waiting_view)
+    await _safe_answer(callback)
+
+@router.callback_query(F.data == "back_step", CreateForm.waiting_info_holiday)
+async def on_back_from_info_holiday(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    lang = await db.get_user_language(callback.from_user.id)
+    # Возврат к сезону
+    from bot.keyboards import random_season_keyboard
+    await _replace_with_text(callback, "Выберите сезон:", reply_markup=random_season_keyboard(lang))
+    await state.set_state(CreateForm.waiting_info_season)
     await _safe_answer(callback)
 
 
@@ -1061,7 +1117,7 @@ async def on_infographic_brand(message: Message, state: FSMContext, db: Database
         await message.answer(get_string("enter_info_brand_error", lang))
         return
     if len(text) > 50:
-        await message.answer(get_string("enter_info_brand_too_long", lang))
+        await message.answer("⚠️ Название слишком длинное (максимум 50 символов). Попробуйте еще раз:")
         return
     await state.update_data(info_brand=text)
     # Преймущества 1-2-3 (п. 5)
@@ -1074,11 +1130,33 @@ async def on_infographic_adv1(message: Message, state: FSMContext, db: Database)
     text = (message.text or "").strip()
     lang = await db.get_user_language(message.from_user.id)
     if len(text) > 100:
-        await message.answer(get_string("enter_info_adv_too_long", lang))
+        await message.answer("⚠️ Текст слишком длинный (максимум 100 символов). Попробуйте еще раз:")
         return
     await state.update_data(info_adv1=text)
     await message.answer(get_string("enter_adv2_skip", lang), reply_markup=skip_step_keyboard("info_adv2", lang))
     await state.set_state(CreateForm.waiting_info_adv2)
+
+@router.message(CreateForm.waiting_info_adv2)
+async def on_infographic_adv2(message: Message, state: FSMContext, db: Database) -> None:
+    text = (message.text or "").strip()
+    lang = await db.get_user_language(message.from_user.id)
+    if len(text) > 100:
+        await message.answer("⚠️ Текст слишком длинный (максимум 100 символов). Попробуйте еще раз:")
+        return
+    await state.update_data(info_adv2=text)
+    await message.answer(get_string("enter_adv3_skip", lang), reply_markup=skip_step_keyboard("info_adv3", lang))
+    await state.set_state(CreateForm.waiting_info_adv3)
+
+@router.message(CreateForm.waiting_info_adv3)
+async def on_infographic_adv3(message: Message, state: FSMContext, db: Database) -> None:
+    text = (message.text or "").strip()
+    lang = await db.get_user_language(message.from_user.id)
+    if len(text) > 100:
+        await message.answer("⚠️ Текст слишком длинный (максимум 100 символов). Попробуйте еще раз:")
+        return
+    await state.update_data(info_adv3=text)
+    await message.answer(get_string("enter_extra_info_skip", lang), reply_markup=skip_step_keyboard("info_extra", lang))
+    await state.set_state(CreateForm.waiting_info_extra)
 
 @router.callback_query(F.data == "info_adv1:skip")
 async def on_infographic_adv1_skip(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
@@ -1088,17 +1166,6 @@ async def on_infographic_adv1_skip(callback: CallbackQuery, state: FSMContext, d
     await state.set_state(CreateForm.waiting_info_adv2)
     await _safe_answer(callback)
 
-@router.message(CreateForm.waiting_info_adv2)
-async def on_infographic_adv2(message: Message, state: FSMContext, db: Database) -> None:
-    text = (message.text or "").strip()
-    lang = await db.get_user_language(message.from_user.id)
-    if len(text) > 100:
-        await message.answer(get_string("enter_info_adv_too_long", lang))
-        return
-    await state.update_data(info_adv2=text)
-    await message.answer(get_string("enter_adv3_skip", lang), reply_markup=skip_step_keyboard("info_adv3", lang))
-    await state.set_state(CreateForm.waiting_info_adv3)
-
 @router.callback_query(F.data == "info_adv2:skip")
 async def on_infographic_adv2_skip(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     lang = await db.get_user_language(callback.from_user.id)
@@ -1106,17 +1173,6 @@ async def on_infographic_adv2_skip(callback: CallbackQuery, state: FSMContext, d
     await _replace_with_text(callback, get_string("enter_adv3_skip", lang), reply_markup=skip_step_keyboard("info_adv3", lang))
     await state.set_state(CreateForm.waiting_info_adv3)
     await _safe_answer(callback)
-
-@router.message(CreateForm.waiting_info_adv3)
-async def on_infographic_adv3(message: Message, state: FSMContext, db: Database) -> None:
-    text = (message.text or "").strip()
-    lang = await db.get_user_language(message.from_user.id)
-    if len(text) > 100:
-        await message.answer(get_string("enter_info_adv_too_long", lang))
-        return
-    await state.update_data(info_adv3=text)
-    await message.answer(get_string("enter_extra_info_skip", lang), reply_markup=skip_step_keyboard("info_extra", lang))
-    await state.set_state(CreateForm.waiting_info_extra)
 
 @router.callback_query(F.data == "info_adv3:skip")
 async def on_infographic_adv3_skip(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
@@ -1126,26 +1182,26 @@ async def on_infographic_adv3_skip(callback: CallbackQuery, state: FSMContext, d
     await state.set_state(CreateForm.waiting_info_extra)
     await _safe_answer(callback)
 
-
 @router.message(CreateForm.waiting_info_extra)
 async def on_infographic_extra(message: Message, state: FSMContext, db: Database) -> None:
     text = (message.text or "").strip()
     lang = await db.get_user_language(message.from_user.id)
     if len(text) > 65:
-        await message.answer(get_string("enter_info_extra_too_long", lang))
+        await message.answer("⚠️ Текст слишком длинный (максимум 65 символов). Попробуйте еще раз:")
         return
     await state.update_data(info_extra=text)
     
     data = await state.get_data()
     if data.get("category") == "infographic_other":
-        # Для прочих товаров переходим к формату
-        await message.answer(get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
-        await state.set_state(CreateForm.waiting_aspect)
+        # Для прочих товаров: Угол камеры (п. 8)
+        from bot.keyboards import form_view_keyboard
+        await message.answer("Выберите угол камеры (Спереди/Сзади):", reply_markup=form_view_keyboard(lang))
+        await state.set_state(CreateForm.waiting_info_angle)
     else:
-        # Для одежды продолжаем выбор параметров модели (п. 7)
-        await message.answer(get_string("select_body_type", lang), reply_markup=form_size_keyboard("female", lang)) # По умолчанию female
+        # Для одежды: Параметры модели (п. 7)
+        from bot.keyboards import form_size_keyboard
+        await message.answer(get_string("select_body_type", lang), reply_markup=form_size_keyboard("female", lang))
         await state.set_state(CreateForm.waiting_size)
-
 
 @router.callback_query(F.data == "info_extra:skip")
 async def on_infographic_extra_skip(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
@@ -1158,7 +1214,7 @@ async def on_infographic_extra_skip(callback: CallbackQuery, state: FSMContext, 
         await _replace_with_text(callback, "Выберите угол камеры (Спереди/Сзади):", reply_markup=form_view_keyboard(lang))
         await state.set_state(CreateForm.waiting_info_angle)
     else:
-        # Для одежды продолжаем выбор параметров модели (п. 7)
+        # Для одежды: Параметры модели (п. 7)
         from bot.keyboards import form_size_keyboard
         await _replace_with_text(callback, get_string("select_body_type", lang), reply_markup=form_size_keyboard("female", lang))
         await state.set_state(CreateForm.waiting_size)
@@ -1309,22 +1365,35 @@ async def on_aspect_selected(callback: CallbackQuery, state: FSMContext, db: Dat
         
     elif data.get("infographic_mode"):
         parts.append(f"📦 **Категория**: 📊 Инфографика ({category})\n")
-        parts.append(f"📊 **Нагруженность**: {data.get('info_load', '—')}\n")
+        
+        has_person = "Да" if data.get("has_person") else "Нет"
+        parts.append(f"👤 **Человек**: {has_person}\n")
+        if data.get("has_person"):
+            parts.append(f"🚻 **Пол**: {data.get('info_gender', '—')}\n")
+            parts.append(f"🔢 **Возраст**: {data.get('age', '—')}\n")
+            parts.append(f"🧘 **Поза**: {data.get('info_pose', '—')}\n")
+
+        parts.append(f"📊 **Нагруженность**: {data.get('info_load', '—')}/10\n")
         parts.append(f"🌐 **Язык**: {data.get('info_lang', '—')}\n")
-        parts.append(f"📝 **Бренд**: {data.get('info_brand', '—')}\n")
+        parts.append(f"📝 **Бренд/Название**: {data.get('info_brand', '—')}\n")
         adv = f"{data.get('info_adv1', '')} {data.get('info_adv2', '')} {data.get('info_adv3', '')}".strip() or "—"
         parts.append(f"✨ **Преимущества**: {adv}\n")
         parts.append(f"➕ **Доп. инфо**: {data.get('info_extra', '—')}\n")
+        
+        view_map = {"front": "Спереди", "back": "Сзади"}
+        parts.append(f"👀 **Угол**: {view_map.get(data.get('info_angle'), '—')}\n")
+        parts.append(f"📏 **Ракурс**: {data.get('info_dist', '—')}\n")
         
         if category == "infographic_clothing":
             parts.append(f"📐 **Телосложение**: {data.get('size', '—')}\n")
             parts.append(f"📏 **Рост**: {data.get('height', '—')} см\n")
             parts.append(f"✂️ **Крой**: {data.get('pants_style', '—')}\n")
             parts.append(f"🧥 **Рукав**: {data.get('sleeve', '—')}\n")
-            parts.append(f"👀 **Угол**: {data.get('info_angle', '—')}\n")
-            parts.append(f"📏 **Ракурс**: {data.get('info_dist', '—')}\n")
-        parts.append(f"🧘 **Поза**: {data.get('info_pose', '—')}\n")
-        parts.append(f"👗 **Длина**: {data.get('length', '—')}\n")
+            parts.append(f"👗 **Длина**: {data.get('length', '—')}\n")
+        
+        if category == "infographic_other":
+            parts.append(f"⏳ **Сезон**: {data.get('info_season', '—')}\n")
+            parts.append(f"🎉 **Праздник**: {data.get('info_holiday', '—')}\n")
         
     elif category == "whitebg":
         parts.append("📦 **Категория**: ⚪ На белом фоне\n")
@@ -2066,10 +2135,17 @@ async def form_set_view(callback: CallbackQuery, state: FSMContext, db: Database
     # Если это окончательный выбор дистанции для инфографики
     if current_state == CreateForm.waiting_view.state and data.get("infographic_mode"):
         await state.update_data(info_dist=view)
-        # Далее Поза (Вульгарная-Нестандратный-Обычный)
-        from bot.keyboards import pose_keyboard
-        await _replace_with_text(callback, "Выберите позу модели:", reply_markup=pose_keyboard(lang))
-        await state.set_state(CreateForm.waiting_info_pose)
+        
+        if data.get("category") == "infographic_other":
+            # Для прочих товаров: Сезон (новое требование)
+            from bot.keyboards import random_season_keyboard
+            await _replace_with_text(callback, "Выберите сезон:", reply_markup=random_season_keyboard(lang))
+            await state.set_state(CreateForm.waiting_info_season)
+        else:
+            # Для одежды: Поза (как и было)
+            from bot.keyboards import pose_keyboard
+            await _replace_with_text(callback, "Выберите позу модели:", reply_markup=pose_keyboard(lang))
+            await state.set_state(CreateForm.waiting_info_pose)
         await _safe_answer(callback)
         return
 
@@ -2194,6 +2270,10 @@ async def on_info_pose(callback: CallbackQuery, state: FSMContext, db: Database)
     if data.get("infographic_mode") and data.get("category") == "infographic_clothing":
         # Для инфографики одежда: после позы — к длине изделия (п. 14)
         await _ask_garment_length(callback, state, db)
+    elif data.get("infographic_mode") and data.get("category") == "infographic_other":
+        # Для инфографики прочее: после позы (или если пропустили) — к нагрузке
+        await _replace_with_text(callback, get_string("enter_info_load", lang), reply_markup=skip_step_keyboard("info_load", lang))
+        await state.set_state(CreateForm.waiting_info_load)
     elif data.get("category") in ("female", "male", "child") and not data.get("random_mode") and not data.get("infographic_mode"):
         # Для пресетов: после позы — к ракурсу (п. 9)
         await state.set_state(CreateForm.waiting_preset_dist)
@@ -2221,8 +2301,13 @@ async def on_info_dist_selected(callback: CallbackQuery, state: FSMContext, db: 
         # Для инфографики одежда: после ракурса — к позе (п. 13)
         await _replace_with_text(callback, "Выберите позу модели:", reply_markup=pose_keyboard(lang))
         await state.set_state(CreateForm.waiting_info_pose)
+    elif data.get("infographic_mode") and data.get("category") == "infographic_other":
+        # Для инфографики прочее: после ракурса — к сезону
+        from bot.keyboards import random_season_keyboard
+        await _replace_with_text(callback, "Выберите сезон:", reply_markup=random_season_keyboard(lang))
+        await state.set_state(CreateForm.waiting_info_season)
     else:
-        # Для прочих инфографик — к формату
+        # Для прочих инфографик (старый код) — к формату
         await _replace_with_text(callback, get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
         await state.set_state(CreateForm.waiting_aspect)
     await _safe_answer(callback)
@@ -2548,6 +2633,29 @@ async def on_back_from_rand_other_style_custom(callback: CallbackQuery, state: F
     from bot.keyboards import style_keyboard
     await _replace_with_text(callback, get_string("select_style", lang), reply_markup=style_keyboard(lang))
     await state.set_state(CreateForm.waiting_rand_other_style)
+    await _safe_answer(callback)
+
+@router.callback_query(CreateForm.waiting_info_season, F.data.startswith("season:"))
+async def on_info_season(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    season = callback.data.split(":")[1]
+    await state.update_data(info_season=season)
+    lang = await db.get_user_language(callback.from_user.id)
+    # Далее Праздник
+    from bot.keyboards import holiday_keyboard
+    await _replace_with_text(callback, "Выберите праздник (если есть):", reply_markup=holiday_keyboard(lang))
+    await state.set_state(CreateForm.waiting_info_holiday)
+    await _safe_answer(callback)
+
+@router.callback_query(CreateForm.waiting_info_holiday, F.data.startswith("holiday:"))
+async def on_info_holiday(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    holiday = callback.data.split(":")[1]
+    await state.update_data(info_holiday=holiday)
+    lang = await db.get_user_language(callback.from_user.id)
+    # Далее к формату
+    from bot.keyboards import aspect_ratio_keyboard
+    await _replace_with_text(callback, get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
+    await state.set_state(CreateForm.waiting_aspect)
+    await _safe_answer(callback)
 
 @router.callback_query(F.data == "back_step", CreateForm.waiting_own_bg_photo)
 async def on_back_from_own_bg(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
@@ -2895,6 +3003,59 @@ async def _build_final_prompt(data: dict, db: Database) -> str:
         prompt_filled = prompt_text or "Professional fashion photography. Model showing the product from {Угол камеры} at {ракурс фотографии} distance. {Длина изделия}"
         for placeholder, value in replacements.items():
             prompt_filled = prompt_filled.replace(placeholder, str(value))
+    elif data.get("infographic_mode"):
+        # Инфографика (Одежда и Прочее)
+        p_parts = ["Professional commercial product photography with infographic elements. High quality, 8k resolution. "]
+        
+        brand = data.get("info_brand")
+        if brand: p_parts.append(f"Product/Brand name: {brand}. ")
+        
+        load = data.get("info_load")
+        if load: p_parts.append(f"Infographic design complexity level: {load}/10. ")
+        
+        lang = data.get("info_lang")
+        if lang: p_parts.append(f"Text language: {lang}. ")
+        
+        advs = [data.get("info_adv1"), data.get("info_adv2"), data.get("info_adv3")]
+        advs = [a for a in advs if a]
+        if advs: p_parts.append(f"Key advantages to highlight: {', '.join(advs)}. ")
+        
+        extra = data.get("info_extra")
+        if extra: p_parts.append(f"Additional text: {extra}. ")
+        
+        angle = data.get("info_angle")
+        dist = data.get("info_dist")
+        if angle: p_parts.append(f"Camera angle: {angle}. ")
+        if dist: p_parts.append(f"Distance: {dist}. ")
+        
+        if data.get("has_person"):
+            gender = data.get("info_gender")
+            age = data.get("age")
+            pose = data.get("info_pose")
+            p_parts.append(f"Model: {gender or 'person'}, Age: {age or 'adult'}. Pose: {pose or 'natural'}. ")
+        else:
+            p_parts.append("No people in the shot, focus strictly on the product. ")
+            
+        season = data.get("info_season")
+        holiday = data.get("info_holiday")
+        if season: p_parts.append(f"Season/Atmosphere: {season}. ")
+        if holiday: p_parts.append(f"Occasion/Holiday: {holiday}. ")
+        
+        if category == "infographic_clothing":
+            # Доп. параметры для одежды
+            size = data.get("size")
+            height = data.get("height")
+            cut = data.get("pants_style")
+            sleeve = data.get("sleeve")
+            length = data.get("length")
+            if size: p_parts.append(f"Clothing size: {size}. ")
+            if height: p_parts.append(f"Model height: {height}cm. ")
+            if cut: p_parts.append(f"Pants cut: {cut}. ")
+            if sleeve: p_parts.append(f"Sleeve type: {sleeve}. ")
+            if length: p_parts.append(f"Garment length: {length}. ")
+
+        p_parts.append("Clean composition, commercial lighting, professional studio look.")
+        prompt_filled = "".join(p_parts)
     else:
         # Обычная модель (Пресеты)
         view_key = data.get("view")
@@ -3431,37 +3592,43 @@ async def on_result_repeat(callback: CallbackQuery, state: FSMContext, db: Datab
         await _safe_answer(callback, get_string("session_not_found", lang), show_alert=True)
         return
 
-    # Сохраняем важные параметры конфигурации
-    keep_keys = [
-        "category", "cloth", "selected_cloth", "height", "age", "size", "sleeve", "length", 
-        "view", "prompt_id", "aspect", "info_load", "info_lang", "info_brand", 
-        "info_adv1", "info_adv2", "info_adv3", "info_extra", "info_angle", 
-        "info_dist", "info_pose", "random_mode", "random_other_mode", 
-        "infographic_mode", "own_mode", "plus_mode", "own_length", "own_sleeve", 
-        "own_cut", "pants_style", "gender", "has_person", "product_name", "dist",
-        "height_cm", "width_cm", "length_cm", "season", "style", "info_gender",
-        "own_ref_photo_id", "own_bg_photo_id", "prompt",
-        "rand_gender", "rand_location", "rand_location_custom", "rand_vibe", "rand_shot",
-        "rand_loc_group", "rand_loc", "rand_decor"
-    ]
+    # Сохраняем ТОЛЬКО категорию и базовые режимы для чистого старта по требованию пользователя
+    keep_keys = ["category", "random_mode", "random_other_mode", "infographic_mode", "own_mode", "plus_mode"]
     
-    # Фильтруем данные, оставляя только настройки
+    # Специальная обработка для "Своего варианта": сохраняем фото референса/фона
+    if data.get("own_mode") and data.get("own_ref_photo_id"):
+        keep_keys.append("own_ref_photo_id")
+    if data.get("category") == "own_variant" and data.get("own_bg_photo_id"):
+        keep_keys.append("own_bg_photo_id")
+
     new_data = {k: v for k, v in data.items() if k in keep_keys}
-    new_data["repeat_mode"] = True # Флаг для пропуска шагов
+    new_data["repeat_mode"] = True # Флаг для пропуска шагов если нужно (хотя пользователь просил по-новому)
     
-    # Сбрасываем текущее состояние
+    # Сбрасываем текущее состояние и данные полностью
     await state.clear()
     await state.update_data(**new_data)
     
-    # Определяем, в какой стейт отправить юзера для загрузки фото
-    if data.get("category") == "own_variant":
-        await state.set_state(CreateForm.waiting_own_product_photo)
-    elif data.get("own_mode"):
-        await state.set_state(CreateForm.waiting_product_photo)
+    # Отправляем пользователя в начало текущей категории
+    cat = new_data.get("category")
+    if new_data.get("infographic_mode"):
+        callback.data = f"create_cat:{cat}"
+        await on_infographic_category(callback, state, db)
+    elif new_data.get("random_mode"):
+        await on_create_random(callback, state, db)
+    elif new_data.get("random_other_mode"):
+        await on_create_random_other(callback, state, db)
+    elif new_data.get("own_mode"):
+        await on_create_own(callback, state, db)
+    elif cat == "own_variant":
+        from bot.handlers.start import on_create_own_variant
+        await on_create_own_variant(callback, state, db)
+    elif cat == "storefront":
+        await on_storefront_category(callback, db, state)
+    elif cat == "whitebg":
+        await on_whitebg_category(callback, db, state)
     else:
-        await state.set_state(CreateForm.waiting_view)
+        await on_ready_presets(callback, db)
     
-    await callback.message.answer(get_string("repeat_photo_prompt", lang))
     await _safe_answer(callback)
 
 

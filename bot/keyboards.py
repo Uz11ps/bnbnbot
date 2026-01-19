@@ -574,9 +574,21 @@ def info_lang_keyboard(lang="ru") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="🇷🇺 Русский", callback_data="info_lang:ru"), InlineKeyboardButton(text="🇺🇸 English", callback_data="info_lang:en")],
-            [InlineKeyboardButton(text="🇻🇳 Tiếng Việt", callback_data="info_lang:vi"), InlineKeyboardButton(text="🇨🇳 中文", callback_data="info_lang:zh")],
-            [InlineKeyboardButton(text="✏️ Свой вариант", callback_data="info_lang:custom"), InlineKeyboardButton(text="⏭ Пропустить", callback_data="info_lang:skip")],
-            [InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")]
+            [InlineKeyboardButton(text="🇻🇳 Вьетнамский", callback_data="info_lang:vi"), InlineKeyboardButton(text="🇨🇳 Китайский", callback_data="info_lang:zh")],
+            [InlineKeyboardButton(text="✏️ Свой вариант", callback_data="info_lang:custom")],
+            [InlineKeyboardButton(text="⏭ Пропустить", callback_data="info_lang:skip")],
+            [InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")],
+        ]
+    )
+
+def holiday_keyboard(lang="ru") -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🎉 Новый год", callback_data="holiday:newyear"), InlineKeyboardButton(text="🎄 Рождество", callback_data="holiday:christmas")],
+            [InlineKeyboardButton(text="💐 8 марта", callback_data="holiday:8march"), InlineKeyboardButton(text="🎂 День рождения", callback_data="holiday:birthday")],
+            [InlineKeyboardButton(text="🔥 Распродажа", callback_data="holiday:sale"), InlineKeyboardButton(text="🛍 Черная пятница", callback_data="holiday:blackfriday")],
+            [InlineKeyboardButton(text="⏭ Пропустить", callback_data="holiday:skip")],
+            [InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")],
         ]
     )
 

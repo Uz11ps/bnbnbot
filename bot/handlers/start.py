@@ -1318,9 +1318,9 @@ async def on_create_own(callback: CallbackQuery, state: FSMContext, db: Database
         return
     await state.clear()
     await state.update_data(own_mode=True, category="own")
-    lang = await db.get_user_language(callback.from_user.id)
-    await _replace_with_text(callback, get_string("upload_model_photo", lang), reply_markup=back_step_keyboard(lang))
-    await state.set_state(CreateForm.waiting_ref_photo)
+    
+    # 1. Длина изделия (п. 8.1) — начинаем сразу с параметров, без фото модели
+    await _ask_garment_length(callback, state, db)
     await _safe_answer(callback)
 
 
@@ -3074,10 +3074,8 @@ async def on_back_from_length(callback: CallbackQuery, state: FSMContext, db: Da
     
     # 1. Свой вариант МОДЕЛИ
     if data.get("own_mode"):
-        # Назад от длины к фото модели
-        await _replace_with_text(callback, get_string("upload_model_photo", lang), reply_markup=back_step_keyboard(lang))
-        await state.set_state(CreateForm.waiting_ref_photo)
-        await _safe_answer(callback)
+        # Теперь это первый шаг, назад в меню
+        await on_marketplace_menu(callback, db)
         return
 
     # 2. Свой вариант ФОНА
@@ -3407,8 +3405,8 @@ async def form_generate(callback: CallbackQuery, state: FSMContext, db: Database
                 await _safe_answer(callback, "Сначала загрузите все необходимые фотографии.", show_alert=True)
                 return
         elif data.get("own_mode"):
-            if not data.get("own_ref_photo_id") or not data.get("own_product_photo_id"):
-                await _safe_answer(callback, "Сначала загрузите все необходимые фотографии.", show_alert=True)
+            if not data.get("own_product_photo_id"):
+                await _safe_answer(callback, "Сначала загрузите фотографию товара.", show_alert=True)
                 return
         else:
             if not data.get("user_photo_id"):
@@ -3530,7 +3528,7 @@ async def form_generate(callback: CallbackQuery, state: FSMContext, db: Database
                 if category == "own_variant":
                     input_photos = [data.get("own_bg_photo_id"), data.get("own_product_photo_id")]
                 elif data.get("own_mode"):
-                    input_photos = [data.get("own_ref_photo_id"), data.get("own_product_photo_id")]
+                    input_photos = [data.get("own_product_photo_id")]
                 else:
                     input_photos = [data.get("user_photo_id")]
             
@@ -3730,7 +3728,7 @@ async def on_result_edit_text(message: Message, state: FSMContext, db: Database)
         if category == "own_variant":
             input_photos = [data.get("own_bg_photo_id"), data.get("own_product_photo_id")]
         elif data.get("own_mode"):
-            input_photos = [data.get("own_ref_photo_id"), data.get("own_product_photo_id")]
+            input_photos = [data.get("own_product_photo_id")]
         else:
             input_photos = [data.get("user_photo_id")]
     

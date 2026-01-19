@@ -330,7 +330,7 @@ async def _ensure_access(message_or_callback, db: Database, bot: Bot) -> bool:
     return True
 
 @router.message(CommandStart())
-async def cmd_start(message: Message, db: Database, bot: Bot) -> None:
+async def cmd_start(message: Message, db: Database) -> None:
     user = message.from_user
     await db.upsert_user(
         user_id=user.id,
@@ -338,16 +338,14 @@ async def cmd_start(message: Message, db: Database, bot: Bot) -> None:
         first_name=user.first_name,
         last_name=user.last_name,
     )
-    
-    if await _ensure_access(message, db, bot):
-        lang = await db.get_user_language(user.id)
-        await message.answer(get_string("main_menu_title", lang), reply_markup=main_menu_keyboard(lang))
+    lang = await db.get_user_language(user.id)
+    await message.answer(get_string("main_menu_title", lang), reply_markup=main_menu_keyboard(lang))
 
 
 @router.callback_query(F.data == "accept_terms")
 async def on_accept_terms(callback: CallbackQuery, db: Database, bot: Bot) -> None:
     await db.set_terms_acceptance(callback.from_user.id, True)
-    # После принятия соглашения проверяем подписку
+    # После принятия соглашения проверяем подписку (через middleware или явно)
     if await _ensure_access(callback, db, bot):
         lang = await db.get_user_language(callback.from_user.id)
         await _replace_with_text(callback, get_string("main_menu_title", lang), reply_markup=main_menu_keyboard(lang))
@@ -361,18 +359,12 @@ async def on_check_subscription(callback: CallbackQuery, db: Database, bot: Bot)
         lang = await db.get_user_language(callback.from_user.id)
         await _replace_with_text(callback, get_string("main_menu_title", lang), reply_markup=main_menu_keyboard(lang))
     else:
-        # Если все еще не подписан, _ensure_access сам выведет сообщение, 
-        # но мы можем добавить алерт
+        # Если все еще не подписан
         await _safe_answer(callback, "Вы все еще не подписаны!", show_alert=True)
 
 
 @router.callback_query(F.data == "back_main")
-async def on_back_main(callback: CallbackQuery, state: FSMContext, db: Database, bot: Bot) -> None:
-    if not await _ensure_access(callback, db, bot):
-        await state.clear()
-        await _safe_answer(callback)
-        return
-        
+async def on_back_main(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     current = await state.get_state()
     lang = await db.get_user_language(callback.from_user.id)
     text = get_string("main_menu_title", lang)
@@ -389,12 +381,9 @@ async def on_back_main(callback: CallbackQuery, state: FSMContext, db: Database,
     await _replace_with_text(callback, text, reply_markup=main_menu_keyboard(lang))
     await _safe_answer(callback)
 
+
 @router.callback_query(F.data == "menu_create")
-async def on_create_photo(callback: CallbackQuery, db: Database, state: FSMContext, bot: Bot) -> None:
-    if not await _ensure_access(callback, db, bot):
-        await _safe_answer(callback)
-        return
-        
+async def on_create_photo(callback: CallbackQuery, db: Database, state: FSMContext) -> None:
     lang = await db.get_user_language(callback.from_user.id)
     # Техработы: блокируем для не-админов
     if await db.get_maintenance():
@@ -429,11 +418,7 @@ async def on_create_photo(callback: CallbackQuery, db: Database, state: FSMConte
 
 
 @router.callback_query(F.data == "menu_market")
-async def on_marketplace_menu(callback: CallbackQuery, db: Database, bot: Bot) -> None:
-    if not await _ensure_access(callback, db, bot):
-        await _safe_answer(callback)
-        return
-        
+async def on_marketplace_menu(callback: CallbackQuery, db: Database) -> None:
     lang = await db.get_user_language(callback.from_user.id)
     # Техработы
     if await db.get_maintenance():
@@ -453,11 +438,7 @@ async def on_marketplace_menu(callback: CallbackQuery, db: Database, bot: Bot) -
 
 
 @router.callback_query(F.data == "create_cat:presets")
-async def on_ready_presets(callback: CallbackQuery, db: Database, bot: Bot) -> None:
-    if not await _ensure_access(callback, db, bot):
-        await _safe_answer(callback)
-        return
-        
+async def on_ready_presets(callback: CallbackQuery, db: Database) -> None:
     enabled = await db.list_categories_enabled()
     logger.info(f"Presets menu accessed. Categories status: {enabled}") # Отладочный лог
     lang = await db.get_user_language(callback.from_user.id)
@@ -3295,11 +3276,7 @@ async def on_model_nav(callback: CallbackQuery, db: Database) -> None:
 
 
 @router.callback_query(F.data == "menu_profile")
-async def on_menu_profile(callback: CallbackQuery, db: Database, bot: Bot) -> None:
-    if not await _ensure_access(callback, db, bot):
-        await _safe_answer(callback)
-        return
-        
+async def on_menu_profile(callback: CallbackQuery, db: Database) -> None:
     lang = await db.get_user_language(callback.from_user.id)
     sub = await db.get_user_subscription(callback.from_user.id)
     if sub:
@@ -3369,11 +3346,7 @@ async def on_history(callback: CallbackQuery, db: Database) -> None:
 
 
 @router.callback_query(F.data == "menu_settings")
-async def on_menu_settings(callback: CallbackQuery, db: Database, bot: Bot) -> None:
-    if not await _ensure_access(callback, db, bot):
-        await _safe_answer(callback)
-        return
-        
+async def on_menu_settings(callback: CallbackQuery, db: Database) -> None:
     lang = await db.get_user_language(callback.from_user.id)
     from bot.keyboards import settings_keyboard
     await _replace_with_text(callback, get_string("menu_settings", lang), reply_markup=settings_keyboard(lang))
@@ -3387,17 +3360,13 @@ async def on_settings_lang(callback: CallbackQuery, db: Database) -> None:
     await _safe_answer(callback)
 
 @router.callback_query(F.data.startswith("lang:"))
-async def on_set_lang(callback: CallbackQuery, db: Database, bot: Bot) -> None:
+async def on_set_lang(callback: CallbackQuery, db: Database) -> None:
     new_lang = callback.data.split(":")[1]
     await db.set_user_language(callback.from_user.id, new_lang)
-    await on_menu_settings(callback, db, bot)
+    await on_menu_settings(callback, db)
 
 @router.callback_query(F.data == "menu_howto")
-async def on_menu_howto(callback: CallbackQuery, db: Database, bot: Bot) -> None:
-    if not await _ensure_access(callback, db, bot):
-        await _safe_answer(callback)
-        return
-        
+async def on_menu_howto(callback: CallbackQuery, db: Database) -> None:
     lang = await db.get_user_language(callback.from_user.id)
     text = await db.get_howto_text() or "Инструкция в процессе наполнения."
     await _replace_with_text(callback, text, reply_markup=back_main_keyboard(lang))
@@ -3420,52 +3389,40 @@ async def on_menu_agreement(callback: CallbackQuery, db: Database) -> None:
     await _safe_answer(callback)
 
 @router.message(F.text == "/profile")
-async def cmd_profile(message: Message, db: Database, bot: Bot) -> None:
-    if not await _ensure_access(message, db, bot):
-        return
-        
+async def cmd_profile(message: Message, db: Database) -> None:
     # Dummy callback to reuse on_menu_profile logic
     class FakeCallback:
         def __init__(self, message, from_user):
             self.message = message
             self.from_user = from_user
         async def answer(self, *args, **kwargs): pass
-    await on_menu_profile(FakeCallback(message, message.from_user), db, bot)
+    await on_menu_profile(FakeCallback(message, message.from_user), db)
 
 
 @router.message(F.text == "/settings")
-async def cmd_settings(message: Message, db: Database, bot: Bot) -> None:
-    if not await _ensure_access(message, db, bot):
-        return
-        
+async def cmd_settings(message: Message, db: Database) -> None:
     class FakeCallback:
         def __init__(self, message, from_user):
             self.message = message
             self.from_user = from_user
         async def answer(self, *args, **kwargs): pass
-    await on_menu_settings(FakeCallback(message, message.from_user), db, bot)
+    await on_menu_settings(FakeCallback(message, message.from_user), db)
 
 @router.message(F.text == "/reset")
-async def cmd_reset(message: Message, state: FSMContext, db: Database, bot: Bot) -> None:
-    if not await _ensure_access(message, db, bot):
-        return
-        
+async def cmd_reset(message: Message, state: FSMContext, db: Database) -> None:
     await state.clear()
     lang = await db.get_user_language(message.from_user.id)
     await message.answer(get_string("main_menu_title", lang), reply_markup=main_menu_keyboard(lang))
 
 
 @router.message(F.text == "/help")
-async def cmd_help(message: Message, db: Database, bot: Bot) -> None:
-    if not await _ensure_access(message, db, bot):
-        return
-        
+async def cmd_help(message: Message, db: Database) -> None:
     class FakeCallback:
         def __init__(self, message, from_user):
             self.message = message
             self.from_user = from_user
         async def answer(self, *args, **kwargs): pass
-    await on_menu_howto(FakeCallback(message, message.from_user), db, bot)
+    await on_menu_howto(FakeCallback(message, message.from_user), db)
 
 @router.callback_query(F.data.startswith("buy_plan:"))
 async def on_buy_plan(callback: CallbackQuery, db: Database) -> None:

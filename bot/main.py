@@ -77,6 +77,45 @@ async def set_commands(bot: Bot) -> None:
     )
 
 
+from aiogram.enums import ParseMode, ChatType
+from aiogram.types import Message, CallbackQuery
+from bot.handlers.start import _ensure_access
+import logging
+
+class AccessMiddleware:
+    async def __call__(self, handler, event, data):
+        # Работаем только в личных чатах
+        if not (isinstance(event, (Message, CallbackQuery)) and event.chat.type == ChatType.PRIVATE):
+            return await handler(event, data)
+        
+        # Проверяем, не является ли это командой /start или системными кнопками
+        is_callback = isinstance(event, CallbackQuery)
+        callback_data = event.data if is_callback else None
+        
+        # Список исключений (где проверка не нужна)
+        exceptions = ["accept_terms", "check_subscription", "menu_agreement"]
+        if not is_callback and event.text and event.text.startswith("/start"):
+            return await handler(event, data)
+        if is_callback and callback_data in exceptions:
+            return await handler(event, data)
+            
+        # Пропускаем администраторов
+        settings = data.get("settings")
+        user_id = event.from_user.id
+        if settings and user_id in (settings.admin_ids or []):
+            return await handler(event, data)
+            
+        # Основная проверка
+        db = data.get("db")
+        bot = data.get("bot")
+        
+        # Вызываем нашу функцию проверки
+        if await _ensure_access(event, db, bot):
+            return await handler(event, data)
+            
+        # Если проверка не прошла, _ensure_access сам отправит нужное сообщение
+        return
+
 async def main() -> None:
     settings = load_settings()
 
@@ -121,6 +160,9 @@ async def main() -> None:
         )
 
     dp = Dispatcher(storage=MemoryStorage())
+    
+    # Регистрация Middleware
+    dp.update.outer_middleware(AccessMiddleware())
 
     dp.include_router(admin_router)
     dp.include_router(start_router)

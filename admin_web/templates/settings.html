@@ -11,9 +11,15 @@
         </div>
 
         <div class="mb-4">
-            <label class="form-label fw-bold">📢 ID Telegram канала (для подписки)</label>
-            <input type="text" name="channel_id" class="form-control" value="{{ channel_id }}">
-            <div class="form-text">Например: <code>-1002242395646</code>. Бот должен быть администратором в этом канале.</div>
+            <label class="form-label fw-bold">📢 ID Telegram канала (для обязательной подписки)</label>
+            <input type="text" name="channel_id" class="form-control" value="{{ channel_id }}" placeholder="-100123456789">
+            <div class="form-text">Оставьте пустым, чтобы отключить проверку. Бот должен быть администратором в канале.</div>
+        </div>
+
+        <div class="mb-4">
+            <label class="form-label fw-bold">🔗 Ссылка на Telegram канал</label>
+            <input type="text" name="channel_url" class="form-control" value="{{ channel_url }}" placeholder="https://t.me/bnbslow">
+            <div class="form-text">Ссылка на канал, которая будет дана пользователю для подписки.</div>
         </div>
 
         <div class="mb-4">

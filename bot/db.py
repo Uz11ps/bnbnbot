@@ -245,6 +245,7 @@ class Database:
         await self._seed_prompts()
         await self._seed_templates()
         await self._seed_subscription_plans()
+        await self._seed_app_settings() # Добавляем сид настроек
         
         # Добавляем токен для nano-banano модели для "Свой вариант" если его еще нет
         try:
@@ -545,6 +546,21 @@ class Database:
             async with db.execute("SELECT key, template, description FROM prompt_templates") as cur:
                 rows = await cur.fetchall()
                 return [(str(r[0]), str(r[1]), r[2]) for r in rows]
+
+    async def _seed_app_settings(self) -> None:
+        """Начальные настройки приложения"""
+        settings = [
+            ("required_channel_id", ""), # Например: -100123456789
+            ("required_channel_url", "https://t.me/bnbslow"),
+            ("agreement_text", "Пожалуйста, ознакомьтесь и примите условия пользовательского соглашения перед использованием бота."),
+        ]
+        async with aiosqlite.connect(self._db_path) as db:
+            for key, val in settings:
+                await db.execute(
+                    "INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING",
+                    (key, val)
+                )
+            await db.commit()
 
     async def _seed_templates(self) -> None:
         templates = [

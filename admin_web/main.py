@@ -506,28 +506,31 @@ async def delete_model_photo(model_id: int, db: aiosqlite.Connection = Depends(g
 @app.get("/settings", response_class=HTMLResponse)
 async def settings_page(request: Request, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
     try:
-        async with db.execute("SELECT key, value FROM app_settings WHERE key IN ('agreement_text', 'howto_text', 'channel_id')") as cur:
+        async with db.execute("SELECT key, value FROM app_settings WHERE key IN ('agreement_text', 'howto_text', 'required_channel_id', 'required_channel_url')") as cur:
             rows = await cur.fetchall()
-            settings_dict = {r['key']: r['value'] for r in rows}
+            settings_dict = {r[0]: r[1] for r in rows}
     except Exception: settings_dict = {}
     return templates.TemplateResponse("settings.html", {
         "request": request, 
         "agreement": settings_dict.get('agreement_text', ""), 
         "howto": settings_dict.get('howto_text', ""),
-        "channel_id": settings_dict.get('channel_id', "-1003224356583")
+        "channel_id": settings_dict.get('required_channel_id', ""),
+        "channel_url": settings_dict.get('required_channel_url', "https://t.me/bnbslow")
     })
 
 @app.post("/settings/update")
 async def update_app_settings(
     agreement: str = Form(...), 
     howto: str = Form(...), 
-    channel_id: str = Form(...),
+    channel_id: str = Form(None),
+    channel_url: str = Form(None),
     db: aiosqlite.Connection = Depends(get_db), 
     user: str = Depends(get_current_username)
 ):
     await db.execute("INSERT INTO app_settings (key, value) VALUES ('agreement_text', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (agreement,))
     await db.execute("INSERT INTO app_settings (key, value) VALUES ('howto_text', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (howto,))
-    await db.execute("INSERT INTO app_settings (key, value) VALUES ('channel_id', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (channel_id,))
+    await db.execute("INSERT INTO app_settings (key, value) VALUES ('required_channel_id', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (channel_id or "",))
+    await db.execute("INSERT INTO app_settings (key, value) VALUES ('required_channel_url', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (channel_url or "https://t.me/bnbslow",))
     await db.commit()
     return RedirectResponse(url="/settings", status_code=303)
 

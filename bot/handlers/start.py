@@ -2360,24 +2360,18 @@ async def on_preset_view(callback: CallbackQuery, state: FSMContext, db: Databas
     await _replace_with_text(callback, "Выберите сезон:", reply_markup=random_season_keyboard(lang))
     await _safe_answer(callback)
 
-@router.callback_query(CreateForm.waiting_preset_season, F.data.startswith("rand_season:"))
+@router.callback_query(CreateForm.waiting_preset_season, F.data.startswith("rand_season:") | F.data.startswith("season:"))
 async def on_preset_season(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
-    season = callback.data.split(":", 1)[1]
+    season = callback.data.split(":")[1]
     season_map = {"summer": "Лето", "winter": "Зима", "autumn": "Осень", "spring": "Весна", "skip": ""}
     await state.update_data(season=season_map.get(season, season))
     lang = await db.get_user_language(callback.from_user.id)
     data = await state.get_data()
     
-    # Праздник нужен в "Одежда и Обувь РАНДОМ"
-    if data.get("random_mode"):
-        from bot.keyboards import random_holiday_keyboard
-        await _replace_with_text(callback, "Выберите праздник (если есть):", reply_markup=random_holiday_keyboard(lang))
-        await state.set_state(CreateForm.waiting_preset_holiday)
-    else:
-        # Для Пресетов пропускаем праздник по просьбе юзера
-        from bot.keyboards import aspect_ratio_keyboard
-        await _replace_with_text(callback, get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
-        await state.set_state(CreateForm.waiting_aspect)
+    # Теперь для всех (Пресеты, Рандом) — просим фото в конце (п. 1.1)
+    back_kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")]])
+    await _replace_with_text(callback, get_string("upload_photo", lang), reply_markup=back_kb)
+    await state.set_state(CreateForm.waiting_view)
     await _safe_answer(callback)
 
 @router.callback_query(CreateForm.waiting_preset_holiday, F.data.startswith("rand_holiday:") | F.data.startswith("holiday:"))
@@ -2443,64 +2437,8 @@ async def handle_user_photo(message: Message, state: FSMContext, db: Database) -
     await state.update_data(user_photo_id=photo_id)
     lang = await db.get_user_language(message.from_user.id)
 
-    # Если включен режим повтора — пропускаем все вопросы и идем к формату
-    if data.get("repeat_mode"):
-        await state.update_data(repeat_mode=False)
-        from bot.keyboards import aspect_ratio_keyboard
-        await message.answer(get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
-        await state.set_state(CreateForm.waiting_aspect)
-        return
-
-    if data.get("normal_gen_mode"):
-        # Для обычной генерации мы можем принимать несколько фото
-        photos = data.get("photos", [])
-        if photo_id not in photos:
-            photos.append(photo_id)
-            await state.update_data(photos=photos)
-        
-        # Если это альбом, мы получим несколько сообщений. 
-        # Используем вспомогательный флаг, чтобы не спамить вопросом про промпт
-        if not data.get("prompt_requested"):
-            await message.answer(get_string("enter_prompt", lang), reply_markup=back_step_keyboard(lang))
-            await state.update_data(prompt_requested=True)
-            await state.set_state(CreateForm.waiting_prompt)
-        return
-
-    if data.get("random_other_mode"):
-        # Для рандома прочих товаров переходим к вопросу о человеке
-        await message.answer(get_string("has_person_ask", lang), reply_markup=yes_no_keyboard(lang))
-        await state.set_state(CreateForm.waiting_rand_other_has_person)
-        return
-
-    if data.get("infographic_mode"):
-        # Для инфографики переходим к выбору пола
-        from bot.keyboards import infographic_gender_keyboard
-        await message.answer(get_string("select_gender", lang), reply_markup=infographic_gender_keyboard(lang))
-        await state.set_state(CreateForm.waiting_info_gender)
-        return
-
-    if data.get("category") == "whitebg":
-        # Для белого фона — СРАЗУ к формату
-        from bot.keyboards import aspect_ratio_keyboard
-        await message.answer(get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
-        await state.set_state(CreateForm.waiting_aspect)
-        return
-
-    # Для пресетов: начинаем цепочку вопросов (п. 1.1)
-    category = data.get("category")
-    if category in ("female", "male", "child"):
-        if category in ("female", "male"):
-            await state.set_state(CreateForm.waiting_age)
-            from bot.keyboards import form_age_keyboard
-            await message.answer(get_string("select_age", lang), reply_markup=form_age_keyboard(lang))
-        else:
-            # Для детей сразу к размеру (телосложению)
-            await state.set_state(CreateForm.waiting_size)
-            from bot.keyboards import form_size_keyboard
-            await message.answer(get_string("select_body_type", lang), reply_markup=form_size_keyboard("child", lang))
-        return
-
-    # Для всех остальных режимов — переходим к выбору формата
+    # Теперь для всех режимов (Пресеты, Рандом, Инфографика, Свой вариант)
+    # после получения фото в КОНЦЕ флоу — переходим к формату
     from bot.keyboards import aspect_ratio_keyboard
     await message.answer(get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
     await state.set_state(CreateForm.waiting_aspect)
@@ -2927,10 +2865,11 @@ async def on_info_holiday(callback: CallbackQuery, state: FSMContext, db: Databa
     }
     await state.update_data(info_holiday=holiday_map.get(holiday, holiday))
     lang = await db.get_user_language(callback.from_user.id)
-    # Далее к формату
-    from bot.keyboards import aspect_ratio_keyboard
-    await _replace_with_text(callback, get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
-    await state.set_state(CreateForm.waiting_aspect)
+    
+    # Теперь для инфографики (прочее) — просим фото в конце
+    back_kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")]])
+    await _replace_with_text(callback, get_string("upload_photo", lang), reply_markup=back_kb)
+    await state.set_state(CreateForm.waiting_view)
     await _safe_answer(callback)
 
 @router.callback_query(F.data == "back_step", CreateForm.waiting_own_bg_photo)

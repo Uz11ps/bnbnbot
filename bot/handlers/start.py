@@ -2461,16 +2461,10 @@ async def on_preset_season(callback: CallbackQuery, state: FSMContext, db: Datab
     lang = await db.get_user_language(callback.from_user.id)
     data = await state.get_data()
     
-    # Теперь для пресетов — к празднику, для Рандома — к фото в конце (п. 1.1)
-    if data.get("random_mode"):
-        back_kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")]])
-        await _replace_with_text(callback, get_string("upload_photo", lang), reply_markup=back_kb)
-        await state.set_state(CreateForm.waiting_view)
-    else:
-        # Для пресетов — спрашиваем праздник
-        from bot.keyboards import random_holiday_keyboard
-        await _replace_with_text(callback, "Выберите праздник (если есть):", reply_markup=random_holiday_keyboard(lang))
-        await state.set_state(CreateForm.waiting_preset_holiday)
+    # Для всех категорий (Пресеты и Рандом) переходим к выбору праздника
+    from bot.keyboards import random_holiday_keyboard
+    await _replace_with_text(callback, "Выберите праздник (если есть):", reply_markup=random_holiday_keyboard(lang))
+    await state.set_state(CreateForm.waiting_preset_holiday)
     await _safe_answer(callback)
 
 @router.callback_query(CreateForm.waiting_preset_holiday, F.data.startswith("rand_holiday:") | F.data.startswith("holiday:"))

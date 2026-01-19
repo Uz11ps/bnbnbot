@@ -825,8 +825,11 @@ async def on_storefront_category(callback: CallbackQuery, db: Database, state: F
     await state.clear()
     await state.update_data(category="storefront", storefront_mode=True)
     lang = await db.get_user_language(callback.from_user.id)
-    from bot.keyboards import gender_selection_keyboard
-    await _replace_with_text(callback, get_string("select_gender", lang), reply_markup=gender_selection_keyboard("storefront", lang, back_data="menu_market"))
+    
+    # 1. Угол камеры (п. 6.1) — убираем выбор модели/пола
+    from bot.keyboards import form_view_keyboard
+    await _replace_with_text(callback, "Выберите угол камеры (Спереди/Сзади):", reply_markup=form_view_keyboard(lang))
+    await state.set_state(CreateForm.waiting_preset_view)
     await _safe_answer(callback)
 
 
@@ -2621,10 +2624,12 @@ async def on_back_from_view(callback: CallbackQuery, state: FSMContext, db: Data
     lang = await db.get_user_language(callback.from_user.id)
     category = data.get("category")
 
-    # 1. Свой вариант МОДЕЛИ или ФОНА
-    if data.get("own_mode") or category == "own_variant":
-        # Назад к выбору рукава
-        await _ask_sleeve_length(callback, state, db)
+    # 1. Свой вариант МОДЕЛИ, ФОНА или ВИТРИНА
+    if data.get("own_mode") or category == "own_variant" or category == "storefront":
+        if category == "storefront":
+            await _ask_garment_length(callback, state, db)
+        else:
+            await _ask_sleeve_length(callback, state, db)
         return
     
     if data.get("infographic_mode"):
@@ -2977,7 +2982,9 @@ async def on_back_from_aspect(callback: CallbackQuery, state: FSMContext, db: Da
         await state.set_state(CreateForm.waiting_view)
     # 7. Витринное фото
     elif category == "storefront":
-        await _ask_garment_length(callback, state, db)
+        back_kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")]])
+        await _replace_with_text(callback, get_string("upload_photo", lang), reply_markup=back_kb)
+        await state.set_state(CreateForm.waiting_view)
     # 8. Пресеты
     elif category in ("female", "male", "child"):
         from bot.keyboards import random_season_keyboard
@@ -3041,11 +3048,12 @@ async def on_back_from_preset_view(callback: CallbackQuery, state: FSMContext, d
     data = await state.get_data()
     
     if data.get("category") == "storefront":
-        # Назад к выбору модели
-        await _show_models_for_category(callback, db, "storefront", data.get("cloth", "all"), data.get("index", 0))
-    else:
-        await state.set_state(CreateForm.waiting_preset_dist)
-        await _replace_with_text(callback, "Выберите ракурс фотографии:", reply_markup=angle_keyboard(lang))
+        # Витринное фото: назад в меню маркетплейсов
+        await on_marketplace_menu(callback, db)
+        return
+        
+    await state.set_state(CreateForm.waiting_preset_dist)
+    await _replace_with_text(callback, "Выберите ракурс фотографии:", reply_markup=angle_keyboard(lang))
     await _safe_answer(callback)
 
 @router.callback_query(F.data == "back_step", CreateForm.waiting_preset_pose)

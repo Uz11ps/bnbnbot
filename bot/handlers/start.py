@@ -2224,6 +2224,7 @@ async def handle_user_photo(message: Message, state: FSMContext, db: Database) -
         return
 
     # Для пресетов: начинаем цепочку вопросов (п. 1.1)
+    category = data.get("category")
     if category in ("female", "male", "child"):
         if category in ("female", "male"):
             await state.set_state(CreateForm.waiting_age)

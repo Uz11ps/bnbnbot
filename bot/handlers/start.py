@@ -142,6 +142,7 @@ class CreateForm(StatesGroup):
     waiting_rand_other_style = State()
     waiting_rand_other_style_custom = State()
     waiting_rand_loc_group = State()
+    waiting_rand_gender = State()
     waiting_rand_loc = State()
     waiting_rand_vibe = State()
     waiting_rand_decor = State()
@@ -594,7 +595,7 @@ async def on_random_location_after(callback: CallbackQuery, state: FSMContext, d
     lang = await db.get_user_language(callback.from_user.id)
     # 2. Пол
     await _replace_with_text(callback, get_string("select_model_gender", lang), reply_markup=random_gender_keyboard(lang))
-    await state.set_state(None) # Обработает rand_gender:
+    await state.set_state(CreateForm.waiting_rand_gender)
     await _safe_answer(callback)
 
 @router.message(CreateForm.waiting_custom_location)
@@ -604,7 +605,7 @@ async def on_random_location_custom_msg(message: Message, state: FSMContext, db:
     lang = await db.get_user_language(message.from_user.id)
     # 2. Пол
     await message.answer(get_string("select_model_gender", lang), reply_markup=random_gender_keyboard(lang))
-    await state.set_state(None)
+    await state.set_state(CreateForm.waiting_rand_gender)
 
 @router.callback_query(F.data.startswith("rand_gender:"))
 async def on_random_gender(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
@@ -949,17 +950,10 @@ async def on_infographic_gender(callback: CallbackQuery, state: FSMContext, db: 
     g = callback.data.split(":")[1]
     await state.update_data(info_gender=g)
     lang = await db.get_user_language(callback.from_user.id)
-    data = await state.get_data()
     
-    if data.get("random_mode"):
-        # Одежда и обувь РАНДОМ: сразу к локации
-        from bot.keyboards import random_loc_group_keyboard
-        await _replace_with_text(callback, get_string("select_loc_group", lang), reply_markup=random_loc_group_keyboard(lang))
-        await state.set_state(CreateForm.waiting_rand_loc_group)
-    else:
-        # 2. Возраст (п. 4.2)
-        await _replace_with_text(callback, "🔢 Введите возраст модели числом:", reply_markup=back_step_keyboard(lang))
-        await state.set_state(CreateForm.waiting_info_age)
+    # 2. Возраст (п. 4.2)
+    await _replace_with_text(callback, "🔢 Введите возраст модели числом:", reply_markup=back_step_keyboard(lang))
+    await state.set_state(CreateForm.waiting_info_age)
     await _safe_answer(callback)
 
 @router.message(CreateForm.waiting_info_age)
@@ -1001,12 +995,7 @@ async def on_infographic_load_input(message: Message, state: FSMContext, db: Dat
     
     await state.update_data(info_load=load_value)
 
-    if data.get("random_mode"):
-        # Если это режим Рандом (одежда) — далее локация
-        from bot.keyboards import random_loc_group_keyboard
-        await message.answer(get_string("select_loc_group", lang), reply_markup=random_loc_group_keyboard(lang))
-        await state.set_state(CreateForm.waiting_rand_loc_group)
-    elif data.get("random_other_mode"):
+    if data.get("random_other_mode"):
         # Рандом для остальных товаров — Название продукта (п. 3)
         await message.answer(get_string("enter_product_name", lang), reply_markup=back_step_keyboard(lang))
         await state.set_state(CreateForm.waiting_rand_other_name)
@@ -1022,11 +1011,7 @@ async def on_infographic_load_skip_btn(callback: CallbackQuery, state: FSMContex
     lang = await db.get_user_language(callback.from_user.id)
     data = await state.get_data()
     
-    if data.get("random_mode"):
-        from bot.keyboards import random_loc_group_keyboard
-        await _replace_with_text(callback, get_string("select_loc_group", lang), reply_markup=random_loc_group_keyboard(lang))
-        await state.set_state(CreateForm.waiting_rand_loc_group)
-    elif data.get("random_other_mode"):
+    if data.get("random_other_mode"):
         # Рандом для остальных товаров — Название продукта
         await _replace_with_text(callback, get_string("enter_product_name", lang), reply_markup=back_step_keyboard(lang))
         await state.set_state(CreateForm.waiting_rand_other_name)
@@ -1097,15 +1082,6 @@ async def on_back_from_info_brand(callback: CallbackQuery, state: FSMContext, db
     from bot.keyboards import info_lang_keyboard
     await _replace_with_text(callback, get_string("select_info_lang", lang), reply_markup=info_lang_keyboard(lang))
     await state.set_state(CreateForm.waiting_info_lang)
-    await _safe_answer(callback)
-
-@router.callback_query(F.data == "back_step", CreateForm.waiting_rand_loc_group)
-async def on_back_from_rand_loc_group(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
-    lang = await db.get_user_language(callback.from_user.id)
-    # Возвращаемся к нагрузке инфографики
-    from bot.keyboards import skip_step_keyboard
-    await _replace_with_text(callback, get_string("enter_info_load", lang), reply_markup=skip_step_keyboard("info_load", lang))
-    await state.set_state(CreateForm.waiting_info_load)
     await _safe_answer(callback)
 
 @router.callback_query(F.data == "back_step", CreateForm.waiting_info_adv1)
@@ -2587,6 +2563,18 @@ async def handle_user_photo(message: Message, state: FSMContext, db: Database) -
     await state.set_state(CreateForm.waiting_aspect)
 
 
+@router.callback_query(F.data == "back_step", CreateForm.waiting_rand_gender)
+async def on_back_from_rand_gender(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    data = await state.get_data()
+    lang = await db.get_user_language(callback.from_user.id)
+    # Назад к локации (Шаг 1)
+    # Если была кастомная локация - назад к вводу кастомной? Или к выбору группы?
+    # Лучше к выбору группы локаций (Шаг 1)
+    from bot.keyboards import random_loc_group_keyboard
+    await _replace_with_text(callback, get_string("select_loc_group", lang), reply_markup=random_loc_group_keyboard(lang))
+    await state.set_state(CreateForm.waiting_rand_loc_group)
+    await _safe_answer(callback)
+
 @router.callback_query(F.data == "back_step", CreateForm.waiting_size)
 async def on_back_from_size(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     data = await state.get_data()
@@ -2639,7 +2627,7 @@ async def on_back_from_age(callback: CallbackQuery, state: FSMContext, db: Datab
     if data.get("random_mode"):
         # 2. Рандом одежда: назад к выбору пола
         await _replace_with_text(callback, get_string("select_model_gender", lang), reply_markup=random_gender_keyboard(lang))
-        await state.set_state(None) # В Рандоме выбор пола это начало
+        await state.set_state(CreateForm.waiting_rand_gender)
         await _safe_answer(callback)
         return
 
@@ -3103,128 +3091,6 @@ async def on_back_from_aspect(callback: CallbackQuery, state: FSMContext, db: Da
         await _replace_with_text(callback, get_string("upload_photo", lang), reply_markup=back_kb)
         await state.set_state(CreateForm.waiting_view)
     await _safe_answer(callback)
-
-@router.callback_query(F.data == "back_step", CreateForm.waiting_size)
-async def on_back_from_size(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
-    data = await state.get_data()
-    category = data.get("category")
-    if category in ("female", "male"):
-        lang = await db.get_user_language(callback.from_user.id)
-        await _replace_with_text(callback, get_string("select_age", lang), reply_markup=form_age_keyboard(lang))
-        await state.set_state(CreateForm.waiting_age)
-    else:
-        # Child -> go back to model selection
-        await _show_models_for_category(callback, db, category, data.get("cloth", "all"), data.get("index", 0))
-    await _safe_answer(callback)
-
-@router.callback_query(F.data == "back_step", CreateForm.waiting_body_type)
-async def on_back_from_body_type(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
-    lang = await db.get_user_language(callback.from_user.id)
-    await _replace_with_text(callback, "📏 Введите рост модели числом (например: 170):", reply_markup=back_step_keyboard(lang))
-    await state.set_state(CreateForm.waiting_height)
-    await _safe_answer(callback)
-
-@router.callback_query(F.data == "back_step", CreateForm.waiting_preset_holiday)
-async def on_back_from_preset_holiday(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
-    lang = await db.get_user_language(callback.from_user.id)
-    from bot.keyboards import random_season_keyboard
-    await _replace_with_text(callback, "Выберите сезон:", reply_markup=random_season_keyboard(lang))
-    await state.set_state(CreateForm.waiting_preset_season)
-    await _safe_answer(callback)
-
-@router.callback_query(F.data == "back_step", CreateForm.waiting_preset_season)
-async def on_back_from_preset_season(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
-    lang = await db.get_user_language(callback.from_user.id)
-    # Возврат к виду фотографии (Спереди/Сзади)
-    await state.set_state(CreateForm.waiting_preset_view)
-    await _replace_with_text(callback, "Выберите вид фотографии (Спереди/Сзади):", reply_markup=form_view_keyboard(lang))
-    await _safe_answer(callback)
-
-@router.callback_query(F.data == "back_step", CreateForm.waiting_preset_dist)
-async def on_back_from_preset_dist(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
-    lang = await db.get_user_language(callback.from_user.id)
-    data = await state.get_data()
-    category = data.get("category")
-    
-    if data.get("infographic_mode"):
-        # Инфографика: назад к углу камеры
-        await _replace_with_text(callback, "Выберите угол камеры (Спереди/Сзади):", reply_markup=form_view_keyboard(lang))
-        await state.set_state(CreateForm.waiting_info_angle)
-    elif category == "storefront":
-        # Витрина: назад к углу камеры
-        await state.set_state(CreateForm.waiting_preset_view)
-        await _replace_with_text(callback, "Выберите угол камеры (Спереди/Сзади):", reply_markup=form_view_keyboard(lang))
-    else:
-        # Остальные: назад к позе
-        await state.set_state(CreateForm.waiting_preset_pose)
-        await _replace_with_text(callback, "Выберите тип позы:", reply_markup=pose_keyboard(lang))
-    await _safe_answer(callback)
-
-@router.callback_query(F.data == "back_step", CreateForm.waiting_preset_view)
-async def on_back_from_preset_view(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
-    lang = await db.get_user_language(callback.from_user.id)
-    data = await state.get_data()
-    category = data.get("category")
-    
-    if category == "storefront":
-        await on_marketplace_menu(callback, db)
-    elif data.get("random_mode") or data.get("is_preset"):
-        # Рандом или Пресеты: назад к ракурсу
-        await state.set_state(CreateForm.waiting_preset_dist)
-        await _replace_with_text(callback, "Выберите ракурс фотографии:", reply_markup=angle_keyboard(lang))
-    else:
-        await on_marketplace_menu(callback, db)
-    await _safe_answer(callback)
-
-@router.callback_query(F.data == "back_step", CreateForm.waiting_preset_pose)
-async def on_back_from_preset_pose(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
-    await _ask_garment_length(callback, state, db)
-    await _safe_answer(callback)
-
-@router.callback_query(F.data == "back_step", CreateForm.waiting_edit_text)
-async def on_back_from_edit_text(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
-    # Возвращаемся к просмотру результата
-    await state.set_state(CreateForm.result_ready)
-    lang = await db.get_user_language(callback.from_user.id)
-    # Показываем кнопки действий с результатом
-    data = await state.get_data()
-    if data.get("own_mode") or data.get("category") == "own_variant":
-        kb = result_actions_own_keyboard(lang)
-    else:
-        kb = result_actions_keyboard(lang)
-    await _replace_with_text(callback, get_string("gen_ready", lang), reply_markup=kb)
-    await _safe_answer(callback)
-
-@router.callback_query(F.data == "back_step", CreateForm.waiting_own_sleeve)
-async def on_back_from_own_sleeve(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
-    data = await state.get_data()
-    lang = await db.get_user_language(callback.from_user.id)
-    await _replace_with_text(callback, get_string("upload_product", lang), reply_markup=back_step_keyboard(lang))
-    await state.set_state(CreateForm.waiting_own_product_photo)
-    await _safe_answer(callback)
-
-@router.callback_query(F.data == "back_step", CreateForm.waiting_own_product_photo)
-async def on_back_from_own_product(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
-    data = await state.get_data()
-    lang = await db.get_user_language(callback.from_user.id)
-    if data.get("category") == "own_variant":
-        await _replace_with_text(callback, get_string("upload_background", lang), reply_markup=back_step_keyboard(lang))
-        await state.set_state(CreateForm.waiting_own_bg_photo)
-    else:
-        await _replace_with_text(callback, get_string("upload_model_photo", lang), reply_markup=back_step_keyboard(lang))
-        await state.set_state(CreateForm.waiting_ref_photo)
-    await _safe_answer(callback)
-
-@router.callback_query(F.data == "back_step", CreateForm.waiting_own_bg_photo)
-async def on_back_from_own_bg(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
-    await on_marketplace_menu(callback, db)
-    await _safe_answer(callback)
-
-@router.callback_query(F.data == "back_step")
-async def on_back_step_fallback(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
-    # Если ни один стейт-специфичный хендлер не сработал
-    await on_back_main(callback, state, db)
-
 
 async def _build_final_prompt(data: dict, db: Database) -> str:
     category = data.get("category")

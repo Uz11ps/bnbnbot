@@ -436,11 +436,14 @@ def angle_keyboard(lang="ru") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text=get_string("dist_close", lang), callback_data="form_view:close"),
-                InlineKeyboardButton(text=get_string("dist_far", lang), callback_data="form_view:far"),
-                InlineKeyboardButton(text=get_string("dist_medium", lang), callback_data="form_view:medium")
+                InlineKeyboardButton(text=get_string("dist_far", lang), callback_data="form_dist:far"),
+                InlineKeyboardButton(text=get_string("dist_medium", lang), callback_data="form_dist:medium"),
+                InlineKeyboardButton(text=get_string("dist_close", lang), callback_data="form_dist:close"),
             ],
-            [InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")],
+            [
+                InlineKeyboardButton(text=get_string("skip", lang), callback_data="form_dist:skip"),
+                InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")
+            ],
         ]
     )
 

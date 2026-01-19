@@ -954,10 +954,10 @@ async def on_infographic_load_input(message: Message, state: FSMContext, db: Dat
         await message.answer(get_string("select_loc_group", lang), reply_markup=random_loc_group_keyboard(lang))
         await state.set_state(CreateForm.waiting_rand_loc_group)
     else:
-        # Для инфографики (и одежда, и прочее) — выбор языка (п. 3 в списке пользователя)
+        # Для инфографики (и одежда, и прочее) — выбор языка (п. 4 в списке пользователя)
         from bot.keyboards import info_lang_keyboard
         await message.answer(get_string("select_info_lang", lang), reply_markup=info_lang_keyboard(lang))
-        await state.set_state(None) # Колбэк выбора языка обработает переход
+        await state.set_state(CreateForm.waiting_info_lang)
 
 @router.callback_query(F.data == "info_load:skip")
 async def on_infographic_load_skip_btn(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
@@ -973,6 +973,7 @@ async def on_infographic_load_skip_btn(callback: CallbackQuery, state: FSMContex
         # Выбор языка
         from bot.keyboards import info_lang_keyboard
         await _replace_with_text(callback, get_string("select_info_lang", lang), reply_markup=info_lang_keyboard(lang))
+        await state.set_state(CreateForm.waiting_info_lang)
     await _safe_answer(callback)
 
 
@@ -995,13 +996,22 @@ async def on_back_from_info_load(callback: CallbackQuery, state: FSMContext, db:
     await state.set_state(CreateForm.waiting_info_age)
     await _safe_answer(callback)
 
-@router.callback_query(F.data == "back_step", CreateForm.waiting_info_lang_custom)
-@router.callback_query(F.data == "back_step", CreateForm.waiting_info_brand)
-async def on_back_from_info_brand(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+@router.callback_query(F.data == "back_step", CreateForm.waiting_info_lang)
+async def on_back_from_info_lang(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     lang = await db.get_user_language(callback.from_user.id)
     # Возврат к нагрузке (load)
     await _replace_with_text(callback, get_string("enter_info_load", lang), reply_markup=skip_step_keyboard("info_load", lang))
     await state.set_state(CreateForm.waiting_info_load)
+    await _safe_answer(callback)
+
+@router.callback_query(F.data == "back_step", CreateForm.waiting_info_lang_custom)
+@router.callback_query(F.data == "back_step", CreateForm.waiting_info_brand)
+async def on_back_from_info_brand(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    lang = await db.get_user_language(callback.from_user.id)
+    # Возврат к выбору языка
+    from bot.keyboards import info_lang_keyboard
+    await _replace_with_text(callback, get_string("select_info_lang", lang), reply_markup=info_lang_keyboard(lang))
+    await state.set_state(CreateForm.waiting_info_lang)
     await _safe_answer(callback)
 
 @router.callback_query(F.data == "back_step", CreateForm.waiting_rand_loc_group)
@@ -1086,7 +1096,7 @@ async def on_back_from_info_holiday(callback: CallbackQuery, state: FSMContext, 
     await _safe_answer(callback)
 
 
-@router.callback_query(F.data.startswith("info_lang:"))
+@router.callback_query(CreateForm.waiting_info_lang, F.data.startswith("info_lang:"))
 async def on_infographic_lang(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     val = callback.data.split(":")[1]
     lang = await db.get_user_language(callback.from_user.id)
@@ -1097,8 +1107,8 @@ async def on_infographic_lang(callback: CallbackQuery, state: FSMContext, db: Da
         await _safe_answer(callback)
         return
         
-    await state.update_data(info_lang=val)
-    # Далее Название бренда/товара (п. 4)
+    await state.update_data(info_lang="" if val == "skip" else val)
+    # Далее Название бренда/товара (п. 5)
     await _replace_with_text(callback, get_string("enter_info_brand", lang), reply_markup=back_step_keyboard(lang))
     await state.set_state(CreateForm.waiting_info_brand)
     await _safe_answer(callback)

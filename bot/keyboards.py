@@ -573,9 +573,9 @@ def font_type_keyboard(lang="ru") -> InlineKeyboardMarkup:
 def info_lang_keyboard(lang="ru") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="🇷🇺 Русский", callback_data="info_lang:ru"), InlineKeyboardButton(text="🇺🇸 English", callback_data="info_lang:en")],
-            [InlineKeyboardButton(text="🇻🇳 Вьетнамский", callback_data="info_lang:vi"), InlineKeyboardButton(text="🇨🇳 Китайский", callback_data="info_lang:zh")],
-            [InlineKeyboardButton(text="✏️ Свой вариант", callback_data="info_lang:custom")],
+            [InlineKeyboardButton(text="1. 🇷🇺 Русский", callback_data="info_lang:Russian"), InlineKeyboardButton(text="2. 🇺🇸 English", callback_data="info_lang:English")],
+            [InlineKeyboardButton(text="3. 🇻🇳 Вьетнамский", callback_data="info_lang:Vietnamese"), InlineKeyboardButton(text="4. 🇨🇳 Китайский", callback_data="info_lang:Chinese")],
+            [InlineKeyboardButton(text="5. ✏️ Свой вариант", callback_data="info_lang:custom")],
             [InlineKeyboardButton(text="⏭ Пропустить", callback_data="info_lang:skip")],
             [InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")],
         ]

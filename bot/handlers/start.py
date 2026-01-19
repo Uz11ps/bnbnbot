@@ -103,6 +103,7 @@ class CreateForm(StatesGroup):
     plus_loc = State()
     plus_season = State()
     plus_vibe = State()
+    waiting_model_search = State()
     category = State()
     cloth = State()
     # Infographic flow
@@ -3881,6 +3882,68 @@ async def on_model_nav(callback: CallbackQuery, db: Database) -> None:
     
     await _show_models_for_category(callback, db, category, cloth, index, logic_category=logic_category)
     await _safe_answer(callback)
+
+@router.callback_query(F.data.startswith("model_search:"))
+async def on_model_search(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    parts = callback.data.split(":")
+    category = parts[1]
+    cloth = parts[2]
+    logic_category = parts[3] if len(parts) > 3 else None
+    
+    await state.update_data(search_cat=category, search_cloth=cloth, search_logic=logic_category)
+    await state.set_state(CreateForm.waiting_model_search)
+    
+    lang = await db.get_user_language(callback.from_user.id)
+    await callback.message.answer("🔍 Введите номер модели для быстрого перехода (например: 10):")
+    await _safe_answer(callback)
+
+@router.message(CreateForm.waiting_model_search)
+async def on_model_search_input(message: Message, state: FSMContext, db: Database) -> None:
+    text = message.text.strip()
+    if not text.isdigit():
+        await message.answer("⚠️ Пожалуйста, введите только число.")
+        return
+        
+    requested_index = int(text) - 1 # Чел вводит 1, это индекс 0
+    if requested_index < 0:
+        requested_index = 0
+        
+    data = await state.get_data()
+    category = data.get("search_cat")
+    cloth = data.get("search_cloth")
+    logic_category = data.get("search_logic")
+    
+    await state.set_state(None)
+    
+    total = await db.count_models(category, cloth)
+    if total <= 0:
+        await message.answer("Модели не найдены.")
+        return
+        
+    if requested_index >= total:
+        requested_index = total - 1
+        
+    # Показываем модель
+    header_text = _model_header(requested_index, total)
+    model = await db.get_model_by_index(category, cloth, requested_index)
+    
+    lang = await db.get_user_language(message.from_user.id)
+    kb = model_select_keyboard(category, cloth, requested_index, total, lang, logic_category=logic_category)
+    
+    if model and model[3]:
+        photo = model[3]
+        if photo.startswith("AgAC"):
+            await message.answer_photo(photo=photo, caption=header_text, reply_markup=kb)
+        else:
+            from aiogram.types import FSInputFile
+            import os
+            file_path = photo if os.path.exists(photo) else os.path.join("/app", photo)
+            if os.path.exists(file_path):
+                await message.answer_photo(photo=FSInputFile(file_path), caption=header_text, reply_markup=kb)
+            else:
+                await message.answer(header_text, reply_markup=kb)
+    else:
+        await message.answer(header_text, reply_markup=kb)
 
 
 @router.callback_query(F.data == "menu_profile")

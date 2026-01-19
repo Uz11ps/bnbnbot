@@ -415,6 +415,14 @@ def model_select_keyboard(category: str, cloth: str, index: int, total: int, lan
     max_quick = min(total, 10)
     for i in range(max_quick):
         text = f"{i+1}"
+        if i == 0:
+            # Вместо цифры 1 — кнопка поиска
+            text = "🔍"
+            if i == index:
+                text = "🔍 •1•"
+            quick_nav.append(InlineKeyboardButton(text=text, callback_data=f"model_search:{category}:{cloth}{logic_suffix}"))
+            continue
+            
         if i == index:
             text = f"•{i+1}•"
         quick_nav.append(InlineKeyboardButton(text=text, callback_data=f"model_nav:{category}:{cloth}:{i}{logic_suffix}"))

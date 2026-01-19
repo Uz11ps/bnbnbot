@@ -37,9 +37,12 @@ from bot.keyboards import (
     form_age_keyboard,
     form_size_keyboard,
     random_vibe_keyboard,
+    random_season_keyboard,
     random_decor_keyboard,
     random_skip_keyboard,
     random_shot_keyboard,
+    pose_keyboard,
+    angle_keyboard,
     plus_location_keyboard,
     plus_season_keyboard,
     plus_vibe_keyboard,
@@ -1902,7 +1905,6 @@ async def on_garment_len_callback(callback: CallbackQuery, state: FSMContext, db
 
     # Для пресетов: после длины — к позе (п. 8)
     if data.get("category") in ("female", "male", "child") and not data.get("random_mode") and not data.get("infographic_mode"):
-        from bot.keyboards import pose_keyboard
         await state.set_state(CreateForm.waiting_preset_pose)
         await _replace_with_text(callback, "Выберите тип позы:", reply_markup=pose_keyboard(lang))
         await _safe_answer(callback)
@@ -1960,7 +1962,6 @@ async def form_set_length_callback(callback: CallbackQuery, state: FSMContext, d
 
     # Для пресетов: после длины — к позе (п. 8)
     if data.get("category") in ("female", "male", "child") and not data.get("random_mode") and not data.get("infographic_mode"):
-        from bot.keyboards import pose_keyboard
         await state.set_state(CreateForm.waiting_preset_pose)
         await _replace_with_text(callback, "Выберите тип позы:", reply_markup=pose_keyboard(lang))
         await _safe_answer(callback)
@@ -2143,7 +2144,6 @@ async def on_preset_pose(callback: CallbackQuery, state: FSMContext, db: Databas
     lang = await db.get_user_language(callback.from_user.id)
     
     # 9. Ракурс (Дальний - Средний - Близкий - Пропустить)
-    from bot.keyboards import angle_keyboard
     await state.set_state(CreateForm.waiting_preset_dist)
     await _replace_with_text(callback, "Выберите ракурс фотографии:", reply_markup=angle_keyboard(lang))
     await _safe_answer(callback)
@@ -2156,7 +2156,6 @@ async def on_preset_dist(callback: CallbackQuery, state: FSMContext, db: Databas
     lang = await db.get_user_language(callback.from_user.id)
     
     # 10. Вид фотографии (Спереди - Сзади)
-    from bot.keyboards import form_view_keyboard
     await state.set_state(CreateForm.waiting_preset_view)
     await _replace_with_text(callback, "Выберите вид фотографии (Спереди/Сзади):", reply_markup=form_view_keyboard(lang))
     await _safe_answer(callback)
@@ -2169,20 +2168,18 @@ async def on_preset_view(callback: CallbackQuery, state: FSMContext, db: Databas
     lang = await db.get_user_language(callback.from_user.id)
     
     # 11. Сезон
-    from bot.keyboards import random_vibe_keyboard
     await state.set_state(CreateForm.waiting_preset_season)
-    await _replace_with_text(callback, "Выберите сезон:", reply_markup=random_vibe_keyboard(lang))
+    await _replace_with_text(callback, "Выберите сезон:", reply_markup=random_season_keyboard(lang))
     await _safe_answer(callback)
 
-@router.callback_query(CreateForm.waiting_preset_season, F.data.startswith("rand_vibe:"))
+@router.callback_query(CreateForm.waiting_preset_season, F.data.startswith("rand_season:"))
 async def on_preset_season(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     season = callback.data.split(":", 1)[1]
-    season_map = {"summer": "Лето", "winter": "Зима", "autumn": "Осень", "spring": "Весна"}
+    season_map = {"summer": "Лето", "winter": "Зима", "autumn": "Осень", "spring": "Весна", "skip": ""}
     await state.update_data(season=season_map.get(season, season))
     lang = await db.get_user_language(callback.from_user.id)
     
     # К выбору формата
-    from bot.keyboards import aspect_ratio_keyboard
     await _replace_with_text(callback, get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
     await state.set_state(CreateForm.waiting_aspect)
     await _safe_answer(callback)
@@ -2199,7 +2196,6 @@ async def on_info_pose(callback: CallbackQuery, state: FSMContext, db: Database)
         await _ask_garment_length(callback, state, db)
     elif data.get("category") in ("female", "male", "child") and not data.get("random_mode") and not data.get("infographic_mode"):
         # Для пресетов: после позы — к ракурсу (п. 9)
-        from bot.keyboards import angle_keyboard
         await state.set_state(CreateForm.waiting_preset_dist)
         await _replace_with_text(callback, "Выберите ракурс фотографии:", reply_markup=angle_keyboard(lang))
     elif data.get("random_other_mode"):
@@ -2223,12 +2219,10 @@ async def on_info_dist_selected(callback: CallbackQuery, state: FSMContext, db: 
     data = await state.get_data()
     if data.get("infographic_mode") and data.get("category") == "infographic_clothing":
         # Для инфографики одежда: после ракурса — к позе (п. 13)
-        from bot.keyboards import pose_keyboard
         await _replace_with_text(callback, "Выберите позу модели:", reply_markup=pose_keyboard(lang))
         await state.set_state(CreateForm.waiting_info_pose)
     else:
         # Для прочих инфографик — к формату
-        from bot.keyboards import aspect_ratio_keyboard
         await _replace_with_text(callback, get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
         await state.set_state(CreateForm.waiting_aspect)
     await _safe_answer(callback)
@@ -2641,7 +2635,6 @@ async def on_back_from_preset_season(callback: CallbackQuery, state: FSMContext,
 @router.callback_query(F.data == "back_step", CreateForm.waiting_preset_view)
 async def on_back_from_preset_view(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     lang = await db.get_user_language(callback.from_user.id)
-    from bot.keyboards import angle_keyboard
     await state.set_state(CreateForm.waiting_preset_dist)
     await _replace_with_text(callback, "Выберите ракурс фотографии:", reply_markup=angle_keyboard(lang))
     await _safe_answer(callback)
@@ -2649,7 +2642,6 @@ async def on_back_from_preset_view(callback: CallbackQuery, state: FSMContext, d
 @router.callback_query(F.data == "back_step", CreateForm.waiting_preset_dist)
 async def on_back_from_preset_dist(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     lang = await db.get_user_language(callback.from_user.id)
-    from bot.keyboards import pose_keyboard
     await state.set_state(CreateForm.waiting_preset_pose)
     await _replace_with_text(callback, "Выберите тип позы:", reply_markup=pose_keyboard(lang))
     await _safe_answer(callback)

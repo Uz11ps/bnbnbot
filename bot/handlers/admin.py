@@ -1291,8 +1291,43 @@ async def admin_choose_user(callback: CallbackQuery, settings: Settings, db: Dat
 
 @router.callback_query(F.data.startswith("admin_user_history:"))
 async def admin_user_history(callback: CallbackQuery, settings: Settings, db: Database) -> None:
+    if not _is_admin(callback.from_user.id, settings):
+        await _safe_answer(callback)
+        return
     lang = await db.get_user_language(callback.from_user.id)
-    await callback.answer(get_string("admin_history_no_tokens", lang), show_alert=True)
+    try:
+        user_id = int(callback.data.split(":", 1)[1])
+    except Exception:
+        await _safe_answer(callback, "Invalid User ID", show_alert=True)
+        return
+
+    history = await db.list_user_generations(user_id, limit=20)
+    if not history:
+        await callback.answer(get_string("history_empty", lang), show_alert=True)
+        return
+        
+    await callback.message.answer(f"🕒 История генераций пользователя {user_id}:")
+    
+    for i, item in enumerate(history, 1):
+        pid, result_photo_id, created_at = item
+        date_str = created_at if isinstance(created_at, str) else created_at.strftime("%Y-%m-%d %H:%M")
+        caption = get_string("history_item", lang, num=i, pid=pid, date=date_str)
+        try:
+            if result_photo_id.startswith("AgAC"):
+                await callback.message.answer_photo(photo=result_photo_id, caption=caption, parse_mode="Markdown")
+            else:
+                from aiogram.types import FSInputFile
+                import os
+                file_path = result_photo_id if os.path.exists(result_photo_id) else os.path.join("/app", result_photo_id)
+                if os.path.exists(file_path):
+                    await callback.message.answer_photo(photo=FSInputFile(file_path), caption=caption, parse_mode="Markdown")
+                else:
+                    await callback.message.answer(caption, parse_mode="Markdown")
+        except Exception:
+            await callback.message.answer(caption, parse_mode="Markdown")
+        await asyncio.sleep(0.1)
+
+    await _safe_answer(callback)
 
 
 @router.callback_query(F.data.startswith("admin_block:"))

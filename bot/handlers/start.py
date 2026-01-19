@@ -2853,14 +2853,43 @@ async def form_generate(callback: CallbackQuery, state: FSMContext, db: Database
                     
                     # Сохраняем в историю
                     import json
+                    import os
                     pid = await db.generate_pid()
+                    
+                    # Создаем папку для истории
+                    history_dir = os.path.join("data", "history")
+                    os.makedirs(history_dir, exist_ok=True)
+                    
+                    # Сохраняем локальные пути для админки
+                    local_input_paths = []
+                    local_result_path = os.path.join(history_dir, f"result_{pid}.jpg")
+                    
+                    try:
+                        # Качаем результат
+                        file_info = await bot.get_file(res_msg.photo[-1].file_id)
+                        await bot.download_file(file_info.file_path, local_result_path)
+                        
+                        # Качаем входные фото
+                        for i, f_id in enumerate(input_photos):
+                            if not f_id: continue
+                            inp_path = os.path.join(history_dir, f"input_{pid}_{i}.jpg")
+                            try:
+                                f_info = await bot.get_file(f_id)
+                                await bot.download_file(f_info.file_path, inp_path)
+                                local_input_paths.append(inp_path)
+                            except: pass
+                    except Exception as e:
+                        logger.error(f"Error downloading images for history: {e}")
+
                     await db.add_generation_history(
                         pid=pid,
                         user_id=user_id,
                         category=category,
                         params=json.dumps(data),
                         input_photos=json.dumps(input_photos),
-                        result_photo_id=res_msg.photo[-1].file_id
+                        result_photo_id=res_msg.photo[-1].file_id,
+                        input_paths=json.dumps(local_input_paths),
+                        result_path=local_result_path
                     )
                     
                     # Списываем баланс
@@ -3059,11 +3088,48 @@ async def on_result_edit_text(message: Message, state: FSMContext, db: Database)
 
             from aiogram.types import FSInputFile
             from bot.keyboards import result_actions_keyboard
-            await message.answer_photo(
+            res_msg = await message.answer_photo(
                 photo=FSInputFile(result_path),
                 caption=f"✅ Правки применены!\n\nТекст правок: {edit_text}",
                 reply_markup=result_actions_keyboard(lang)
             )
+
+            # Сохраняем в историю
+            import json
+            import os
+            pid = await db.generate_pid()
+            history_dir = os.path.join("data", "history")
+            os.makedirs(history_dir, exist_ok=True)
+            local_input_paths = []
+            local_result_path = os.path.join(history_dir, f"result_{pid}.jpg")
+
+            try:
+                # Качаем результат
+                file_info = await message.bot.get_file(res_msg.photo[-1].file_id)
+                await message.bot.download_file(file_info.file_path, local_result_path)
+                # Качаем входные фото
+                for i, f_id in enumerate(input_photos):
+                    if not f_id: continue
+                    inp_path = os.path.join(history_dir, f"input_{pid}_{i}.jpg")
+                    try:
+                        f_info = await message.bot.get_file(f_id)
+                        await message.bot.download_file(f_info.file_path, inp_path)
+                        local_input_paths.append(inp_path)
+                    except: pass
+            except Exception as e:
+                logger.error(f"Error downloading images for history in edit: {e}")
+
+            await db.add_generation_history(
+                pid=pid,
+                user_id=user_id,
+                category=category,
+                params=json.dumps(data),
+                input_photos=json.dumps(input_photos),
+                result_photo_id=res_msg.photo[-1].file_id,
+                input_paths=json.dumps(local_input_paths),
+                result_path=local_result_path
+            )
+
             try: os.remove(result_path)
             except: pass
             # Не очищаем стейт полностью, чтобы можно было еще раз править или повторить
@@ -3178,6 +3244,46 @@ async def on_sub_menu(callback: CallbackQuery, db: Database) -> None:
     text = "Выберите план подписки:"
     await _replace_with_text(callback, text, reply_markup=plans_keyboard(plans, lang))
     await _safe_answer(callback)
+
+@router.callback_query(F.data == "menu_history")
+async def on_history(callback: CallbackQuery, db: Database) -> None:
+    lang = await db.get_user_language(callback.from_user.id)
+    history = await db.list_user_generations(callback.from_user.id, limit=20)
+    
+    if not history:
+        await callback.answer(get_string("history_empty", lang), show_alert=True)
+        return
+        
+    await callback.message.answer(get_string("history_title", lang))
+    
+    # Показываем только итоговые фото
+    for i, item in enumerate(history, 1):
+        pid, result_photo_id, created_at = item
+        # created_at может быть строкой или datetime
+        date_str = created_at if isinstance(created_at, str) else created_at.strftime("%Y-%m-%d %H:%M")
+        
+        caption = get_string("history_item", lang, num=i, pid=pid, date=date_str)
+        try:
+            if result_photo_id.startswith("AgAC"): # Telegram file_id
+                await callback.message.answer_photo(photo=result_photo_id, caption=caption, parse_mode="Markdown")
+            else:
+                # Если это путь к файлу
+                from aiogram.types import FSInputFile
+                import os
+                file_path = result_photo_id if os.path.exists(result_photo_id) else os.path.join("/app", result_photo_id)
+                if os.path.exists(file_path):
+                    await callback.message.answer_photo(photo=FSInputFile(file_path), caption=caption, parse_mode="Markdown")
+                else:
+                    await callback.message.answer(caption, parse_mode="Markdown")
+        except Exception as e:
+            logger.error(f"Error sending history item {pid}: {e}")
+            await callback.message.answer(caption, parse_mode="Markdown")
+        
+        # Небольшая задержка, чтобы не спамить
+        await asyncio.sleep(0.1)
+
+    await _safe_answer(callback)
+
 
 @router.callback_query(F.data == "menu_settings")
 async def on_menu_settings(callback: CallbackQuery, db: Database) -> None:

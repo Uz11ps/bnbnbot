@@ -837,11 +837,11 @@ class Database:
             await db.execute("UPDATE users SET balance = balance + ? WHERE id=?", (amount, user_id))
             await db.commit()
 
-    async def add_generation_history(self, pid: str, user_id: int, category: str, params: str, input_photos: str, result_photo_id: str) -> None:
+    async def add_generation_history(self, pid: str, user_id: int, category: str, params: str, input_photos: str, result_photo_id: str, input_paths: str = None, result_path: str = None) -> None:
         async with aiosqlite.connect(self._db_path) as db:
             await db.execute(
-                "INSERT INTO generation_history (pid, user_id, category, params, input_photos, result_photo_id) VALUES (?, ?, ?, ?, ?, ?)",
-                (pid, user_id, category, params, input_photos, result_photo_id)
+                "INSERT INTO generation_history (pid, user_id, category, params, input_photos, result_photo_id, input_paths, result_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (pid, user_id, category, params, input_photos, result_photo_id, input_paths, result_path)
             )
             await db.commit()
 

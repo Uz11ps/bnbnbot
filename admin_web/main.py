@@ -66,14 +66,66 @@ async def run_migrations(db: aiosqlite.Connection):
             except Exception as e:
                 print(f"Migration error (subscription_plans.{col_name}): {e}")
 
+async def cleanup_old_history():
+    """Фоновая задача для очистки истории старше 7 дней"""
+    while True:
+        try:
+            async with aiosqlite.connect(DB_PATH) as db:
+                # Находим записи старше 7 дней
+                async with db.execute("SELECT pid, input_paths, result_path FROM generation_history WHERE created_at < datetime('now', '-7 days')") as cur:
+                    old_records = await cur.fetchall()
+                
+                if old_records:
+                    print(f"Cleanup: Found {len(old_records)} old generations to delete")
+                    for pid, inps_json, res_path in old_records:
+                        # Удаляем файлы
+                        if res_path and os.path.exists(res_path):
+                            try: os.remove(res_path)
+                            except: pass
+                        if inps_json:
+                            try:
+                                inps = json.loads(inps_json)
+                                for p in inps:
+                                    if p and os.path.exists(p):
+                                        try: os.remove(p)
+                                        except: pass
+                            except: pass
+                        
+                        # Удаляем из БД
+                        await db.execute("DELETE FROM generation_history WHERE pid=?", (pid,))
+                    await db.commit()
+        except Exception as e:
+            print(f"Cleanup history error: {e}")
+        
+        # Спим 1 час перед следующей проверкой
+        await asyncio.sleep(3600)
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     os.makedirs(UPLOAD_DIR, exist_ok=True)
     os.makedirs(STATIC_DIR, exist_ok=True)
+    os.makedirs(os.path.join(BASE_DIR, "data", "history"), exist_ok=True)
     
     # Запуск миграций при старте
     async with aiosqlite.connect(DB_PATH) as db:
         await run_migrations(db)
+        
+        async with db.execute("PRAGMA table_info(generation_history)") as cur:
+            h_cols = [row[1] for row in await cur.fetchall()]
+        if h_cols:
+            if "input_paths" not in h_cols:
+                try:
+                    await db.execute("ALTER TABLE generation_history ADD COLUMN input_paths TEXT")
+                    await db.commit()
+                except Exception as e: print(f"Migration error (history.input_paths): {e}")
+            if "result_path" not in h_cols:
+                try:
+                    await db.execute("ALTER TABLE generation_history ADD COLUMN result_path TEXT")
+                    await db.commit()
+                except Exception as e: print(f"Migration error (history.result_path): {e}")
+    
+    # Запуск очистки в фоне
+    asyncio.create_task(cleanup_old_history())
         
     yield
 

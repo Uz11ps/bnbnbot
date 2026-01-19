@@ -28,18 +28,40 @@
                     <td><a href="/users?q={{ item.user_id }}">{{ item.user_id }}</a></td>
                     <td>{{ item.category }}</td>
                     <td>
-                        <div class="d-flex gap-1">
-                            {% set input_photos = item.input_photos | from_json if item.input_photos else [] %}
-                            {% if input_photos %}
-                                <div class="text-muted small">Input: {{ input_photos | length }} фото</div>
-                            {% endif %}
-                            {% if item.result_photo_id %}
-                                <div class="badge bg-success">Result OK</div>
-                            {% endif %}
+                        <div class="d-flex align-items-center gap-2">
+                            <div class="d-flex flex-wrap gap-1" style="max-width: 150px;">
+                                {% if item.input_paths %}
+                                    {% set inps = item.input_paths | from_json %}
+                                    {% for p in inps %}
+                                        <a href="/{{ p }}" target="_blank">
+                                            <img src="/{{ p }}" class="rounded shadow-sm" style="width: 40px; height: 40px; object-fit: cover;" alt="Input">
+                                        </a>
+                                    {% endfor %}
+                                {% else %}
+                                    <span class="text-muted small">N/A</span>
+                                {% endif %}
+                            </div>
+                            <i class="bi bi-arrow-right text-muted"></i>
+                            <div>
+                                {% if item.result_path %}
+                                    <a href="/{{ item.result_path }}" target="_blank">
+                                        <img src="/{{ item.result_path }}" class="rounded shadow-sm border border-success" style="width: 60px; height: 60px; object-fit: cover;" alt="Result">
+                                    </a>
+                                {% else %}
+                                    <div class="badge bg-success">Telegram ID</div>
+                                {% endif %}
+                            </div>
                         </div>
                     </td>
                     <td>
-                        <small class="text-muted">{{ item.params }}</small>
+                        <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#params-{{ item.pid }}">
+                            Показать параметры
+                        </button>
+                        <div class="collapse mt-2" id="params-{{ item.pid }}">
+                            <div class="card card-body p-2 bg-light">
+                                <pre class="mb-0" style="font-size: 0.75rem; white-space: pre-wrap;">{{ item.params }}</pre>
+                            </div>
+                        </div>
                     </td>
                     <td>{{ item.created_at }}</td>
                 </tr>

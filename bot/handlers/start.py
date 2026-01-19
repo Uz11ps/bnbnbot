@@ -466,8 +466,10 @@ async def on_female_category(callback: CallbackQuery, db: Database, state: FSMCo
     if not await db.get_category_enabled("female"):
         await _safe_answer(callback, get_string("no_models_in_category_alert", await db.get_user_language(callback.from_user.id)), show_alert=True)
         return
-    await state.update_data(category="female", cloth="all")
-    await _show_models_for_category(callback, db, "female", "all")
+    await state.update_data(category="female")
+    lang = await db.get_user_language(callback.from_user.id)
+    from bot.keyboards import female_clothes_keyboard
+    await _replace_with_text(callback, get_string("select_clothes", lang), reply_markup=female_clothes_keyboard(lang))
     await _safe_answer(callback)
 
 @router.callback_query(F.data == "create_cat:male")
@@ -480,8 +482,10 @@ async def on_male_category(callback: CallbackQuery, db: Database, state: FSMCont
     if not await db.get_category_enabled("male"):
         await _safe_answer(callback, get_string("no_models_in_category_alert", await db.get_user_language(callback.from_user.id)), show_alert=True)
         return
-    await state.update_data(category="male", cloth="all")
-    await _show_models_for_category(callback, db, "male", "all")
+    await state.update_data(category="male")
+    lang = await db.get_user_language(callback.from_user.id)
+    from bot.keyboards import male_clothes_keyboard
+    await _replace_with_text(callback, get_string("select_clothes", lang), reply_markup=male_clothes_keyboard(lang))
     await _safe_answer(callback)
 
 async def _show_models_for_category(callback: CallbackQuery, db: Database, category: str, cloth: str, index: int = 0) -> None:
@@ -1596,15 +1600,16 @@ async def on_any_cloth(callback: CallbackQuery, db: Database, state: FSMContext)
         return
     text = _model_header(0, total)
     model = await db.get_model_by_index(category, cloth, 0)
+    lang = await db.get_user_language(callback.from_user.id)
     if model and model[3]:
         await _answer_model_photo(
             callback,
             model[3],
             text,
-            model_select_keyboard(category, cloth, 0, total),
+            model_select_keyboard(category, cloth, 0, total, lang),
         )
     else:
-        await _replace_with_text(callback, text, reply_markup=model_select_keyboard(category, cloth, 0, total))
+        await _replace_with_text(callback, text, reply_markup=model_select_keyboard(category, cloth, 0, total, lang))
     await _safe_answer(callback)
 
 

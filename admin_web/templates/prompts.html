@@ -56,10 +56,26 @@
                 <h6 class="mb-3">➕ Добавить модель в категорию {{ cat_names.get(cat, cat | capitalize) }}</h6>
                 <form action="/models/add_full" method="post" enctype="multipart/form-data" class="row g-2">
                     <input type="hidden" name="category" value="{{ cat }}">
-                    <div class="col-md-4">
+                    <div class="col-md-3">
                         <input type="text" name="name" class="form-control" placeholder="Имя модели" required>
                     </div>
-                    <div class="col-md-4">
+                    <div class="col-md-3">
+                        <select name="cloth" class="form-select">
+                            <option value="all">Все (all)</option>
+                            <option value="coat">Верхняя одежда</option>
+                            <option value="dress">Платья</option>
+                            <option value="pants">Брюки/Шорты</option>
+                            <option value="top">Топы/Рубашки</option>
+                            <option value="suit">Костюмы</option>
+                            <option value="loungewear">Домашняя одежда</option>
+                            <option value="overall">Комбинезоны</option>
+                            <option value="skirt">Юбки</option>
+                            <option value="shoes">Обувь</option>
+                            <option value="boy">Мальчик (для детей)</option>
+                            <option value="girl">Девочка (для детей)</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
                         <input type="file" name="photo" class="form-control" accept="image/*">
                     </div>
                     <div class="col-md-12">

@@ -36,7 +36,7 @@ def load_settings() -> Settings:
     bot_token = os.getenv("BOT_TOKEN", "").strip()
     old_bot_token = os.getenv("OLD_BOT_TOKEN", "").strip() or None
     gemini_api_key = os.getenv("GEMINI_API_KEY", "").strip()
-    database_url = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./bot.db").strip()
+    database_url = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./data/bot.db").strip()
 
     # Сначала пробуем получить единый URL прокси
     bot_http_proxy = os.getenv("BOT_HTTP_PROXY", "").strip()

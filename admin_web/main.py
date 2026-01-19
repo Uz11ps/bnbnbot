@@ -19,7 +19,8 @@ from contextlib import asynccontextmanager
 # --- Настройки путей ---
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # В Docker контейнере база должна быть в /app/data/bot.db
-DB_PATH = "/app/data/bot.db"
+# Но для совместимости с локальным запуском используем путь относительно корня
+DB_PATH = os.path.join(BASE_DIR, "data", "bot.db")
 # Создаем папку если ее нет (на случай если volume не примонтирован)
 os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 
@@ -463,6 +464,7 @@ async def add_full_model(
     category: str = Form(...),
     name: str = Form(...),
     prompt_text: str = Form(...),
+    cloth: str = Form("all"),
     photo: UploadFile = File(None),
     db: aiosqlite.Connection = Depends(get_db),
     user: str = Depends(get_current_username)
@@ -470,8 +472,8 @@ async def add_full_model(
     await db.execute("INSERT INTO prompts (title, text) VALUES (?, ?)", (f"Prompt for {name}", prompt_text))
     async with db.execute("SELECT last_insert_rowid()") as cur:
         prompt_id = (await cur.fetchone())[0]
-    await db.execute("INSERT INTO models (category, cloth, name, prompt_id) VALUES (?, 'all', ?, ?)", 
-                     (category, name, prompt_id))
+    await db.execute("INSERT INTO models (category, cloth, name, prompt_id) VALUES (?, ?, ?, ?)", 
+                     (category, cloth, name, prompt_id))
     async with db.execute("SELECT last_insert_rowid()") as cur:
         model_id = (await cur.fetchone())[0]
     

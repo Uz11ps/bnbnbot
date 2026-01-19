@@ -123,12 +123,16 @@ class AccessMiddleware:
 async def main() -> None:
     settings = load_settings()
 
-    # Жестко используем /app/data/bot.db для Docker
-    db_path = "/app/data/bot.db"
-    
-    # Если мы не в Docker и файла по этому пути нет, пробуем локальный путь
-    if not os.path.exists("/app") and not os.path.exists(db_path):
+    # Получаем путь к базе из настроек
+    db_url = settings.database_url
+    if "sqlite+aiosqlite:///" in db_url:
+        db_path = db_url.replace("sqlite+aiosqlite:///", "")
+    else:
         db_path = "data/bot.db"
+
+    # Приводим путь к абсолютному, если это не Docker (в Docker /app/data уже абсолютный)
+    if not os.path.isabs(db_path) and not db_path.startswith("/app"):
+        db_path = os.path.join(os.getcwd(), db_path)
 
     db = Database(db_path=db_path)
     await db.init()

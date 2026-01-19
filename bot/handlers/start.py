@@ -1818,9 +1818,10 @@ async def on_model_pick(callback: CallbackQuery, db: Database, state: FSMContext
     )
     
     lang = await db.get_user_language(callback.from_user.id)
+    data = await state.get_data()
     
     # Витринное фото (НОВЫЙ ФЛОУ)
-    if category == "storefront" or is_storefront:
+    if category == "storefront" or data.get("storefront_mode"):
         await _replace_with_text(callback, get_string("select_camera_angle", lang), reply_markup=form_view_keyboard(lang))
         await state.set_state(CreateForm.waiting_preset_view)
         await _safe_answer(callback)

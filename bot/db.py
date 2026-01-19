@@ -1039,14 +1039,16 @@ class Database:
 
     async def count_models(self, category: str, cloth: str | None = None) -> int:
         async with aiosqlite.connect(self._db_path) as db:
-            if cloth:
+            if cloth and cloth != "all":
+                # Для конкретного подтипа (например boy/girl) показываем и его, и универсальные 'all'
                 async with db.execute(
-                    "SELECT COUNT(*) FROM models WHERE category=? AND cloth=? AND is_active=1",
+                    "SELECT COUNT(*) FROM models WHERE category=? AND (cloth=? OR cloth='all') AND is_active=1",
                     (category, cloth),
                 ) as cur:
                     row = await cur.fetchone()
                     return int(row[0]) if row else 0
             else:
+                # Если cloth="all" или None — показываем абсолютно всё в этой категории
                 async with db.execute(
                     "SELECT COUNT(*) FROM models WHERE category=? AND is_active=1",
                     (category,),
@@ -1085,8 +1087,8 @@ class Database:
 
     async def get_model_by_index(self, category: str, cloth: str | None, index: int) -> tuple[int, str, int, str | None] | None:
         async with aiosqlite.connect(self._db_path) as db:
-            if cloth:
-                sql = "SELECT id, name, prompt_id, photo_file_id FROM models WHERE category=? AND cloth=? AND is_active=1 ORDER BY position, id LIMIT 1 OFFSET ?"
+            if cloth and cloth != "all":
+                sql = "SELECT id, name, prompt_id, photo_file_id FROM models WHERE category=? AND (cloth=? OR cloth='all') AND is_active=1 ORDER BY position, id LIMIT 1 OFFSET ?"
                 params = (category, cloth, index)
             else:
                 sql = "SELECT id, name, prompt_id, photo_file_id FROM models WHERE category=? AND is_active=1 ORDER BY position, id LIMIT 1 OFFSET ?"

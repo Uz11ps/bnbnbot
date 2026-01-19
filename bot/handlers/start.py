@@ -2717,49 +2717,23 @@ async def form_generate(callback: CallbackQuery, state: FSMContext, db: Database
         # Добавляем брендинг
         prompt_filled = db.add_ai_room_branding(prompt_filled)
         
-        # Отправляем сообщение о начале генерации с новой анимацией
-        process_msg = await callback.message.answer(
-            "⏳ **Запуск генерации...**\n"
-            "⬜️⬜️⬜️⬜️⬜️⬜️⬜️⬜️⬜️⬜️ 0%\n"
-            "Прошло: 0с • Шаг 1/5"
-        )
+        # Отправляем сообщение о начале генерации с анимацией
+        process_msg = await callback.message.answer("🎨 ⚡️ ⏳")
         
-        async def animate_gen(msg, is_edit=False):
-            import time
-            start_time = time.time()
-            steps = [
-                "Анализирую запрос...",
-                "Подбираю параметры...",
-                "Генерирую изображение...",
-                "Улучшаю детализацию...",
-                "Финальная обработка..."
+        async def animate_gen(msg, lang_code):
+            frames = [
+                "🎨 ⏳ Генерируем...",
+                "🎨 ⌛️ Почти готово...",
+                "🎨 ✨ Магия нейросетей...",
+                "🎨 🔄 Улучшаем детали..."
             ]
-            if is_edit:
-                steps[0] = "Понимаю, что изменить..."
-                title = "✏️ **Редактирование**"
-            else:
-                title = "🎨 **Генерация**"
-
             try:
-                for i in range(11): # 0 to 100%
-                    percent = i * 10
-                    filled = "🟩" * i
-                    empty = "⬜️" * (10 - i)
-                    elapsed = int(time.time() - start_time)
-                    step_idx = min(i // 2, 4) # 5 шагов
-                    
-                    text = (
-                        f"{title}\n"
-                        f"{steps[step_idx]}\n\n"
-                        f"{filled}{empty} {percent}%\n"
-                        f"Прошло: {elapsed}с • Шаг {step_idx + 1}/5\n\n"
-                        f"_Результат вас приятно удивит_"
-                    )
-                    await msg.edit_text(text, parse_mode="Markdown")
-                    await asyncio.sleep(1.8) # Общее время около 18-20 сек
+                for i in range(20):
+                    await asyncio.sleep(1.5)
+                    await msg.edit_text(frames[i % len(frames)])
             except: pass
 
-        anim_task = asyncio.create_task(animate_gen(process_msg, is_edit=False))
+        anim_task = asyncio.create_task(animate_gen(process_msg, lang))
 
         # Выбор API ключа
         category = data.get("category")
@@ -2992,44 +2966,15 @@ async def on_result_edit_text(message: Message, state: FSMContext, db: Database)
         return
 
     # Анимация
-    process_msg = await message.answer(
-        "⏳ **Подготовка правок...**\n"
-        "⬜️⬜️⬜️⬜️⬜️⬜️⬜️⬜️⬜️⬜️ 0%\n"
-        "Прошло: 0с • Шаг 1/5"
-    )
-    
-    async def animate_edit(msg):
-        import time
-        start_time = time.time()
-        steps = [
-            "Понимаю, что изменить...",
-            "Корректирую промпт...",
-            "Перерисовываю детали...",
-            "Смешиваю слои...",
-            "Результат готов!"
-        ]
-        title = "✏️ **Редактирование**"
-
+    process_msg = await message.answer("🎨 ⚡️ ⏳")
+    async def animate_gen(msg):
+        frames = ["🎨 ⏳ Применяем правки...", "🎨 ⌛️ Перерисовываем...", "🎨 ✨ Магия нейросетей...", "🎨 🔄 Финализируем..."]
         try:
-            for i in range(11):
-                percent = i * 10
-                filled = "🟩" * i
-                empty = "⬜️" * (10 - i)
-                elapsed = int(time.time() - start_time)
-                step_idx = min(i // 2, 4)
-                
-                text = (
-                    f"{title}\n"
-                    f"{steps[step_idx]}\n\n"
-                    f"{filled}{empty} {percent}%\n"
-                    f"Прошло: {elapsed}с • Шаг {step_idx + 1}/5\n\n"
-                    f"_Результат вас приятно удивит_"
-                )
-                await msg.edit_text(text, parse_mode="Markdown")
-                await asyncio.sleep(1.8)
+            for i in range(20):
+                await asyncio.sleep(1.5)
+                await msg.edit_text(frames[i % len(frames)])
         except: pass
-
-    anim_task = asyncio.create_task(animate_edit(process_msg))
+    anim_task = asyncio.create_task(animate_gen(process_msg))
 
     try:
         # Скачиваем фото

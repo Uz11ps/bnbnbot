@@ -414,7 +414,7 @@ async def add_full_model(
     await db.execute("INSERT INTO prompts (title, text) VALUES (?, ?)", (f"Prompt for {name}", prompt_text))
     async with db.execute("SELECT last_insert_rowid()") as cur:
         prompt_id = (await cur.fetchone())[0]
-    await db.execute("INSERT INTO models (category, cloth, name, prompt_id) VALUES (?, 'default', ?, ?)", 
+    await db.execute("INSERT INTO models (category, cloth, name, prompt_id) VALUES (?, 'all', ?, ?)", 
                      (category, name, prompt_id))
     async with db.execute("SELECT last_insert_rowid()") as cur:
         model_id = (await cur.fetchone())[0]

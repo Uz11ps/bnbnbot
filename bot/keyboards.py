@@ -394,15 +394,19 @@ def result_actions_own_keyboard(lang="ru") -> InlineKeyboardMarkup:
         ]
     )
 
-def model_select_keyboard(category: str, cloth: str, index: int, total: int, lang: str = "ru") -> InlineKeyboardMarkup:
+def model_select_keyboard(category: str, cloth: str, index: int, total: int, lang: str = "ru", logic_category: str = None) -> InlineKeyboardMarkup:
     """Клавиатура для выбора пресета с быстрой навигацией 1-10"""
     rows: list[list[InlineKeyboardButton]] = []
     
     # Кнопки навигации по одной
+    # model_nav:display_cat:cloth:index:logic_cat
+    logic_suffix = f":{logic_category}" if logic_category else ""
+    pick_cat = logic_category or category
+
     nav_row = [
-        InlineKeyboardButton(text="⬅️", callback_data=f"model_nav:{category}:{cloth}:{index-1}"),
-        InlineKeyboardButton(text="✅ " + get_string("confirm_btn", lang), callback_data=f"model_pick:{category}:{cloth}:{index}"),
-        InlineKeyboardButton(text="➡️", callback_data=f"model_nav:{category}:{cloth}:{index+1}"),
+        InlineKeyboardButton(text="⬅️", callback_data=f"model_nav:{category}:{cloth}:{index-1}{logic_suffix}"),
+        InlineKeyboardButton(text="✅ " + get_string("confirm_btn", lang), callback_data=f"model_pick:{pick_cat}:{category}:{index}"),
+        InlineKeyboardButton(text="➡️", callback_data=f"model_nav:{category}:{cloth}:{index+1}{logic_suffix}"),
     ]
     rows.append(nav_row)
     
@@ -413,7 +417,7 @@ def model_select_keyboard(category: str, cloth: str, index: int, total: int, lan
         text = f"{i+1}"
         if i == index:
             text = f"•{i+1}•"
-        quick_nav.append(InlineKeyboardButton(text=text, callback_data=f"model_nav:{category}:{cloth}:{i}"))
+        quick_nav.append(InlineKeyboardButton(text=text, callback_data=f"model_nav:{category}:{cloth}:{i}{logic_suffix}"))
     
     # Разбиваем кнопки 1-10 на ряды по 5
     for i in range(0, len(quick_nav), 5):

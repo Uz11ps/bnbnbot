@@ -488,7 +488,7 @@ async def on_male_category(callback: CallbackQuery, db: Database, state: FSMCont
     await _replace_with_text(callback, get_string("select_clothes", lang), reply_markup=male_clothes_keyboard(lang))
     await _safe_answer(callback)
 
-async def _show_models_for_category(callback: CallbackQuery, db: Database, category: str, cloth: str, index: int = 0) -> None:
+async def _show_models_for_category(callback: CallbackQuery, db: Database, category: str, cloth: str, index: int = 0, logic_category: str = None) -> None:
     total = await db.count_models(category, cloth)
     if total <= 0:
         await _safe_answer(callback, "Модели не найдены", show_alert=True)
@@ -502,7 +502,7 @@ async def _show_models_for_category(callback: CallbackQuery, db: Database, categ
     model = await db.get_model_by_index(category, cloth, index)
     
     lang = await db.get_user_language(callback.from_user.id)
-    kb = model_select_keyboard(category, cloth, index, total, lang)
+    kb = model_select_keyboard(category, cloth, index, total, lang, logic_category=logic_category)
     
     if model and model[3]:
         await _answer_model_photo(callback, model[3], text, kb)
@@ -775,7 +775,7 @@ async def on_storefront_category(callback: CallbackQuery, db: Database, state: F
         await _safe_answer(callback, get_string("no_models_in_category_alert", await db.get_user_language(callback.from_user.id)), show_alert=True)
         return
     await state.clear()
-    await state.update_data(category="storefront")
+    await state.update_data(category="storefront", storefront_mode=True)
     lang = await db.get_user_language(callback.from_user.id)
     from bot.keyboards import gender_selection_keyboard
     await _replace_with_text(callback, get_string("select_gender", lang), reply_markup=gender_selection_keyboard("storefront", lang, back_data="menu_market"))
@@ -811,11 +811,23 @@ async def on_generic_gender_select(callback: CallbackQuery, state: FSMContext, d
     await state.update_data(category=category, gender=gender, cloth="all")
     
     # Если это категория child, дополнительно помечаем child_gender для совместимости
-    if category == "child":
+    if gender in ("boy", "girl") or category == "child":
         await state.update_data(child_gender=gender)
         
     # Сразу показываем модели для этой категории и пола
-    await _show_models_for_category(callback, db, category, "all")
+    # Для Витрины реализуем логику: сначала ищем модели именно в категории storefront с типом одежды = пол
+    # Если их нет — показываем модели из соответствующей общей категории (женская/мужская/детская)
+    if category == "storefront":
+        total_sf = await db.count_models("storefront", gender)
+        if total_sf > 0:
+            await _show_models_for_category(callback, db, "storefront", gender)
+        else:
+            # Fallback к общей категории пола (женская/мужская/детская), но logic_category остается storefront
+            display_cat = "child" if gender in ("boy", "girl") else gender
+            cloth_val = gender if display_cat == "child" else "all"
+            await _show_models_for_category(callback, db, display_cat, cloth_val, logic_category="storefront")
+    else:
+        await _show_models_for_category(callback, db, category, "all")
     await _safe_answer(callback)
 
 # --- РАЗДЕЛ ИНФОГРАФИКА ---
@@ -1653,31 +1665,41 @@ async def on_random_location_custom_text(message: Message, state: FSMContext) ->
 async def on_model_pick(callback: CallbackQuery, db: Database, state: FSMContext) -> None:
     try:
         parts = callback.data.split(":")
-        category = parts[1]
-        cloth = parts[2]
-        index = int(parts[3])
+        # model_pick:logic_cat:display_cat:cloth:index (if logic_cat != display_cat)
+        # OR model_pick:logic_cat:cloth:index (if they are the same)
+        if len(parts) == 5:
+            category = parts[1] # logic
+            display_cat = parts[2]
+            cloth = parts[3]
+            index = int(parts[4])
+        else:
+            category = parts[1] # logic == display
+            display_cat = category
+            cloth = parts[2]
+            index = int(parts[3])
     except Exception:
         await _safe_answer(callback)
         return
         
-    total = await db.count_models(category, cloth)
+    total = await db.count_models(display_cat, cloth)
     if total <= 0:
         await _safe_answer(callback, "Модели отсутствуют", show_alert=True)
         return
         
-    model = await db.get_model_by_index(category, cloth, index)
+    model = await db.get_model_by_index(display_cat, cloth, index)
     if not model:
         await _safe_answer(callback, "Модель не найдена", show_alert=True)
         return
         
     model_id, name, prompt_id, _photo = model
-    await state.update_data(category=category, cloth=cloth, index=index, model_id=model_id, prompt_id=prompt_id)
+    # Сохраняем данные
+    await state.update_data(category=category, display_category=display_cat, cloth=cloth, index=index, model_id=model_id, prompt_id=prompt_id)
     
     lang = await db.get_user_language(callback.from_user.id)
     
     # Витринное фото (НОВЫЙ ФЛОУ)
-    if category == "storefront":
-        await _replace_with_text(callback, "Выберите угол камеры (Спереди/Сзади):", reply_markup=form_view_keyboard(lang))
+    if category == "storefront" or is_storefront:
+        await _replace_with_text(callback, get_string("select_camera_angle", lang), reply_markup=form_view_keyboard(lang))
         await state.set_state(CreateForm.waiting_preset_view)
         await _safe_answer(callback)
         return
@@ -3446,30 +3468,16 @@ async def on_result_repeat(callback: CallbackQuery, state: FSMContext, db: Datab
 @router.callback_query(F.data.startswith("model_nav:"))
 async def on_model_nav(callback: CallbackQuery, db: Database) -> None:
     try:
-        _, category, cloth, index_str = callback.data.split(":", 3)
-        index = int(index_str)
+        parts = callback.data.split(":")
+        category = parts[1]
+        cloth = parts[2]
+        index = int(parts[3])
+        logic_category = parts[4] if len(parts) > 4 else None
     except Exception:
         await _safe_answer(callback)
         return
-    total = await db.count_models(category, cloth)
-    if total <= 0:
-        await _safe_answer(callback, "Модели не найдены", show_alert=True)
-        return
-    if index < 0:
-        index = total - 1
-    if index >= total:
-        index = 0
-    text = _model_header(index, total)
-    model = await db.get_model_by_index(category, cloth, index)
-    if model and model[3]:
-        await _answer_model_photo(
-            callback,
-            model[3],
-            text,
-            model_select_keyboard(category, cloth, index, total),
-        )
-    else:
-        await _replace_with_text(callback, text, reply_markup=model_select_keyboard(category, cloth, index, total))
+    
+    await _show_models_for_category(callback, db, category, cloth, index, logic_category=logic_category)
     await _safe_answer(callback)
 
 

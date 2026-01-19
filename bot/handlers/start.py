@@ -1697,46 +1697,38 @@ async def on_pants_style(callback: CallbackQuery, state: FSMContext, db: Databas
     await state.update_data(pants_style=style)
     category = data.get("category")
 
-    if data.get("infographic_mode") and data.get("category") == "infographic_clothing":
-        # Для инфографики одежда: после кроя — к типу рукава (п. 10)
-        from bot.keyboards import sleeve_length_keyboard
+    # 1. Инфографика одежда
+    if data.get("infographic_mode") and category == "infographic_clothing":
         await _replace_with_text(callback, get_string("select_sleeve_length", lang), reply_markup=sleeve_length_keyboard(lang))
         await state.set_state(CreateForm.waiting_sleeve)
         await _safe_answer(callback)
         return
 
+    # 2. Пресеты (Готовые модели) - ЖЕСТКИЙ ПЕРЕХОД К РУКАВАМ
+    if category in ("female", "male", "child") and not data.get("random_mode") and not data.get("infographic_mode"):
+        await state.set_state(CreateForm.waiting_sleeve)
+        await _replace_with_text(callback, get_string("select_sleeve_length", lang), reply_markup=sleeve_length_keyboard(lang))
+        await _safe_answer(callback)
+        return
+
+    # 3. Остальная логика (Рандом и т.д.)
     if data.get("infographic_mode"):
         await state.set_state(CreateForm.waiting_sleeve)
         await _replace_with_text(callback, "Выберите тип рукава (или пропустите):", reply_markup=sleeve_length_keyboard(lang))
         return
 
     if data.get("random_mode"):
-        # В рандоме после выбора кроя — переходим к ракурсу
         await _replace_with_text(callback, get_string("select_camera_dist", lang), reply_markup=form_view_keyboard(lang))
         await state.set_state(CreateForm.waiting_view)
-    elif data.get("infographic_mode") and data.get("category") == "infographic_clothing":
-        # Для инфографики одежда: после кроя — к типу рукава (п. 10)
-        from bot.keyboards import sleeve_length_keyboard
-        await _replace_with_text(callback, get_string("select_sleeve_length", lang), reply_markup=sleeve_length_keyboard(lang))
-        await state.set_state(CreateForm.waiting_sleeve)
-    elif category == "child":
-        await _replace_with_text(callback, "Введите возраст ребенка (в годах):")
-        await state.set_state(CreateForm.waiting_age)
     else:
-        # Для пресетов: после кроя — к рукавам (п. 5)
-        if data.get("category") in ("female", "male", "child") and not data.get("random_mode") and not data.get("infographic_mode"):
-            await state.set_state(CreateForm.waiting_sleeve)
-            await _replace_with_text(callback, get_string("select_sleeve_length", lang), reply_markup=sleeve_length_keyboard(lang))
-            await _safe_answer(callback)
-            return
-
-        # Для взрослых брюк: если режим Большой размер — далее локация; иначе телосложение
+        # Для случаев, не попавших под условия выше
         if data.get("plus_mode"):
             await _replace_with_text(callback, "Выберите локацию:", reply_markup=plus_location_keyboard())
             await state.set_state(CreateForm.plus_loc)
         else:
-            await _replace_with_text(callback, "Выберите телосложение:", reply_markup=form_size_keyboard(category))
+            await _replace_with_text(callback, get_string("select_body_type", lang), reply_markup=form_size_keyboard(category, lang))
             await state.set_state(CreateForm.waiting_size)
+    
     await _safe_answer(callback)
 
 

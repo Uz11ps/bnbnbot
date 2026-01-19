@@ -1312,6 +1312,13 @@ async def on_aspect_selected(callback: CallbackQuery, state: FSMContext, db: Dat
         
     elif category == "whitebg":
         parts.append("📦 **Категория**: ⚪ На белом фоне\n")
+    
+    elif category == "storefront":
+        parts.append("📦 **Категория**: 📸 Витринное фото\n")
+        view_map = {"front": "Спереди", "back": "Сзади"}
+        parts.append(f"👀 **Угол**: {view_map.get(data.get('view'), '—')}\n")
+        parts.append(f"📏 **Ракурс**: {data.get('dist', '—')}\n")
+        parts.append(f"👗 **Длина**: {data.get('own_length', '—')}\n")
             
     elif data.get("random_mode"):
         parts.append("📦 **Категория**: 🎨 Рандом (Одежда)\n")
@@ -1663,6 +1670,13 @@ async def on_model_pick(callback: CallbackQuery, db: Database, state: FSMContext
     
     lang = await db.get_user_language(callback.from_user.id)
     
+    # Витринное фото (п. 3)
+    if category == "storefront":
+        await _replace_with_text(callback, "Выберите угол камеры (Спереди/Сзади):", reply_markup=form_view_keyboard(lang))
+        await state.set_state(CreateForm.waiting_preset_view)
+        await _safe_answer(callback)
+        return
+
     # 1. Возраст (только для взрослых)
     if category in ("female", "male"):
         await _replace_with_text(callback, get_string("select_age", lang), reply_markup=form_age_keyboard(lang))
@@ -1885,10 +1899,10 @@ async def on_garment_len_callback(callback: CallbackQuery, state: FSMContext, db
     length_text = len_map.get(val, "")
     await state.update_data(length=length_text)
     
-    # Фолбэк для own_mode или own_variant
-    if data.get("own_mode") or data.get("category") == "own_variant":
+    # Фолбэк для own_mode или own_variant или storefront
+    if data.get("own_mode") or data.get("category") == "own_variant" or data.get("category") == "storefront":
         await state.update_data(own_length=length_text)
-        # Если мы в режиме "Свой вариант модели", то это финальный шаг опроса — к формату
+        # Если мы в режиме "Свой вариант модели" или "Витринное фото", то это финальный шаг опроса — к формату
         await _replace_with_text(callback, get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
         await state.set_state(CreateForm.waiting_aspect)
         await _safe_answer(callback)
@@ -2097,7 +2111,14 @@ async def on_preset_dist(callback: CallbackQuery, state: FSMContext, db: Databas
     dist_map = {"far": "Дальний", "medium": "Средний", "close": "Близкий", "skip": ""}
     await state.update_data(dist=dist_map.get(val, val))
     lang = await db.get_user_language(callback.from_user.id)
+    data = await state.get_data()
     
+    # Витринное фото (п. 5)
+    if data.get("category") == "storefront":
+        await _ask_garment_length(callback, state, db)
+        await _safe_answer(callback)
+        return
+
     # 10. Вид фотографии (Спереди - Сзади)
     await state.set_state(CreateForm.waiting_preset_view)
     await _replace_with_text(callback, "Выберите вид фотографии (Спереди/Сзади):", reply_markup=form_view_keyboard(lang))
@@ -2109,7 +2130,16 @@ async def on_preset_view(callback: CallbackQuery, state: FSMContext, db: Databas
     view_map = {"front": "Спереди", "back": "Сзади"}
     await state.update_data(view=view_map.get(view, view))
     lang = await db.get_user_language(callback.from_user.id)
+    data = await state.get_data()
     
+    # Витринное фото (п. 4)
+    if data.get("category") == "storefront":
+        from bot.keyboards import angle_keyboard
+        await _replace_with_text(callback, "Выберите ракурс фотографии (Дальний/Средний/Близкий):", reply_markup=angle_keyboard(lang))
+        await state.set_state(CreateForm.waiting_preset_dist)
+        await _safe_answer(callback)
+        return
+
     # 11. Сезон
     await state.set_state(CreateForm.waiting_preset_season)
     await _replace_with_text(callback, "Выберите сезон:", reply_markup=random_season_keyboard(lang))
@@ -2568,7 +2598,10 @@ async def on_back_from_aspect(callback: CallbackQuery, state: FSMContext, db: Da
         back_kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=get_string("back", lang), callback_data="menu_market")]])
         await _replace_with_text(callback, get_string("upload_photo", lang), reply_markup=back_kb)
         await state.set_state(CreateForm.waiting_view)
-    # 7. Пресеты
+    # 7. Витринное фото
+    elif category == "storefront":
+        await _ask_garment_length(callback, state, db)
+    # 8. Пресеты
     elif category in ("female", "male", "child"):
         from bot.keyboards import random_season_keyboard
         await state.set_state(CreateForm.waiting_preset_season)
@@ -2618,18 +2651,30 @@ async def on_back_from_preset_season(callback: CallbackQuery, state: FSMContext,
     await _replace_with_text(callback, "Выберите вид фотографии (Спереди/Сзади):", reply_markup=form_view_keyboard(lang))
     await _safe_answer(callback)
 
-@router.callback_query(F.data == "back_step", CreateForm.waiting_preset_view)
-async def on_back_from_preset_view(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
-    lang = await db.get_user_language(callback.from_user.id)
-    await state.set_state(CreateForm.waiting_preset_dist)
-    await _replace_with_text(callback, "Выберите ракурс фотографии:", reply_markup=angle_keyboard(lang))
-    await _safe_answer(callback)
-
 @router.callback_query(F.data == "back_step", CreateForm.waiting_preset_dist)
 async def on_back_from_preset_dist(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     lang = await db.get_user_language(callback.from_user.id)
-    await state.set_state(CreateForm.waiting_preset_pose)
-    await _replace_with_text(callback, "Выберите тип позы:", reply_markup=pose_keyboard(lang))
+    data = await state.get_data()
+    
+    if data.get("category") == "storefront":
+        await state.set_state(CreateForm.waiting_preset_view)
+        await _replace_with_text(callback, "Выберите угол камеры (Спереди/Сзади):", reply_markup=form_view_keyboard(lang))
+    else:
+        await state.set_state(CreateForm.waiting_preset_pose)
+        await _replace_with_text(callback, "Выберите тип позы:", reply_markup=pose_keyboard(lang))
+    await _safe_answer(callback)
+
+@router.callback_query(F.data == "back_step", CreateForm.waiting_preset_view)
+async def on_back_from_preset_view(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    lang = await db.get_user_language(callback.from_user.id)
+    data = await state.get_data()
+    
+    if data.get("category") == "storefront":
+        # Назад к выбору модели
+        await _show_models_for_category(callback, db, "storefront", data.get("cloth", "all"), data.get("index", 0))
+    else:
+        await state.set_state(CreateForm.waiting_preset_dist)
+        await _replace_with_text(callback, "Выберите ракурс фотографии:", reply_markup=angle_keyboard(lang))
     await _safe_answer(callback)
 
 @router.callback_query(F.data == "back_step", CreateForm.waiting_preset_pose)
@@ -2658,7 +2703,9 @@ async def on_back_from_length(callback: CallbackQuery, state: FSMContext, db: Da
     if data.get("category") == "own_variant" or data.get("own_mode"):
         await _ask_sleeve_length(callback, state, db)
     elif data.get("category") == "storefront":
-        await on_marketplace_menu(callback, db)
+        await state.set_state(CreateForm.waiting_preset_dist)
+        from bot.keyboards import angle_keyboard
+        await _replace_with_text(callback, "Выберите ракурс фотографии (Дальний/Средний/Близкий):", reply_markup=angle_keyboard(lang))
     else:
         await _replace_with_text(callback, "📏 Введите рост модели в см (например: 170):")
         await state.set_state(CreateForm.waiting_height)
@@ -2807,6 +2854,20 @@ async def _build_final_prompt(data: dict, db: Database) -> str:
         prompt_filled = (base_random + "\n\n" + ''.join(p_parts)).strip()
     elif category == "whitebg":
         prompt_filled = prompt_text or "Professional commercial product photography on a pure white background. High resolution, studio lighting, sharp focus on the product."
+    elif category == "storefront":
+        view_key = data.get("view")
+        view_word = {"front": "спереди", "back": "сзади"}.get(view_key, "спереди")
+        dist = data.get("dist") or "средний"
+        length = data.get("own_length") or ""
+        
+        replacements = {
+            "{Угол камеры}": view_word,
+            "{ракурс фотографии}": dist,
+            "{Длина изделия}": length,
+        }
+        prompt_filled = prompt_text or "Professional fashion photography. Model showing the product from {Угол камеры} at {ракурс фотографии} distance. {Длина изделия}"
+        for placeholder, value in replacements.items():
+            prompt_filled = prompt_filled.replace(placeholder, str(value))
     else:
         # Обычная модель (Пресеты)
         view_key = data.get("view")
@@ -2849,6 +2910,29 @@ async def form_generate(callback: CallbackQuery, state: FSMContext, db: Database
             await _safe_answer(callback, get_string("maintenance_alert", await db.get_user_language(callback.from_user.id)), show_alert=True)
             return
 
+    # Если не обычная генерация и нет фото - просим прислать (для пресетов и т.д.)
+    category = data.get("category")
+    if not data.get("normal_gen_mode"):
+        if category == "own_variant":
+            if not data.get("own_bg_photo_id") or not data.get("own_product_photo_id"):
+                await _safe_answer(callback, "Сначала загрузите все необходимые фотографии.", show_alert=True)
+                return
+        elif data.get("own_mode"):
+            if not data.get("own_ref_photo_id") or not data.get("own_product_photo_id"):
+                await _safe_answer(callback, "Сначала загрузите все необходимые фотографии.", show_alert=True)
+                return
+        else:
+            if not data.get("user_photo_id"):
+                text = (
+                    "📸 Пожалуйста пришлите фотографию вашего товара.\n\n"
+                    "⚠️ Обратите внимание: фотография должна быть четкой без лишних бликов и размытостей.\n\n"
+                    "Если остались вопросы - пишите в поддержку @bnbslow"
+                )
+                await state.set_state(CreateForm.waiting_view)
+                await callback.message.answer(text)
+                await _safe_answer(callback)
+                return
+
     try:
         sub = await db.get_user_subscription(user_id)
         lang = await db.get_user_language(user_id)
@@ -2861,7 +2945,7 @@ async def form_generate(callback: CallbackQuery, state: FSMContext, db: Database
         if daily_usage >= daily_limit:
             await _safe_answer(callback, get_string("limit_rem_zero", lang), show_alert=True)
             return
-
+        
         quality = '4K' if '4K' in plan_type.upper() else 'HD'
 
         if not data:

@@ -2864,21 +2864,27 @@ async def on_back_from_rand_other_style_custom(callback: CallbackQuery, state: F
     await state.set_state(CreateForm.waiting_rand_other_style)
     await _safe_answer(callback)
 
-@router.callback_query(CreateForm.waiting_info_season, F.data.startswith("season:"))
+@router.callback_query(CreateForm.waiting_info_season, F.data.startswith("season:") | F.data.startswith("rand_season:"))
 async def on_info_season(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     season = callback.data.split(":")[1]
-    await state.update_data(info_season=season)
+    season_map = {"summer": "Лето", "winter": "Зима", "autumn": "Осень", "spring": "Весна", "skip": ""}
+    await state.update_data(info_season=season_map.get(season, season))
     lang = await db.get_user_language(callback.from_user.id)
     # Далее Праздник
-    from bot.keyboards import holiday_keyboard
-    await _replace_with_text(callback, "Выберите праздник (если есть):", reply_markup=holiday_keyboard(lang))
+    from bot.keyboards import random_holiday_keyboard
+    await _replace_with_text(callback, "Выберите праздник (если есть):", reply_markup=random_holiday_keyboard(lang))
     await state.set_state(CreateForm.waiting_info_holiday)
     await _safe_answer(callback)
 
-@router.callback_query(CreateForm.waiting_info_holiday, F.data.startswith("holiday:"))
+@router.callback_query(CreateForm.waiting_info_holiday, F.data.startswith("holiday:") | F.data.startswith("rand_holiday:"))
 async def on_info_holiday(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     holiday = callback.data.split(":")[1]
-    await state.update_data(info_holiday=holiday)
+    holiday_map = {
+        "wedding": "Свадьба", "bday": "День рождения", "may9": "9 мая",
+        "newyear": "Новый год", "christmas": "Рождество", "feb23": "23 февраля",
+        "march8": "8 марта", "sale": "Распродажа", "skip": ""
+    }
+    await state.update_data(info_holiday=holiday_map.get(holiday, holiday))
     lang = await db.get_user_language(callback.from_user.id)
     # Далее к формату
     from bot.keyboards import aspect_ratio_keyboard

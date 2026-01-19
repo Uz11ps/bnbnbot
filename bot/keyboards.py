@@ -575,9 +575,7 @@ def info_lang_keyboard(lang="ru") -> InlineKeyboardMarkup:
 
 def infographic_selection_keyboard(enabled: dict[str, bool], lang="ru") -> InlineKeyboardMarkup:
     rows = []
-    # Теперь здесь 3 кнопки согласно запросу пользователя
-    if enabled.get("random_other", True):
-        rows.append([InlineKeyboardButton(text=get_string("cat_random_other", lang), callback_data="create_random_other")])
+    # Убираем дублирование Рандома здесь, так как он уже есть в корневом меню
     
     if enabled.get("infographic_clothing", True):
         rows.append([InlineKeyboardButton(text=get_string("cat_infographic_clothing", lang), callback_data="create_cat:infographic_clothing")])

@@ -3110,8 +3110,19 @@ async def _do_generate(message_or_callback: Message | CallbackQuery, state: FSMC
                     except: pass
                     
                     res_photo_id = res_msg.photo[-1].file_id
-                    await db.add_generation_history(user_id, prompt_filled, res_photo_id, category)
                     await state.update_data(result_photo_id=res_photo_id)
+                    
+                    # Сохраняем в историю
+                    import json
+                    pid = await db.generate_pid()
+                    await db.add_generation_history(
+                        pid=pid,
+                        user_id=user_id,
+                        category=category,
+                        params=json.dumps(data),
+                        input_photos=json.dumps(input_photos),
+                        result_photo_id=res_photo_id
+                    )
                     
                     try: await process_msg.delete()
                     except: pass

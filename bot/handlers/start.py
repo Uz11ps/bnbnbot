@@ -58,6 +58,7 @@ from aiogram.fsm.state import State, StatesGroup
 from bot.config import load_settings
 from bot.gemini import generate_image, generate_text
 import asyncio
+import time
 from aiogram.enums import ChatAction
 import logging
 
@@ -258,25 +259,41 @@ async def _ask_garment_length(message_or_callback: Message | CallbackQuery, stat
 
 
 async def _run_generation_progress(bot, chat_id: int, message_id: int, stop_event: asyncio.Event) -> None:
-    frames = [
-        "⏳ Генерация изображения…",
-        "🔄 Генерация изображения…",
-        "✨ Генерация изображения…",
+    start_time = time.time()
+    steps_text = [
+        "Изучаю ваш запрос",
+        "Обрабатываю детали",
+        "Применяю нейронные фильтры",
+        "Улучшаю качество",
+        "Финализирую"
     ]
-    i = 0
-    while not stop_event.is_set():
-        try:
-            await bot.send_chat_action(chat_id=chat_id, action=ChatAction.UPLOAD_PHOTO)
-            await bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=frames[i % len(frames)])
-        except TelegramBadRequest:
-            pass
-        except Exception:
-            pass
-        i += 1
-        try:
-            await asyncio.wait_for(stop_event.wait(), timeout=2.5)
-        except asyncio.TimeoutError:
-            continue
+    total_steps = 5
+    step = 1
+    try:
+        while not stop_event.is_set() and step <= total_steps:
+            for sub in range(4):
+                if stop_event.is_set(): break
+                elapsed = int(time.time() - start_time)
+                progress = int(((step - 1) / total_steps + (sub / 4) / total_steps) * 100)
+                if progress > 99: progress = 99
+                
+                filled = int(progress / 10)
+                bar = "🟦" * filled + "⬜️" * (10 - filled)
+                
+                text = (
+                    f"🚀 Генерация\n\n"
+                    f"{steps_text[step-1]}\n\n"
+                    f"{bar} {progress}%\n\n"
+                    f"Прошло: {elapsed}с • Шаг {step}/{total_steps}\n\n"
+                    f"Результат вас приятно удивит"
+                )
+                try:
+                    await bot.send_chat_action(chat_id=chat_id, action=ChatAction.UPLOAD_PHOTO)
+                    await bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=text)
+                except: pass
+                await asyncio.sleep(1.5)
+            step += 1
+    except: pass
 
 
 async def _answer_model_photo(callback: CallbackQuery, photo: str, caption: str, reply_markup=None) -> None:
@@ -2955,16 +2972,36 @@ async def form_generate(callback: CallbackQuery, state: FSMContext, db: Database
         process_msg = await callback.message.answer("🎨 ⚡️ ⏳")
         
         async def animate_gen(msg, lang_code):
-            frames = [
-                "🎨 ⏳ AI-ROOM Генерирует...",
-                "🎨 ⌛️ AI-ROOM Почти готово...",
-                "🎨 ✨ AI-ROOM Создает шедевр...",
-                "🎨 🔄 AI-ROOM Финализирует..."
+            start_time = time.time()
+            steps_text = [
+                "Изучаю ваш запрос",
+                "Обрабатываю детали",
+                "Применяю нейронные фильтры",
+                "Улучшаю качество",
+                "Финализирую"
             ]
+            total_steps = 5
             try:
-                for i in range(20):
-                    await asyncio.sleep(1.5)
-                    await msg.edit_text(frames[i % len(frames)])
+                for step in range(1, total_steps + 1):
+                    # Плавная имитация прогресса внутри шага
+                    for sub in range(4):
+                        elapsed = int(time.time() - start_time)
+                        # Общий прогресс от 0 до 99
+                        progress = int(((step - 1) / total_steps + (sub / 4) / total_steps) * 100)
+                        if progress > 99: progress = 99
+                        
+                        filled = int(progress / 10)
+                        bar = "🟦" * filled + "⬜️" * (10 - filled)
+                        
+                        text = (
+                            f"🚀 Генерация\n\n"
+                            f"{steps_text[step-1]}\n\n"
+                            f"{bar} {progress}%\n\n"
+                            f"Прошло: {elapsed}с • Шаг {step}/{total_steps}\n\n"
+                            f"Результат вас приятно удивит"
+                        )
+                        await msg.edit_text(text)
+                        await asyncio.sleep(1.5)
             except: pass
 
         anim_task = asyncio.create_task(animate_gen(process_msg, lang))
@@ -3234,16 +3271,35 @@ async def on_result_edit_text(message: Message, state: FSMContext, db: Database)
     # Анимация
     process_msg = await message.answer("🎨 ⚡️ ⏳")
     async def animate_gen(msg):
-        frames = [
-            "🎨 ⏳ AI-ROOM Применяем правки...",
-            "🎨 ⌛️ AI-ROOM Перерисовываем...",
-            "🎨 ✨ AI-ROOM Создает шедевр...",
-            "🎨 🔄 AI-ROOM Финализирует..."
+        start_time = time.time()
+        steps_text = [
+            "Понимаю, что изменить",
+            "Сверяю с оригиналом",
+            "Вношу корректировки",
+            "Фокусирую детали",
+            "Финализирую"
         ]
+        total_steps = 5
         try:
-            for i in range(20):
-                await asyncio.sleep(1.5)
-                await msg.edit_text(frames[i % len(frames)])
+            for step in range(1, total_steps + 1):
+                # Плавная имитация прогресса
+                for sub in range(4):
+                    elapsed = int(time.time() - start_time)
+                    progress = int(((step - 1) / total_steps + (sub / 4) / total_steps) * 100)
+                    if progress > 99: progress = 99
+                    
+                    filled = int(progress / 10)
+                    bar = "🟦" * filled + "⬜️" * (10 - filled)
+                    
+                    text = (
+                        f"✏️ Редактирование\n\n"
+                        f"{steps_text[step-1]}\n\n"
+                        f"{bar} {progress}%\n\n"
+                        f"Прошло: {elapsed}с • Шаг {step}/{total_steps}\n\n"
+                        f"Результат вас приятно удивит"
+                    )
+                    await msg.edit_text(text)
+                    await asyncio.sleep(1.5)
         except: pass
     anim_task = asyncio.create_task(animate_gen(process_msg))
 

@@ -2455,6 +2455,12 @@ async def handle_user_photo(message: Message, state: FSMContext, db: Database) -
     await state.update_data(user_photo_id=photo_id)
     lang = await db.get_user_language(message.from_user.id)
 
+    # Если мы в режиме "Повторить" — запускаем генерацию сразу
+    if data.get("repeat_mode"):
+        await state.update_data(repeat_mode=False)
+        await _do_generate(message, state, db)
+        return
+
     # Если это инфографика ОДЕЖДА — после фото показываем превью (формат уже выбран)
     if category == "infographic_clothing":
         # Переиспользуем хендлер превью (имитируем нажатие на формат)
@@ -2888,113 +2894,190 @@ async def _build_final_prompt(data: dict, db: Database) -> str:
 
 @router.callback_query(F.data == "form_generate")
 async def form_generate(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
-    user_id = callback.from_user.id
+    await _do_generate(callback, state, db)
+
+async def _do_generate(message_or_callback: Message | CallbackQuery, state: FSMContext, db: Database) -> None:
+    user_id = message_or_callback.from_user.id
     data = await state.get_data()
-    logger.info(f"[form_generate] Начало генерации для пользователя {user_id}. Данные сессии: {data}")
+    logger.info(f"[_do_generate] Начало генерации для пользователя {user_id}. Данные сессии: {data}")
     
-    # Проверка техработ
+    if isinstance(message_or_callback, CallbackQuery):
+        ans_obj = message_or_callback.message
+        bot = message_or_callback.bot
+    else:
+        ans_obj = message_or_callback
+        bot = message_or_callback.bot
+
     if await db.get_maintenance():
         settings = load_settings()
-        if callback.from_user.id not in (settings.admin_ids or []):
-            await _safe_answer(callback, get_string("maintenance_alert", await db.get_user_language(callback.from_user.id)), show_alert=True)
+        if user_id not in (settings.admin_ids or []):
+            lang = await db.get_user_language(user_id)
+            if isinstance(message_or_callback, CallbackQuery):
+                await _safe_answer(message_or_callback, get_string("maintenance_alert", lang), show_alert=True)
+            else:
+                await ans_obj.answer(get_string("maintenance_alert", lang))
             return
 
-    # Если не обычная генерация и нет фото - просим прислать (для пресетов и т.д.)
     category = data.get("category")
-    if not data.get("normal_gen_mode"):
-        if category == "own_variant":
-            if not data.get("own_bg_photo_id") or not data.get("own_product_photo_id"):
-                await _safe_answer(callback, "Сначала загрузите все необходимые фотографии.", show_alert=True)
-                return
-        elif data.get("own_mode"):
-            if not data.get("own_product_photo_id"):
-                await _safe_answer(callback, "Сначала загрузите фотографию товара.", show_alert=True)
-                return
-        else:
-            if not (data.get("user_photo_id") or data.get("photo")):
-                text = get_string("upload_product", lang)
-                await state.set_state(CreateForm.waiting_view)
-                await callback.message.answer(text)
-                await _safe_answer(callback)
-                return
+    lang = await db.get_user_language(user_id)
+
+    # Собираем фото для генерации
+    input_photos = []
+    if data.get("normal_gen_mode"):
+        input_photos = data.get("photos", [])
+        if not input_photos:
+            input_photos = [data.get("user_photo_id") or data.get("photo")]
+    elif category == "own_variant":
+        input_photos = [data.get("own_bg_photo_id"), data.get("own_product_photo_id")]
+    elif data.get("own_mode"):
+        input_photos = [data.get("own_product_photo_id")]
+    else:
+        input_photos = [data.get("user_photo_id") or data.get("photo")]
+
+    input_photos = [fid for fid in input_photos if fid]
+    if not input_photos:
+        text = get_string("upload_product", lang)
+        await state.set_state(CreateForm.waiting_view)
+        await ans_obj.answer(text)
+        if isinstance(message_or_callback, CallbackQuery):
+            await _safe_answer(message_or_callback)
+        return
 
     try:
         sub = await db.get_user_subscription(user_id)
-        lang = await db.get_user_language(user_id)
         if not sub:
-            await _safe_answer(callback, get_string("limit_rem_zero", lang), show_alert=True)
+            if isinstance(message_or_callback, CallbackQuery):
+                await _safe_answer(message_or_callback, get_string("limit_rem_zero", lang), show_alert=True)
+            else:
+                await ans_obj.answer(get_string("limit_rem_zero", lang))
             return
         
-        # sub structure: (plan_type, expires_at, daily_limit, daily_usage, ind_key)
         plan_type, expires_at, daily_limit, daily_usage, ind_key = sub
         if daily_usage >= daily_limit:
-            await _safe_answer(callback, get_string("limit_rem_zero", lang), show_alert=True)
+            if isinstance(message_or_callback, CallbackQuery):
+                await _safe_answer(message_or_callback, get_string("limit_rem_zero", lang), show_alert=True)
+            else:
+                await ans_obj.answer(get_string("limit_rem_zero", lang))
             return
         
         quality = '4K' if '4K' in plan_type.upper() else 'HD'
-
-        if not data:
-            logger.error(f"[form_generate] КРИТИЧЕСКАЯ ОШИБКА: Данные сессии пусты для пользователя {user_id}")
-            await _safe_answer(callback, get_string("session_not_found", lang) + " (пустые данные)", show_alert=True)
-            return
-
-        category = data.get("category")
-        
-        # Баланс в десятых долях токена
         balance = await db.get_user_balance(user_id)
         frac = await db.get_user_fraction(user_id)
         total_tenths = balance * 10 + frac
         price_tenths = await db.get_category_price(category)
         
         if total_tenths < price_tenths:
-            await _safe_answer(callback, "Недостаточно средств на балансе.", show_alert=True)
+            if isinstance(message_or_callback, CallbackQuery):
+                await _safe_answer(message_or_callback, "Недостаточно средств на балансе.", show_alert=True)
+            else:
+                await ans_obj.answer("Недостаточно средств на балансе.")
             return
 
         prompt_filled = await _build_final_prompt(data, db)
-        lang = await db.get_user_language(user_id)
-
         if quality == '4K':
             prompt_filled += " High quality, 4K resolution, ultra detailed."
 
-        # prompt_filled = db.add_ai_room_branding(prompt_filled) # Убрали брендинг по просьбе
-        
-        # Отправляем сообщение о начале генерации с анимацией
-        process_msg = await callback.message.answer("🎨 ⚡️ ⏳")
+        process_msg = await ans_obj.answer("🎨 ⚡️ ⏳")
         
         async def animate_gen(msg, lang_code):
             start_time = time.time()
-            steps_text = [
-                "Изучаю ваш запрос",
-                "Обрабатываю детали",
-                "Применяю нейронные фильтры",
-                "Улучшаю качество",
-                "Финализирую"
-            ]
-            total_steps = 5
+            steps_text = ["Изучаю ваш запрос", "Обрабатываю детали", "Применяю нейронные фильтры", "Улучшаю качество", "Финализирую"]
             try:
-                for step in range(1, total_steps + 1):
-                    # Плавная имитация прогресса внутри шага
+                for step in range(1, 6):
                     for sub in range(4):
                         elapsed = int(time.time() - start_time)
-                        # Общий прогресс от 0 до 99
-                        progress = int(((step - 1) / total_steps + (sub / 4) / total_steps) * 100)
+                        progress = int(((step - 1) / 5 + (sub / 4) / 5) * 100)
                         if progress > 99: progress = 99
-                        
                         filled = int(progress / 10)
                         bar = "🟦" * filled + "⬜️" * (10 - filled)
-                        
-                        text = (
-                            f"🚀 Генерация\n\n"
-                            f"{steps_text[step-1]}\n\n"
-                            f"{bar} {progress}%\n\n"
-                            f"Прошло: {elapsed}с • Шаг {step}/{total_steps}\n\n"
-                            f"Результат вас приятно удивит"
-                        )
+                        text = (f"🚀 Генерация\n\n{steps_text[step-1]}\n\n{bar} {progress}%\n\n"
+                                f"Прошло: {elapsed}с • Шаг {step}/5\n\nРезультат вас приятно удивит")
                         await msg.edit_text(text)
                         await asyncio.sleep(1.5)
             except: pass
 
         anim_task = asyncio.create_task(animate_gen(process_msg, lang))
+    
+        is_own_variant = (category == "own_variant")
+        api_keys = await db.list_own_variant_api_keys() if is_own_variant else await db.list_api_keys()
+        active_keys = [k for k in api_keys if k[2]]
+        
+        if not active_keys:
+            anim_task.cancel()
+            await process_msg.delete()
+            err_text = get_string("api_error_user", lang)
+            if isinstance(message_or_callback, CallbackQuery): await _replace_with_text(message_or_callback, err_text)
+            else: await ans_obj.answer(err_text)
+            return
+            
+        import random
+        random.shuffle(active_keys)
+        
+        for key_tuple in active_keys:
+            kid, token = key_tuple[0], key_tuple[1]
+            ok, _ = await db.check_own_variant_rate_limit(kid) if is_own_variant else await db.check_api_key_limits(kid)
+            if not ok: continue
+                
+            try:
+                downloaded_paths = []
+                import uuid
+                for fid in input_photos:
+                    f_info = await bot.get_file(fid)
+                    ext = f_info.file_path.split('.')[-1]
+                    p = f"data/temp_{uuid.uuid4()}.{ext}"
+                    await bot.download_file(f_info.file_path, p)
+                    downloaded_paths.append(p)
+                
+                from bot.gemini import generate_image
+                aspect = data.get("aspect", "1:1").replace(":", "x")
+                result_path = await generate_image(api_key=token, prompt=prompt_filled, image_paths=downloaded_paths, aspect_ratio=aspect, quality=quality)
+                
+                import os
+                for p in downloaded_paths:
+                    try: os.remove(p)
+                    except: pass
+                
+                if result_path:
+                    await db.log_api_usage(kid, user_id, prompt_filled, quality, True)
+                    await db.reduce_user_daily_limit(user_id)
+                    await db.deduct_user_balance_tenths(user_id, price_tenths)
+                    
+                    anim_task.cancel()
+                    from aiogram.types import FSInputFile
+                    res_msg = await ans_obj.answer_photo(photo=FSInputFile(result_path), caption=get_string("gen_success", lang))
+                    try: os.remove(result_path)
+                    except: pass
+                    
+                    res_photo_id = res_msg.photo[-1].file_id
+                    await db.add_generation_history(user_id, prompt_filled, res_photo_id, category)
+                    await state.update_data(result_photo_id=res_photo_id)
+                    
+                    from bot.keyboards import result_actions_keyboard, result_actions_own_keyboard
+                    kb_res = result_actions_own_keyboard(lang) if (data.get("own_mode") or category == "own_variant") else result_actions_keyboard(lang)
+                    await res_msg.edit_reply_markup(reply_markup=kb_res)
+                    
+                    try: await process_msg.delete()
+                    except: pass
+                    if isinstance(message_or_callback, CallbackQuery): await _safe_answer(message_or_callback)
+                    return
+            except Exception as e:
+                logger.error(f"Ошибка генерации на ключе {kid}: {e}")
+                await db.log_api_usage(kid, user_id, prompt_filled, quality, False, str(e))
+                await db.log_api_error(kid, str(e))
+        
+        anim_task.cancel()
+        try: await process_msg.delete()
+        except: pass
+        err_text = get_string("api_error_user", lang)
+        if isinstance(message_or_callback, CallbackQuery): await _replace_with_text(message_or_callback, err_text)
+        else: await ans_obj.answer(err_text)
+            
+    except Exception as e:
+        logger.error(f"Критическая ошибка в _do_generate: {e}")
+        if 'anim_task' in locals(): anim_task.cancel()
+        err_text = get_string("gen_error_contact_support", lang)
+        if isinstance(message_or_callback, CallbackQuery): await _replace_with_text(message_or_callback, err_text)
+        else: await ans_obj.answer(err_text)
     
         # Выбор API ключа
         category = data.get("category")
@@ -3435,65 +3518,21 @@ async def on_result_repeat(callback: CallbackQuery, state: FSMContext, db: Datab
         await _safe_answer(callback, get_string("session_not_found", lang), show_alert=True)
         return
 
-    # 1. Список ключей, которые нужно ОЧИСТИТЬ (старые результаты)
-    # Мы оставляем параметры: age, size, model_id, gender, prompt и т.д.
+    # Оставляем все параметры (включая aspect), но очищаем фото
     remove_keys = [
         "photo", "photo_id", "user_photo_id", "own_product_photo_id",
-        "last_pid", "current_step_index", "current_step_key",
-        "user_photo_count", "photos", "normal_gen_prompt_msg",
-        "waiting_dynamic_step", "aspect"
+        "last_pid", "user_photo_count", "photos", "normal_gen_prompt_msg",
+        "result_photo_id"
     ]
     
-    # Сохраняем категорию и режимы
-    cat = data.get("category")
-    
-    # 2. Создаем новые данные
     new_data = {k: v for k, v in data.items() if k not in remove_keys}
+    new_data["repeat_mode"] = True
     
-    # 3. Сбрасываем состояние и загружаем очищенные данные
     await state.clear()
     await state.update_data(**new_data)
-    await state.update_data(current_step_index=0) # Начинаем с 0, _show_next_step пропустит всё заполненное
+    await state.set_state(CreateForm.waiting_view)
     
-    # 4. Проверяем, является ли категория динамической (пресеты, рандом и т.д.)
-    category_db = await db.get_category_by_key(cat) if cat else None
-    if category_db:
-        # Для динамических категорий — просто запускаем флоу с начала.
-        # _show_next_step сама пропустит все шаги, для которых данные уже есть (age, size, model_id и т.д.)
-        # и остановится на шаге "photo" или первом пустом.
-        await state.set_state(CreateForm.waiting_dynamic_step)
-        await _show_next_step(callback, state, db)
-        await _safe_answer(callback)
-        return
-
-    # 5. Фолбэк для кастомных/старых режимов
-    if new_data.get("infographic_mode"):
-        # Для инфографики (если вдруг нет в БД как категории)
-        callback.data = f"create_cat:{cat}"
-        # Мы не вызываем on_infographic_category, так как она сбросит state.
-        # Вместо этого пытаемся найти в БД еще раз (для infographic_clothing и т.д.)
-        inf_cat_db = await db.get_category_by_key(cat)
-        if inf_cat_db:
-            await state.set_state(CreateForm.waiting_dynamic_step)
-            await _show_next_step(callback, state, db)
-        else:
-            await on_infographic_category(callback, state, db)
-    elif cat == "own_variant":
-        # Для "Свой вариант фона": фон и параметры рукавов/длины сохраняем, просим только новое фото товара.
-        await callback.message.answer(get_string("upload_product", lang), reply_markup=back_step_keyboard(lang))
-        await state.set_state(CreateForm.waiting_own_product_photo)
-    elif new_data.get("normal_gen_mode"):
-        # Обычная генерация — сразу к вводу фото
-        await callback.message.answer(get_string("upload_photo", lang), reply_markup=back_main_keyboard(lang))
-        await state.set_state(CreateForm.waiting_view)
-    elif cat == "storefront":
-        await on_storefront_category(callback, db, state)
-    elif cat == "whitebg":
-        await on_whitebg_category(callback, db, state)
-    else:
-        # По умолчанию — в начало пресетов
-        await on_ready_presets(callback, db)
-    
+    await callback.message.answer(get_string("repeat_photo_prompt", lang), reply_markup=back_step_keyboard(lang))
     await _safe_answer(callback)
 
 

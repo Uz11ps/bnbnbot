@@ -752,7 +752,6 @@ class Database:
             result[cat] = await self.get_category_price(cat)
         return result
 
-    @staticmethod
     # Category enable/disable
     async def get_category_enabled(self, name: str) -> bool:
         async with aiosqlite.connect(self._db_path) as db:

@@ -212,18 +212,16 @@ def ready_presets_keyboard(enabled: dict[str, bool], lang="ru") -> InlineKeyboar
     """Клавиатура выбора пола внутри готовых пресетов"""
     rows: list[list[InlineKeyboardButton]] = []
 
-    # ТЕСТ: Кнопки БЕЗ условий
     rows.append([
-        InlineKeyboardButton(text=get_string("cat_female", lang), callback_data="create_cat:female"),
-        InlineKeyboardButton(text=get_string("cat_male", lang), callback_data="create_cat:male")
+        InlineKeyboardButton(text=get_string("cat_female", lang), callback_data="preset_gender:female"),
+        InlineKeyboardButton(text=get_string("cat_male", lang), callback_data="preset_gender:male")
     ])
 
     rows.append([
-        InlineKeyboardButton(text=get_string("gender_boy", lang), callback_data="child_gender:boy"),
-        InlineKeyboardButton(text=get_string("gender_girl", lang), callback_data="child_gender:girl")
+        InlineKeyboardButton(text=get_string("gender_boy", lang), callback_data="preset_gender:boy"),
+        InlineKeyboardButton(text=get_string("gender_girl", lang), callback_data="preset_gender:girl")
     ])
 
-    # Меняем текст, чтобы увидеть обновление
     rows.append([InlineKeyboardButton(text="⬅️ Назад в маркет", callback_data="menu_market")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -966,12 +964,17 @@ def admin_howto_edit_keyboard(lang="ru") -> InlineKeyboardMarkup:
 
 def dynamic_keyboard(options: list[tuple], is_optional: bool = False, lang="ru") -> InlineKeyboardMarkup:
     """Универсальная клавиатура для динамических шагов"""
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"Creating dynamic keyboard with {len(options)} options, is_optional={is_optional}")
+    
     rows = []
     # options: list of (id, text, value, order)
     # Группируем по 2 кнопки в ряд
     for i in range(0, len(options), 2):
         row = []
         for opt in options[i:i+2]:
+            logger.info(f"Adding button: text='{opt[1]}', value='{opt[2]}'")
             row.append(InlineKeyboardButton(text=opt[1], callback_data=f"dyn_opt:{opt[2]}"))
         rows.append(row)
     

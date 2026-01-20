@@ -389,6 +389,7 @@ async def _show_next_step(message_or_callback: Message | CallbackQuery, state: F
     
     if input_type == "buttons":
         options = await db.list_step_options(step_id)
+        logger.info(f"Showing step {step_key} (id={step_id}) with {len(options)} options")
         from bot.keyboards import dynamic_keyboard
         kb = dynamic_keyboard(options, is_optional=bool(is_optional), lang=lang)
         
@@ -553,7 +554,7 @@ async def on_marketplace_menu(callback: CallbackQuery, db: Database) -> None:
         settings = load_settings()
         if callback.from_user.id not in (settings.admin_ids or []):
             await _safe_answer(callback, get_string("maintenance_alert", lang), show_alert=True)
-        return
+            return
     balance = await db.get_user_balance(callback.from_user.id)
     if balance <= 0:
         await _safe_answer(callback, get_string("limit_rem_zero", lang), show_alert=True)
@@ -635,6 +636,7 @@ async def on_create_category_universal(callback: CallbackQuery, db: Database, st
     if cat_key in ("presets", "infographics"):
         if cat_key == "presets":
             await on_ready_presets(callback, db)
+            return # Добавлено
         else:
             await on_infographic_selection_menu(callback, db)
             return
@@ -665,6 +667,23 @@ async def on_create_category_universal(callback: CallbackQuery, db: Database, st
     elif cat_key == "random_other": await on_create_random_other(callback, state, db)
     elif cat_key.startswith("infographic"): await on_infographic_category(callback, state, db)
     
+    await _safe_answer(callback)
+
+@router.callback_query(F.data.startswith("preset_gender:"))
+async def on_preset_gender_selected(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    gender = callback.data.split(":")[1]
+    await state.clear()
+    
+    # Сохраняем выбранный пол
+    await state.update_data(category="presets", gender=gender)
+    
+    # Определяем, какой шаг будет следующим (пропускаем возраст для детей)
+    next_index = 1
+    if gender in ("boy", "girl"):
+        next_index = 2
+        
+    await state.update_data(current_step_index=next_index)
+    await _show_next_step(callback, state, db)
     await _safe_answer(callback)
 
 async def on_infographic_selection_menu(callback: CallbackQuery, db: Database) -> None:

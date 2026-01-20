@@ -1445,76 +1445,105 @@ class Database:
         """Предзаполнение категорий и шагов текущей логикой"""
         async with aiosqlite.connect(self._db_path) as db:
             async with db.execute("SELECT COUNT(*) FROM categories") as cur:
-                if (await cur.fetchone())[0] > 0:
-                    return
+                cat_count = (await cur.fetchone())[0]
+            async with db.execute("SELECT COUNT(*) FROM steps") as cur:
+                step_count = (await cur.fetchone())[0]
+            
+            # Если уже есть категории И шаги — не сидим заново
+            if cat_count > 0 and step_count > 0:
+                return
+            
+            # Если что-то одно есть, а другого нет — очищаем всё для консистентности
+            if cat_count > 0 or step_count > 0:
+                await db.execute("DELETE FROM step_options")
+                await db.execute("DELETE FROM steps")
+                await db.execute("DELETE FROM categories")
+                await db.commit()
+
+        # --- ОБЩИЕ ОПЦИИ ДЛЯ ПОВТОРНОГО ИСПОЛЬЗОВАНИЯ ---
+        length_options = [
+            ("Короткий топ", "short_top"),
+            ("Обычный топ", "regular_top"),
+            ("До талии", "to_waist"),
+            ("Ниже талии", "below_waist"),
+            ("До середины бедра", "mid_thigh"),
+            ("До колен", "to_knees"),
+            ("Ниже колен", "below_knees"),
+            ("Миди", "midi"),
+            ("До щиколоток", "to_ankles"),
+            ("В пол", "to_floor"),
+            ("Свой вариант", "custom"), # Добавлено
+        ]
+
+        gender_options = [
+            ("Мужской", "male"),
+            ("Женский", "female"),
+            ("Мальчик", "boy"),
+            ("Девочка", "girl"),
+        ]
 
         # 1. Готовые пресеты
         cat_id = await self.add_category("presets", "👗 Пресеты (Готовые)", order_index=1)
+        s1 = await self.add_step(cat_id, "gender", "👤 Выберите пол:", "buttons", order_index=1)
+        for i, (t, v) in enumerate(gender_options, 1):
+            await self.add_step_option(s1, t, v, i)
+
+        s2 = await self.add_step(cat_id, "age", "🎂 Выберите возраст модели:", "buttons", order_index=2)
+        await self.add_step_option(s2, "20-26 лет", "20_26", 1)
+        await self.add_step_option(s2, "30-38 лет", "30_38", 2)
+        await self.add_step_option(s2, "40-48 лет", "40_48", 3)
+        await self.add_step_option(s2, "55-60 лет", "55_60", 4)
         
-        s1 = await self.add_step(cat_id, "age", "🎂 Выберите возраст модели:", "buttons", order_index=1)
-        await self.add_step_option(s1, "20-26 лет", "20_26", 1)
-        await self.add_step_option(s1, "30-38 лет", "30_38", 2)
-        await self.add_step_option(s1, "40-48 лет", "40_48", 3)
-        await self.add_step_option(s1, "55-60 лет", "55_60", 4)
+        s3 = await self.add_step(cat_id, "size", "📏 Выберите телосложение:", "buttons", order_index=3)
+        await self.add_step_option(s3, "Худощавое", "slender", 1)
+        await self.add_step_option(s3, "Спортивное", "sporty", 2)
+        await self.add_step_option(s3, "Среднее", "medium", 3)
+        await self.add_step_option(s3, "Плотное", "large", 4)
+
+        await self.add_step(cat_id, "height", "📏 Введите рост модели числом (например: 170):", "text", order_index=4)
         
-        s2 = await self.add_step(cat_id, "size", "📏 Выберите телосложение:", "buttons", order_index=2)
-        await self.add_step_option(s2, "Худощавое", "slender", 1)
-        await self.add_step_option(s2, "Спортивное", "sporty", 2)
-        await self.add_step_option(s2, "Среднее", "medium", 3)
-        await self.add_step_option(s2, "Плотное", "large", 4)
+        s4 = await self.add_step(cat_id, "pants_style", "👖 Выберите тип кроя штанов:", "buttons", is_optional=1, order_index=5)
+        await self.add_step_option(s4, "Зауженные", "skinny", 1)
+        await self.add_step_option(s4, "Классические", "classic", 2)
+        await self.add_step_option(s4, "Свободные", "oversize", 3)
 
-        await self.add_step(cat_id, "height", "📏 Введите рост модели числом (например: 170):", "text", order_index=3)
+        s5 = await self.add_step(cat_id, "sleeve", "🧥 Выберите тип рукавов:", "buttons", is_optional=1, order_index=6)
+        await self.add_step_option(s5, "Короткий", "short", 1)
+        await self.add_step_option(s5, "Длинный", "long", 2)
+        await self.add_step_option(s5, "Без рукавов", "none", 3)
+
+        s6 = await self.add_step(cat_id, "length", "📏 Выберите длину изделия. Внимание! если ваш продукт Костюм 2-к, 3-к то длину можно не указывать.", "buttons", is_optional=1, order_index=7)
+        for i, (t, v) in enumerate(length_options, 1):
+            await self.add_step_option(s6, t, v, i)
         
-        s3 = await self.add_step(cat_id, "pants_style", "👖 Выберите тип кроя штанов:", "buttons", is_optional=1, order_index=4)
-        await self.add_step_option(s3, "Зауженные", "skinny", 1)
-        await self.add_step_option(s3, "Классические", "classic", 2)
-        await self.add_step_option(s3, "Свободные", "oversize", 3)
+        s7 = await self.add_step(cat_id, "pose", "💃 Выберите тип позы:", "buttons", order_index=8)
+        await self.add_step_option(s7, "Обычная", "normal", 1)
+        await self.add_step_option(s7, "Нестандартная", "unusual", 2)
+        await self.add_step_option(s7, "Вульгарная", "vulgar", 3)
 
-        s4 = await self.add_step(cat_id, "sleeve", "🧥 Выберите тип рукавов:", "buttons", is_optional=1, order_index=5)
-        await self.add_step_option(s4, "Короткий", "short", 1)
-        await self.add_step_option(s4, "Длинный", "long", 2)
-        await self.add_step_option(s4, "Без рукавов", "none", 3)
+        s8 = await self.add_step(cat_id, "dist", "👁️ Выберите ракурс фотографии:", "buttons", is_optional=1, order_index=9)
+        await self.add_step_option(s8, "Дальний", "far", 1)
+        await self.add_step_option(s8, "Средний", "medium", 2)
+        await self.add_step_option(s8, "Близкий", "close", 3)
 
-        s_len = await self.add_step(cat_id, "length", "📏 Выберите длину изделия. Внимание! если ваш продукт Костюм 2-к, 3-к то длину можно не указывать.", "buttons", is_optional=1, order_index=6)
-        await self.add_step_option(s_len, "Короткий топ", "short_top", 1)
-        await self.add_step_option(s_len, "Обычный топ", "regular_top", 2)
-        await self.add_step_option(s_len, "До талии", "to_waist", 3)
-        await self.add_step_option(s_len, "Ниже талии", "below_waist", 4)
-        await self.add_step_option(s_len, "До середины бедра", "mid_thigh", 5)
-        await self.add_step_option(s_len, "До колен", "to_knees", 6)
-        await self.add_step_option(s_len, "Ниже колен", "below_knees", 7)
-        await self.add_step_option(s_len, "Миди", "midi", 8)
-        await self.add_step_option(s_len, "До щиколоток", "to_ankles", 9)
-        await self.add_step_option(s_len, "В пол", "to_floor", 10)
+        s9 = await self.add_step(cat_id, "view", "📸 Выберите вид фотографии:", "buttons", order_index=10)
+        await self.add_step_option(s9, "Спереди", "front", 1)
+        await self.add_step_option(s9, "Сзади", "back", 2)
+
+        s10 = await self.add_step(cat_id, "season", "🍂 Выберите сезон:", "buttons", is_optional=1, order_index=11)
+        await self.add_step_option(s10, "Лето", "summer", 1)
+        await self.add_step_option(s10, "Зима", "winter", 2)
+        await self.add_step_option(s10, "Осень", "autumn", 3)
+        await self.add_step_option(s10, "Весна", "spring", 4)
+
+        await self.add_step(cat_id, "photo", "📸 Пожалуйста пришлите фотографию вашего товара:", "photo", order_index=12)
         
-        s5 = await self.add_step(cat_id, "pose", "💃 Выберите тип позы:", "buttons", order_index=7)
-        await self.add_step_option(s5, "Обычная", "normal", 1)
-        await self.add_step_option(s5, "Нестандартная", "unusual", 2)
-        await self.add_step_option(s5, "Вульгарная", "vulgar", 3)
-
-        s6 = await self.add_step(cat_id, "dist", "👁️ Выберите ракурс фотографии:", "buttons", is_optional=1, order_index=8)
-        await self.add_step_option(s6, "Дальний", "far", 1)
-        await self.add_step_option(s6, "Средний", "medium", 2)
-        await self.add_step_option(s6, "Близкий", "close", 3)
-
-        s7 = await self.add_step(cat_id, "view", "📸 Выберите вид фотографии:", "buttons", order_index=9)
-        await self.add_step_option(s7, "Спереди", "front", 1)
-        await self.add_step_option(s7, "Сзади", "back", 2)
-
-        s8 = await self.add_step(cat_id, "season", "🍂 Выберите сезон:", "buttons", is_optional=1, order_index=10)
-        await self.add_step_option(s8, "Лето", "summer", 1)
-        await self.add_step_option(s8, "Зима", "winter", 2)
-        await self.add_step_option(s8, "Осень", "autumn", 3)
-        await self.add_step_option(s8, "Весна", "spring", 4)
-
-        await self.add_step(cat_id, "photo", "📸 Пожалуйста пришлите фотографию вашего товара:", "photo", order_index=11)
-        
-        s_asp = await self.add_step(cat_id, "aspect", "📐 Выберите формат (соотношение сторон):", "buttons", order_index=12)
-        await self.add_step_option(s_asp, "1:1 (Квадрат)", "1:1", 1)
-        await self.add_step_option(s_asp, "3:4 (Портрет)", "3:4", 2)
-        await self.add_step_option(s_asp, "4:3 (Альбом)", "4:3", 3)
-        await self.add_step_option(s_asp, "9:16 (Stories)", "9:16", 4)
-        await self.add_step_option(s_asp, "16:9 (Widescreen)", "16:9", 5)
+        s11 = await self.add_step(cat_id, "aspect", "📐 Выберите формат (соотношение сторон):", "buttons", order_index=13)
+        await self.add_step_option(s11, "1:1", "1:1", 1)
+        await self.add_step_option(s11, "3:4", "3:4", 2)
+        await self.add_step_option(s11, "4:3", "4:3", 3)
+        await self.add_step_option(s11, "9:16", "9:16", 4)
+        await self.add_step_option(s11, "16:9", "16:9", 5)
 
         # 2. Одежда и обувь РАНДОМ
         cat_id = await self.add_category("random", "🎲 Одежда и обувь РАНДОМ", order_index=2)
@@ -1523,17 +1552,15 @@ class Database:
         await self.add_step_option(s_locg, "В помещении", "indoor", 2)
         
         s_gend = await self.add_step(cat_id, "rand_gender", "👤 Выберите пол модели:", "buttons", order_index=2)
-        await self.add_step_option(s_gend, "Мужской", "male", 1)
-        await self.add_step_option(s_gend, "Женский", "female", 2)
-        await self.add_step_option(s_gend, "Мальчик", "boy", 3)
-        await self.add_step_option(s_gend, "Девочка", "girl", 4)
+        for i, (t, v) in enumerate(gender_options, 1):
+            await self.add_step_option(s_gend, t, v, i)
         await self.add_step_option(s_gend, "Унисекс", "unisex", 5)
 
-        s_age = await self.add_step(cat_id, "age", "🎂 Выберите возраст модели:", "buttons", order_index=3)
-        await self.add_step_option(s_age, "20-26 лет", "20_26", 1)
-        await self.add_step_option(s_age, "30-38 лет", "30_38", 2)
-        await self.add_step_option(s_age, "40-48 лет", "40_48", 3)
-        await self.add_step_option(s_age, "55-60 лет", "55_60", 4)
+        s_age_r = await self.add_step(cat_id, "age", "🎂 Выберите возраст модели:", "buttons", order_index=3)
+        await self.add_step_option(s_age_r, "20-26 лет", "20_26", 1)
+        await self.add_step_option(s_age_r, "30-38 лет", "30_38", 2)
+        await self.add_step_option(s_age_r, "40-48 лет", "40_48", 3)
+        await self.add_step_option(s_age_r, "55-60 лет", "55_60", 4)
 
         s_size_r = await self.add_step(cat_id, "size", "📏 Выберите телосложение:", "buttons", order_index=4)
         await self.add_step_option(s_size_r, "Худощавое", "slender", 1)
@@ -1553,16 +1580,8 @@ class Database:
         await self.add_step_option(s_sleev_r, "Длинный", "long", 2)
 
         s_len_r = await self.add_step(cat_id, "length", "📏 Выберите длину изделия. Внимание! если ваш продукт Костюм 2-к, 3-к то длину можно не указывать.", "buttons", is_optional=1, order_index=8)
-        await self.add_step_option(s_len_r, "Короткий топ", "short_top", 1)
-        await self.add_step_option(s_len_r, "Обычный топ", "regular_top", 2)
-        await self.add_step_option(s_len_r, "До талии", "to_waist", 3)
-        await self.add_step_option(s_len_r, "Ниже талии", "below_waist", 4)
-        await self.add_step_option(s_len_r, "До середины бедра", "mid_thigh", 5)
-        await self.add_step_option(s_len_r, "До колен", "to_knees", 6)
-        await self.add_step_option(s_len_r, "Ниже колен", "below_knees", 7)
-        await self.add_step_option(s_len_r, "Миди", "midi", 8)
-        await self.add_step_option(s_len_r, "До щиколоток", "to_ankles", 9)
-        await self.add_step_option(s_len_r, "В пол", "to_floor", 10)
+        for i, (t, v) in enumerate(length_options, 1):
+            await self.add_step_option(s_len_r, t, v, i)
 
         s_pose_r = await self.add_step(cat_id, "pose", "💃 Выберите тип позы:", "buttons", order_index=9)
         await self.add_step_option(s_pose_r, "Обычная", "normal", 1)
@@ -1590,58 +1609,54 @@ class Database:
         s_asp_r = await self.add_step(cat_id, "aspect", "📐 Выбор формата:", "buttons", order_index=15)
         await self.add_step_option(s_asp_r, "1:1", "1:1", 1)
         await self.add_step_option(s_asp_r, "3:4", "3:4", 2)
-        
+
         # 3. Рандом прочие категории
         cat_id = await self.add_category("random_other", "📦 Рандом · Прочие категории", order_index=3)
         s_hp = await self.add_step(cat_id, "has_person", "👤 Присутствует ли человек на фото?", "buttons", order_index=1)
         await self.add_step_option(s_hp, "Да", "yes", 1)
         await self.add_step_option(s_hp, "Нет", "no", 2)
         
-        s_gend2 = await self.add_step(cat_id, "gender", "👤 Выберите пол:", "buttons", order_index=2)
-        await self.add_step_option(s_gend2, "Мужской", "male", 1)
-        await self.add_step_option(s_gend2, "Женский", "female", 2)
-        await self.add_step_option(s_gend2, "Мальчик", "boy", 3)
-        await self.add_step_option(s_gend2, "Девочка", "girl", 4)
+        s_gend_ro = await self.add_step(cat_id, "gender", "👤 Выберите пол:", "buttons", order_index=2)
+        for i, (t, v) in enumerate(gender_options, 1):
+            await self.add_step_option(s_gend_ro, t, v, i)
 
         await self.add_step(cat_id, "info_load", "📊 Введите нагруженность фотографии (1-10):", "text", order_index=3)
         await self.add_step(cat_id, "product_name", "🏷️ Введите название продукта:", "text", order_index=4)
         
-        s_ang = await self.add_step(cat_id, "angle", "📐 Выберите угол камеры:", "buttons", order_index=5)
-        await self.add_step_option(s_ang, "Спереди", "front", 1)
-        await self.add_step_option(s_ang, "Сзади", "back", 2)
+        s_ang_ro = await self.add_step(cat_id, "angle", "📐 Выберите угол камеры (Спереди/Сзади):", "buttons", order_index=5)
+        await self.add_step_option(s_ang_ro, "Спереди", "front", 1)
+        await self.add_step_option(s_ang_ro, "Сзади", "back", 2)
         
-        s_dist = await self.add_step(cat_id, "dist", "👁️ Выберите ракурс (Дальний/Средний/Близкий):", "buttons", order_index=6)
-        await self.add_step_option(s_dist, "Дальний", "far", 1)
-        await self.add_step_option(s_dist, "Средний", "medium", 2)
-        await self.add_step_option(s_dist, "Близкий", "close", 3)
+        s_dist_ro = await self.add_step(cat_id, "dist", "👁️ Выберите ракурс (Дальний/Средний/Близкий):", "buttons", order_index=6)
+        await self.add_step_option(s_dist_ro, "Дальний", "far", 1)
+        await self.add_step_option(s_dist_ro, "Средний", "medium", 2)
+        await self.add_step_option(s_dist_ro, "Близкий", "close", 3)
 
         await self.add_step(cat_id, "rand_height", "📏 Введите высоту (см):", "text", is_optional=1, order_index=7)
         await self.add_step(cat_id, "rand_width", "📏 Введите ширину (см):", "text", is_optional=1, order_index=8)
         await self.add_step(cat_id, "rand_length", "📏 Введите длину (см):", "text", is_optional=1, order_index=9)
         
-        s_seas = await self.add_step(cat_id, "season", "🍂 Выберите сезон:", "buttons", is_optional=1, order_index=10)
-        await self.add_step_option(s_seas, "Лето", "summer", 1)
-        await self.add_step_option(s_seas, "Зима", "winter", 2)
-        await self.add_step_option(s_seas, "Осень", "autumn", 3)
-        await self.add_step_option(s_seas, "Весна", "spring", 4)
+        s_seas_ro = await self.add_step(cat_id, "season", "🍂 Выберите сезон:", "buttons", is_optional=1, order_index=10)
+        await self.add_step_option(s_seas_ro, "Лето", "summer", 1)
+        await self.add_step_option(s_seas_ro, "Зима", "winter", 2)
+        await self.add_step_option(s_seas_ro, "Осень", "autumn", 3)
+        await self.add_step_option(s_seas_ro, "Весна", "spring", 4)
 
-        s_styl = await self.add_step(cat_id, "style", "🎨 Выберите стиль:", "buttons", is_optional=1, order_index=11)
-        await self.add_step_option(s_styl, "Современный", "modern", 1)
-        await self.add_step_option(s_styl, "Брутальный", "brutal", 2)
-        await self.add_step_option(s_styl, "Техно", "techno", 3)
-        await self.add_step_option(s_styl, "Арт", "art", 4)
-        await self.add_step_option(s_styl, "Дизайнерский", "design", 5)
-        await self.add_step_option(s_styl, "Праздничный", "festive", 6)
+        s_styl_ro = await self.add_step(cat_id, "style", "🎨 Выберите стиль:", "buttons", is_optional=1, order_index=11)
+        await self.add_step_option(s_styl_ro, "Современный", "modern", 1)
+        await self.add_step_option(s_styl_ro, "Брутальный", "brutal", 2)
+        await self.add_step_option(s_styl_ro, "Техно", "techno", 3)
+        await self.add_step_option(s_styl_ro, "Арт", "art", 4)
+        await self.add_step_option(s_styl_ro, "Дизайнерский", "design", 5)
+        await self.add_step_option(s_styl_ro, "Праздничный", "festive", 6)
 
         await self.add_step(cat_id, "photo", "📸 Пришлите фото товара:", "photo", order_index=12)
 
         # 4. Инфографика одежда
         cat_id = await self.add_category("infographic_clothing", "👕 Инфогр: Одежда и обувь", order_index=4)
-        s_gend3 = await self.add_step(cat_id, "info_gender", "👤 Выберите пол:", "buttons", order_index=1)
-        await self.add_step_option(s_gend3, "Женский", "female", 1)
-        await self.add_step_option(s_gend3, "Мужской", "male", 2)
-        await self.add_step_option(s_gend3, "Мальчик", "boy", 3)
-        await self.add_step_option(s_gend3, "Девочка", "girl", 4)
+        s_gend_ic = await self.add_step(cat_id, "info_gender", "👤 Выберите пол:", "buttons", order_index=1)
+        for i, (t, v) in enumerate(gender_options, 1):
+            await self.add_step_option(s_gend_ic, t, v, i)
 
         await self.add_step(cat_id, "age", "🔢 Введите возраст модели числом:", "text", order_index=2)
         await self.add_step(cat_id, "info_load", "📊 Введите нагруженность инфографики (1-10):", "text", order_index=3)
@@ -1659,57 +1674,49 @@ class Database:
         await self.add_step(cat_id, "info_adv3", "✨ Преимущество 3 (до 100 симв):", "text", is_optional=1, order_index=8)
         await self.add_step(cat_id, "info_extra", "➕ Доп. текст (до 65 симв):", "text", is_optional=1, order_index=9)
         
-        s_size = await self.add_step(cat_id, "size", "📏 Телосложение модели:", "buttons", order_index=10)
-        await self.add_step_option(s_size, "Худощавое", "slender", 1)
-        await self.add_step_option(s_size, "Спортивное", "sporty", 2)
-        await self.add_step_option(s_size, "Среднее", "medium", 3)
-        await self.add_step_option(s_size, "Плотное", "large", 4)
+        s_size_ic = await self.add_step(cat_id, "size", "📏 Телосложение модели:", "buttons", order_index=10)
+        await self.add_step_option(s_size_ic, "Худощавое", "slender", 1)
+        await self.add_step_option(s_size_ic, "Спортивное", "sporty", 2)
+        await self.add_step_option(s_size_ic, "Среднее", "medium", 3)
+        await self.add_step_option(s_size_ic, "Плотное", "large", 4)
 
         await self.add_step(cat_id, "height", "📏 Рост модели (числом):", "text", order_index=11)
         await self.add_step(cat_id, "body_type", "⚖️ Телосложение (от 1 до 10):", "text", order_index=12)
         
-        s_pants = await self.add_step(cat_id, "pants_style", "👖 Тип кроя штанов:", "buttons", is_optional=1, order_index=13)
-        await self.add_step_option(s_pants, "Зауженные", "skinny", 1)
-        await self.add_step_option(s_pants, "Классические", "classic", 2)
-        await self.add_step_option(s_pants, "Свободные", "oversize", 3)
+        s_pants_ic = await self.add_step(cat_id, "pants_style", "👖 Тип кроя штанов:", "buttons", is_optional=1, order_index=13)
+        await self.add_step_option(s_pants_ic, "Зауженные", "skinny", 1)
+        await self.add_step_option(s_pants_ic, "Классические", "classic", 2)
+        await self.add_step_option(s_pants_ic, "Свободные", "oversize", 3)
 
-        s_sleev = await self.add_step(cat_id, "sleeve", "🧥 Тип рукавов:", "buttons", is_optional=1, order_index=14)
-        await self.add_step_option(s_sleev, "Короткий", "short", 1)
-        await self.add_step_option(s_sleev, "Длинный", "long", 2)
-        await self.add_step_option(s_sleev, "Без рукавов", "none", 3)
+        s_sleev_ic = await self.add_step(cat_id, "sleeve", "🧥 Тип рукавов:", "buttons", is_optional=1, order_index=14)
+        await self.add_step_option(s_sleev_ic, "Короткий", "short", 1)
+        await self.add_step_option(s_sleev_ic, "Длинный", "long", 2)
+        await self.add_step_option(s_sleev_ic, "Без рукавов", "none", 3)
 
-        s_ang2 = await self.add_step(cat_id, "info_angle", "📐 Угол камеры:", "buttons", order_index=15)
-        await self.add_step_option(s_ang2, "Спереди", "front", 1)
-        await self.add_step_option(s_ang2, "Сзади", "back", 2)
+        s_ang_ic = await self.add_step(cat_id, "info_angle", "📐 Угол камеры:", "buttons", order_index=15)
+        await self.add_step_option(s_ang_ic, "Спереди", "front", 1)
+        await self.add_step_option(s_ang_ic, "Сзади", "back", 2)
 
-        s_dist2 = await self.add_step(cat_id, "info_dist", "👁️ Ракурс (Дальний/Средний/Близкий):", "buttons", order_index=16)
-        await self.add_step_option(s_dist2, "Дальний", "far", 1)
-        await self.add_step_option(s_dist2, "Средний", "medium", 2)
-        await self.add_step_option(s_dist2, "Близкий", "close", 3)
+        s_dist_ic = await self.add_step(cat_id, "info_dist", "👁️ Ракурс (Дальний/Средний/Близкий):", "buttons", order_index=16)
+        await self.add_step_option(s_dist_ic, "Дальний", "far", 1)
+        await self.add_step_option(s_dist_ic, "Средний", "medium", 2)
+        await self.add_step_option(s_dist_ic, "Близкий", "close", 3)
 
-        s_pose = await self.add_step(cat_id, "info_pose", "💃 Поза модели:", "buttons", order_index=17)
-        await self.add_step_option(s_pose, "Обычная", "normal", 1)
-        await self.add_step_option(s_pose, "Нестандартная", "unusual", 2)
-        await self.add_step_option(s_pose, "Вульгарная", "vulgar", 3)
+        s_pose_ic = await self.add_step(cat_id, "info_pose", "💃 Поза модели:", "buttons", order_index=17)
+        await self.add_step_option(s_pose_ic, "Обычная", "normal", 1)
+        await self.add_step_option(s_pose_ic, "Нестандартная", "unusual", 2)
+        await self.add_step_option(s_pose_ic, "Вульгарная", "vulgar", 3)
 
-        s_len2 = await self.add_step(cat_id, "length", "📏 Выберите длину изделия. Внимание! если ваш продукт Костюм 2-к, 3-к то длину можно не указывать.", "buttons", is_optional=1, order_index=18)
-        await self.add_step_option(s_len2, "Короткий топ", "short_top", 1)
-        await self.add_step_option(s_len2, "Обычный топ", "regular_top", 2)
-        await self.add_step_option(s_len2, "До талии", "to_waist", 3)
-        await self.add_step_option(s_len2, "Ниже талии", "below_waist", 4)
-        await self.add_step_option(s_len2, "До середины бедра", "mid_thigh", 5)
-        await self.add_step_option(s_len2, "До колен", "to_knees", 6)
-        await self.add_step_option(s_len2, "Ниже колен", "below_knees", 7)
-        await self.add_step_option(s_len2, "Миди", "midi", 8)
-        await self.add_step_option(s_len2, "До щиколоток", "to_ankles", 9)
-        await self.add_step_option(s_len2, "В пол", "to_floor", 10)
+        s_len_ic = await self.add_step(cat_id, "length", "📏 Выберите длину изделия. Внимание! если ваш продукт Костюм 2-к, 3-к то длину можно не указывать.", "buttons", is_optional=1, order_index=18)
+        for i, (t, v) in enumerate(length_options, 1):
+            await self.add_step_option(s_len_ic, t, v, i)
 
         await self.add_step(cat_id, "photo", "📸 Пришлите фото товара:", "photo", order_index=19)
         
-        s_asp2 = await self.add_step(cat_id, "aspect", "📐 Выбор формата:", "buttons", order_index=20)
-        await self.add_step_option(s_asp2, "1:1", "1:1", 1)
-        await self.add_step_option(s_asp2, "3:4", "3:4", 2)
-        await self.add_step_option(s_asp2, "4:3", "4:3", 3)
+        s_asp_ic = await self.add_step(cat_id, "aspect", "📐 Выбор формата:", "buttons", order_index=20)
+        await self.add_step_option(s_asp_ic, "1:1", "1:1", 1)
+        await self.add_step_option(s_asp_ic, "3:4", "3:4", 2)
+        await self.add_step_option(s_asp_ic, "4:3", "4:3", 3)
 
         # 5. Инфографика прочее
         cat_id = await self.add_category("infographic_other", "📦 Инфогр: Остальные товары", order_index=5)
@@ -1717,15 +1724,15 @@ class Database:
         await self.add_step_option(s_hp2, "Да", "yes", 1)
         await self.add_step_option(s_hp2, "Нет", "no", 2)
         
-        s_gend4 = await self.add_step(cat_id, "info_gender", "👤 Выберите пол:", "buttons", order_index=2)
-        await self.add_step_option(s_gend4, "Женский", "female", 1)
-        await self.add_step_option(s_gend4, "Мужской", "male", 2)
+        s_gend_io = await self.add_step(cat_id, "info_gender", "👤 Выберите пол:", "buttons", order_index=2)
+        for i, (t, v) in enumerate(gender_options, 1):
+            await self.add_step_option(s_gend_io, t, v, i)
 
         await self.add_step(cat_id, "age", "🔢 Возраст модели:", "text", order_index=3)
         
-        s_pose2 = await self.add_step(cat_id, "info_pose", "🧘 Поза модели:", "buttons", order_index=4)
-        await self.add_step_option(s_pose2, "Обычная", "normal", 1)
-        await self.add_step_option(s_pose2, "Нестандартная", "unusual", 2)
+        s_pose_io = await self.add_step(cat_id, "info_pose", "🧘 Поза модели:", "buttons", order_index=4)
+        await self.add_step_option(s_pose_io, "Обычная", "normal", 1)
+        await self.add_step_option(s_pose_io, "Нестандартная", "unusual", 2)
 
         await self.add_step(cat_id, "info_load", "📊 Нагруженность (1-10):", "text", order_index=5)
         
@@ -1737,60 +1744,58 @@ class Database:
         await self.add_step(cat_id, "info_adv1", "✨ Преимущества:", "text", is_optional=1, order_index=8)
         await self.add_step(cat_id, "info_extra", "➕ Доп. текст:", "text", is_optional=1, order_index=9)
         
-        s_ang3 = await self.add_step(cat_id, "info_angle", "📐 Угол камеры:", "buttons", order_index=10)
-        await self.add_step_option(s_ang3, "Спереди", "front", 1)
-        await self.add_step_option(s_ang3, "Сзади", "back", 2)
+        s_ang_io = await self.add_step(cat_id, "info_angle", "📐 Угол камеры:", "buttons", order_index=10)
+        await self.add_step_option(s_ang_io, "Спереди", "front", 1)
+        await self.add_step_option(s_ang_io, "Сзади", "back", 2)
 
-        s_dist3 = await self.add_step(cat_id, "info_dist", "👁️ Ракурс:", "buttons", order_index=11)
-        await self.add_step_option(s_dist3, "Дальний", "far", 1)
-        await self.add_step_option(s_dist3, "Средний", "medium", 2)
-        await self.add_step_option(s_dist3, "Близкий", "close", 3)
+        s_dist_io = await self.add_step(cat_id, "info_dist", "👁️ Ракурс:", "buttons", order_index=11)
+        await self.add_step_option(s_dist_io, "Дальний", "far", 1)
+        await self.add_step_option(s_dist_io, "Средний", "medium", 2)
+        await self.add_step_option(s_dist_io, "Близкий", "close", 3)
 
-        s_seas2 = await self.add_step(cat_id, "info_season", "🍂 Сезон:", "buttons", is_optional=1, order_index=12)
-        await self.add_step_option(s_seas2, "Лето", "summer", 1)
-        await self.add_step_option(s_seas2, "Зима", "winter", 2)
+        s_seas_io = await self.add_step(cat_id, "info_season", "🍂 Сезон:", "buttons", is_optional=1, order_index=12)
+        await self.add_step_option(s_seas_io, "Лето", "summer", 1)
+        await self.add_step_option(s_seas_io, "Зима", "winter", 2)
 
-        s_hold = await self.add_step(cat_id, "info_holiday", "🎉 Праздник:", "buttons", is_optional=1, order_index=13)
-        await self.add_step_option(s_hold, "Новый год", "new_year", 1)
-        await self.add_step_option(s_hold, "День рождения", "birthday", 2)
+        s_hold_io = await self.add_step(cat_id, "info_holiday", "🎉 Праздник:", "buttons", is_optional=1, order_index=13)
+        await self.add_step_option(s_hold_io, "Новый год", "new_year", 1)
+        await self.add_step_option(s_hold_io, "День рождения", "birthday", 2)
 
         await self.add_step(cat_id, "photo", "📸 Пришлите фото товара:", "photo", order_index=14)
         
         # 6. Витринное фото
         cat_id = await self.add_category("storefront", "📸 Витринное фото", order_index=6)
-        s_ang4 = await self.add_step(cat_id, "angle", "📐 Угол камеры:", "buttons", order_index=1)
-        await self.add_step_option(s_ang4, "Спереди", "front", 1)
-        await self.add_step_option(s_ang4, "Сзади", "back", 2)
+        s_ang_sf = await self.add_step(cat_id, "angle", "📐 Угол камеры:", "buttons", order_index=1)
+        await self.add_step_option(s_ang_sf, "Спереди", "front", 1)
+        await self.add_step_option(s_ang_sf, "Сзади", "back", 2)
 
-        s_dist4 = await self.add_step(cat_id, "dist", "👁️ Ракурс (Дальний/Средний/Близкий):", "buttons", order_index=2)
-        await self.add_step_option(s_dist4, "Дальний", "far", 1)
-        await self.add_step_option(s_dist4, "Средний", "medium", 2)
-        await self.add_step_option(s_dist4, "Близкий", "close", 3)
+        s_dist_sf = await self.add_step(cat_id, "dist", "👁️ Ракурс (Дальний/Средний/Близкий):", "buttons", order_index=2)
+        await self.add_step_option(s_dist_sf, "Дальний", "far", 1)
+        await self.add_step_option(s_dist_sf, "Средний", "medium", 2)
+        await self.add_step_option(s_dist_sf, "Близкий", "close", 3)
 
-        s_len3 = await self.add_step(cat_id, "length", "📏 Выберите длину изделия. Внимание! если ваш продукт Костюм 2-к, 3-к то длину можно не указывать.", "buttons", is_optional=1, order_index=3)
-        await self.add_step_option(s_len3, "Короткий топ", "short_top", 1)
-        await self.add_step_option(s_len3, "Миди", "midi", 2)
-        await self.add_step_option(s_len3, "В пол", "to_floor", 3)
+        s_len_sf = await self.add_step(cat_id, "length", "📏 Выберите длину изделия. Внимание! если ваш продукт Костюм 2-к, 3-к то длину можно не указывать.", "buttons", is_optional=1, order_index=3)
+        for i, (t, v) in enumerate(length_options, 1):
+            await self.add_step_option(s_len_sf, t, v, i)
 
         await self.add_step(cat_id, "photo", "📸 Пришлите фото товара:", "photo", order_index=4)
 
         # 7. На белом фоне
         cat_id = await self.add_category("whitebg", "⬜ На белом фоне", order_index=7)
         await self.add_step(cat_id, "photo", "📸 Пришлите фото товара:", "photo", order_index=1)
-        s_asp3 = await self.add_step(cat_id, "aspect", "📐 Выберите формат:", "buttons", order_index=2)
-        await self.add_step_option(s_asp3, "1:1", "1:1", 1)
-        await self.add_step_option(s_asp3, "3:4", "3:4", 2)
+        s_asp_wb = await self.add_step(cat_id, "aspect", "📐 Выберите формат:", "buttons", order_index=2)
+        await self.add_step_option(s_asp_wb, "1:1", "1:1", 1)
+        await self.add_step_option(s_asp_wb, "3:4", "3:4", 2)
 
         # 8. Свой вариант модели
         cat_id = await self.add_category("own", "💃 Свой вариант модели", order_index=8)
-        s_len4 = await self.add_step(cat_id, "length", "📏 Выберите длину изделия. Внимание! если ваш продукт Костюм 2-к, 3-к то длину можно не указывать.", "buttons", order_index=1)
-        await self.add_step_option(s_len4, "Короткий топ", "short_top", 1)
-        await self.add_step_option(s_len4, "Обычный топ", "regular_top", 2)
-        await self.add_step_option(s_len4, "В пол", "to_floor", 3)
+        s_len_om = await self.add_step(cat_id, "length", "📏 Выберите длину изделия. Внимание! если ваш продукт Костюм 2-к, 3-к то длину можно не указывать.", "buttons", order_index=1)
+        for i, (t, v) in enumerate(length_options, 1):
+            await self.add_step_option(s_len_om, t, v, i)
 
-        s_sleev2 = await self.add_step(cat_id, "sleeve", "🧥 Тип рукавов:", "buttons", is_optional=1, order_index=2)
-        await self.add_step_option(s_sleev2, "Короткий", "short", 1)
-        await self.add_step_option(s_sleev2, "Длинный", "long", 2)
+        s_sleev_om = await self.add_step(cat_id, "sleeve", "🧥 Тип рукавов:", "buttons", is_optional=1, order_index=2)
+        await self.add_step_option(s_sleev_om, "Короткий", "short", 1)
+        await self.add_step_option(s_sleev_om, "Длинный", "long", 2)
 
         await self.add_step(cat_id, "photo", "📸 Пришлите фото товара:", "photo", order_index=3)
 
@@ -1799,17 +1804,17 @@ class Database:
         await self.add_step(cat_id, "bg_photo", "📸 Пришлите фото фона:", "photo", order_index=1)
         await self.add_step(cat_id, "photo", "📸 Пришлите фото товара:", "photo", order_index=2)
         
-        s_sleev3 = await self.add_step(cat_id, "sleeve", "🧥 Длина рукава:", "buttons", order_index=3)
-        await self.add_step_option(s_sleev3, "Короткий", "short", 1)
-        await self.add_step_option(s_sleev3, "Длинный", "long", 2)
+        s_sleev_ov = await self.add_step(cat_id, "sleeve", "🧥 Длина рукава:", "buttons", order_index=3)
+        await self.add_step_option(s_sleev_ov, "Короткий", "short", 1)
+        await self.add_step_option(s_sleev_ov, "Длинный", "long", 2)
 
-        s_len5 = await self.add_step(cat_id, "length", "📏 Выберите длину изделия. Внимание! если ваш продукт Костюм 2-к, 3-к то длину можно не указывать.", "buttons", order_index=4)
-        await self.add_step_option(s_len5, "Короткий топ", "short_top", 1)
-        await self.add_step_option(s_len5, "В пол", "to_floor", 2)
+        s_len_ov = await self.add_step(cat_id, "length", "📏 Выберите длину изделия. Внимание! если ваш продукт Костюм 2-к, 3-к то длину можно не указывать.", "buttons", order_index=4)
+        for i, (t, v) in enumerate(length_options, 1):
+            await self.add_step_option(s_len_ov, t, v, i)
 
-        s_asp4 = await self.add_step(cat_id, "aspect", "📐 Выбор формата:", "buttons", order_index=5)
-        await self.add_step_option(s_asp4, "1:1", "1:1", 1)
-        await self.add_step_option(s_asp4, "3:4", "3:4", 2)
+        s_asp_ov = await self.add_step(cat_id, "aspect", "📐 Выбор формата:", "buttons", order_index=5)
+        await self.add_step_option(s_asp_ov, "1:1", "1:1", 1)
+        await self.add_step_option(s_asp_ov, "3:4", "3:4", 2)
 
 
 

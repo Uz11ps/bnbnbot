@@ -545,7 +545,7 @@ async def on_marketplace_menu(callback: CallbackQuery, db: Database) -> None:
         await _safe_answer(callback, get_string("limit_rem_zero", lang), show_alert=True)
         return
     
-        statuses = await db.list_categories_enabled()
+    statuses = await db.list_categories_enabled()
     from bot.keyboards import marketplace_menu_keyboard
     await _replace_with_text(callback, get_string("marketplace_menu", lang), reply_markup=marketplace_menu_keyboard(statuses, lang))
     await _safe_answer(callback)

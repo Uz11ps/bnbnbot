@@ -415,9 +415,9 @@ def model_select_keyboard(category: str, cloth: str, index: int, total: int, lan
         text = f"{i+1}"
         if i == 0:
             # Вместо цифры 1 — кнопка поиска
-            text = "🔍"
+            text = "Поиск 🔍"
             if i == index:
-                text = "🔍 •1•"
+                text = "Поиск 🔍 •1•"
             quick_nav.append(InlineKeyboardButton(text=text, callback_data=f"model_search:{category}:{cloth}{logic_suffix}"))
             continue
             

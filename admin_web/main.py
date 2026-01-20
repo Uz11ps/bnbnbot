@@ -910,6 +910,11 @@ async def category_steps_page(request: Request, cat_id: int, db: aiosqlite.Conne
 
 @app.post("/constructor/step/add/{cat_id}")
 async def admin_add_step(cat_id: int, step_key: str = Form(...), question: str = Form(...), input_type: str = Form(...), is_optional: int = Form(0), order: int = Form(0), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    if order == 0:
+        async with db.execute("SELECT MAX(order_index) FROM steps WHERE category_id=?", (cat_id,)) as cur:
+            row = await cur.fetchone()
+            order = (row[0] or 0) + 1
+            
     await db.execute(
         "INSERT INTO steps (category_id, step_key, question_text, input_type, is_optional, order_index) VALUES (?, ?, ?, ?, ?, ?)",
         (cat_id, step_key, question, input_type, is_optional, order)
@@ -938,3 +943,15 @@ async def admin_delete_option(cat_id: int, opt_id: int, db: aiosqlite.Connection
     await db.execute("DELETE FROM step_options WHERE id=?", (opt_id,))
     await db.commit()
     return RedirectResponse(f"/constructor/category/{cat_id}", status_code=303)
+
+@app.post("/constructor/steps/reorder/{cat_id}")
+async def admin_reorder_steps(cat_id: int, request: Request, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    data = await request.json()
+    step_ids = data.get("step_ids", [])
+    
+    # Обновляем order_index для каждого шага
+    for index, step_id in enumerate(step_ids, 1):
+        await db.execute("UPDATE steps SET order_index=? WHERE id=?", (index, step_id))
+    
+    await db.commit()
+    return JSONResponse({"status": "ok"})

@@ -48,15 +48,23 @@
         </div>
     </div>
 
-    <h4 class="mb-3">Существующие вопросы:</h4>
+    <h4 class="mb-3 d-flex justify-content-between align-items-center">
+        <span>Существующие вопросы:</span>
+        <button id="saveOrderBtn" class="btn btn-primary btn-sm btn-round d-none" onclick="saveOrder()">
+            <i class="bi bi-save me-1"></i> Сохранить порядок
+        </button>
+    </h4>
     <div class="accordion shadow-sm" id="stepsAccordion">
         {% for step in steps %}
-        <div class="accordion-item border-0 mb-2 shadow-sm" style="border-radius: 12px; overflow: hidden;">
-            <h2 class="accordion-header">
-                <button class="accordion-button collapsed py-3" type="button" data-bs-toggle="collapse" data-bs-target="#collapse{{ step.id }}">
+        <div class="accordion-item border-0 mb-2 shadow-sm step-item" data-id="{{ step.id }}" style="border-radius: 12px; overflow: hidden;">
+            <h2 class="accordion-header d-flex align-items-center bg-white">
+                <div class="px-3 drag-handle" style="cursor: move; color: #ccc;">
+                    <i class="bi bi-grip-vertical h4 mb-0"></i>
+                </div>
+                <button class="accordion-button collapsed py-3" type="button" data-bs-toggle="collapse" data-bs-target="#collapse{{ step.id }}" style="box-shadow: none;">
                     <div class="d-flex w-100 justify-content-between align-items-center pe-3">
                         <div>
-                            <span class="badge bg-secondary me-2">#{{ step.order }}</span>
+                            <span class="badge bg-secondary me-2 order-badge">#{{ step.order }}</span>
                             <span class="fw-bold">{{ step.question }}</span>
                             <small class="text-muted ms-2">({{ step.key }})</small>
                         </div>
@@ -127,11 +135,78 @@
     </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const el = document.getElementById('stepsAccordion');
+        const saveBtn = document.getElementById('saveOrderBtn');
+        
+        const sortable = Sortable.create(el, {
+            animation: 150,
+            handle: '.drag-handle',
+            draggable: '.step-item',
+            onEnd: function() {
+                saveBtn.classList.remove('d-none');
+                updateBadges();
+            }
+        });
+    });
+
+    function updateBadges() {
+        const badges = document.querySelectorAll('.order-badge');
+        badges.forEach((badge, index) => {
+            badge.textContent = '#' + (index + 1);
+        });
+    }
+
+    async function saveOrder() {
+        const items = document.querySelectorAll('.step-item');
+        const stepIds = Array.from(items).map(item => parseInt(item.getAttribute('data-id')));
+        const saveBtn = document.getElementById('saveOrderBtn');
+        
+        try {
+            const response = await fetch('/constructor/steps/reorder/{{ category["id"] }}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ step_ids: stepIds })
+            });
+            
+            if (response.ok) {
+                saveBtn.classList.add('d-none');
+                // Можно добавить уведомление об успехе
+                const toast = document.createElement('div');
+                toast.className = 'position-fixed bottom-0 end-0 p-3';
+                toast.style.zIndex = '11';
+                toast.innerHTML = `
+                    <div class="toast show align-items-center text-white bg-success border-0" role="alert" aria-live="assertive" aria-atomic="true">
+                        <div class="d-flex">
+                            <div class="toast-body">Порядок шагов успешно сохранен!</div>
+                            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+                        </div>
+                    </div>
+                `;
+                document.body.appendChild(toast);
+                setTimeout(() => toast.remove(), 3000);
+            } else {
+                alert('Ошибка при сохранении порядка');
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            alert('Ошибка при сохранении порядка');
+        }
+    }
+</script>
+
 <style>
     .breadcrumb-item + .breadcrumb-item::before { content: "›"; }
     .accordion-button:not(.collapsed) { background-color: #f8f9fa; color: inherit; box-shadow: none; }
     .accordion-button:focus { box-shadow: none; border-color: rgba(0,0,0,.125); }
     .btn-round { border-radius: 30px; }
+    .step-item { transition: transform 0.2s; }
+    .sortable-ghost { opacity: 0.4; background-color: #e9ecef !important; }
+    .drag-handle:hover { color: #6c757d !important; }
 </style>
 {% endblock %}
 

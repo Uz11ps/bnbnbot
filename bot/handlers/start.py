@@ -645,6 +645,14 @@ async def on_create_category_universal(callback: CallbackQuery, db: Database, st
     await state.clear()
     await state.update_data(category=cat_key)
     
+    # Устанавливаем флаги режимов для совместимости с промптами
+    if cat_key == "random": await state.update_data(random_mode=True)
+    elif cat_key == "random_other": await state.update_data(random_other_mode=True)
+    elif cat_key == "own": await state.update_data(own_mode=True)
+    elif cat_key == "presets": await state.update_data(is_preset=True)
+    elif cat_key.startswith("infographic"): await state.update_data(infographic_mode=True)
+    elif cat_key == "storefront": await state.update_data(storefront_mode=True)
+    
     # Пытаемся запустить динамический флоу
     category_db = await db.get_category_by_key(cat_key)
     if category_db:
@@ -674,8 +682,8 @@ async def on_preset_gender_selected(callback: CallbackQuery, state: FSMContext, 
     gender = callback.data.split(":")[1]
     await state.clear()
     
-    # Сохраняем выбранный пол
-    await state.update_data(category="presets", gender=gender)
+    # Сохраняем выбранный пол и флаг пресета
+    await state.update_data(category="presets", gender=gender, is_preset=True)
     
     # Определяем, какой шаг будет следующим (пропускаем возраст для детей)
     next_index = 1
@@ -3412,7 +3420,7 @@ async def _build_final_prompt(data: dict, db: Database) -> str:
         # Обычный режим (Пресеты)
         model_id = data.get("model_id")
         
-        if not model_id and data.get("is_preset"):
+        if not model_id and (data.get("is_preset") or category == "presets"):
             # ПРЕСЕТЫ БЕЗ МОДЕЛИ (п. 1)
             gender_map = {"male":"мужчина","female":"женщина","boy":"мальчик","girl":"девочка"}
             actual_gender = data.get("child_gender") or category

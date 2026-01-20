@@ -335,6 +335,79 @@ async def _check_subscription(user_id: int, bot: Bot, db: Database) -> bool:
         # Если бот не в канале или канал не найден — разрешаем работу, чтобы не блокировать всех
         return True
 
+async def _show_confirmation(message_or_callback: Message | CallbackQuery, state: FSMContext, db: Database) -> None:
+    """Показывает сводку параметров и кнопку создания фото"""
+    data = await state.get_data()
+    category = data.get("category")
+    lang = await db.get_user_language(message_or_callback.from_user.id)
+    
+    parts = ["📋 Проверьте выбранные параметры:\n\n"]
+    
+    # 1. Название категории
+    cat_names = {
+        "presets": "👗 Пресеты (Готовые)",
+        "female": "👱‍♀️ Женская одежда",
+        "male": "👨 Мужская одежда",
+        "child": "🧒 Детская одежда",
+        "random": "🎲 Рандом (Одежда)",
+        "random_other": "📦 Рандом (Прочее)",
+        "own": "💃 Свой вариант МОДЕЛИ",
+        "own_variant": "🖼️ Свой вариант ФОНА",
+        "infographic_clothing": "👕 Инфографика (Одежда)",
+        "infographic_other": "📦 Инфографика (Прочее)",
+        "storefront": "📸 Витринное фото",
+        "whitebg": "⚪ На белом фоне"
+    }
+    parts.append(f"📦 **Раздел**: {cat_names.get(category, category)}\n")
+
+    # 2. Параметры (динамически из data)
+    param_names = {
+        "gender": "👤 Пол",
+        "rand_gender": "👤 Пол",
+        "info_gender": "👤 Пол",
+        "child_gender": "👤 Пол",
+        "age": "🎂 Возраст",
+        "size": "📏 Размер/Телосложение",
+        "height": "📏 Рост",
+        "pants_style": "👖 Крой штанов",
+        "sleeve": "🧥 Рукав",
+        "length": "👗 Длина",
+        "pose": "💃 Поза",
+        "dist": "👁️ Ракурс",
+        "view": "📸 Вид",
+        "season": "🍂 Сезон",
+        "holiday": "🎉 Праздник",
+        "aspect": "📐 Формат"
+    }
+    
+    for k, v in data.items():
+        if k in param_names and v:
+            name = param_names[k]
+            # Маппинг значений для красоты
+            val = v
+            if k == "gender" or k.endswith("_gender"):
+                g_map = {"male":"Мужской","female":"Женский","boy":"Мальчик","girl":"Девочка","unisex":"Унисекс"}
+                val = g_map.get(v, v)
+            elif k == "view":
+                v_map = {"front":"Спереди","back":"Сзади"}
+                val = v_map.get(v, v)
+            
+            parts.append(f"🔹 **{name}**: {val}\n")
+
+    if data.get("normal_gen_mode"):
+        parts.append(f"📝 **Промпт**: {data.get('prompt', '—')}\n")
+
+    parts.append(f"\n{get_string('generation_confirm', lang)}")
+    
+    text = "".join(parts)
+    from bot.keyboards import confirm_generation_keyboard
+    kb = confirm_generation_keyboard(lang)
+    
+    if isinstance(message_or_callback, Message):
+        await message_or_callback.answer(text, reply_markup=kb)
+    else:
+        await _replace_with_text(message_or_callback, text, reply_markup=kb)
+
 async def _show_next_step(message_or_callback: Message | CallbackQuery, state: FSMContext, db: Database) -> None:
     data = await state.get_data()
     cat_key = data.get("category")
@@ -365,8 +438,7 @@ async def _show_next_step(message_or_callback: Message | CallbackQuery, state: F
             continue
             
         # 2. Пропускаем шаги, которые уже есть в данных (например, пол, выбранный в меню)
-        # НО: не пропускаем, если это финальные шаги (фото или формат)
-        if step_key in data and data.get(step_key) is not None and step_key not in ("photo", "aspect"):
+        if step_key in data and data.get(step_key) is not None:
             current_step_index += 1
             await state.update_data(current_step_index=current_step_index)
             continue
@@ -385,7 +457,11 @@ async def _show_next_step(message_or_callback: Message | CallbackQuery, state: F
 
     if current_step_index >= len(steps):
         # Все шаги пройдены — переходим к финалу (обычно выбор формата или генерация)
-        # В большинстве наших флоу это waiting_aspect или waiting_view
+        # Но сначала проверим, есть ли фото и формат (обязательные для генерации)
+        if (data.get("photo") or data.get("user_photo_id")) and data.get("aspect"):
+            await _show_confirmation(message_or_callback, state, db)
+            return
+
         if cat_key == "whitebg":
             await state.set_state(CreateForm.waiting_aspect)
             lang = await db.get_user_language(message_or_callback.from_user.id)
@@ -396,14 +472,28 @@ async def _show_next_step(message_or_callback: Message | CallbackQuery, state: F
             else:
                 await _replace_with_text(message_or_callback, text, reply_markup=aspect_ratio_keyboard(lang))
         else:
-            # Для остальных — загрузка фото (waiting_view)
-            await state.set_state(CreateForm.waiting_view)
-            lang = await db.get_user_language(message_or_callback.from_user.id)
-            text = get_string("upload_product", lang)
-            if isinstance(message_or_callback, Message):
-                await message_or_callback.answer(text, reply_markup=back_step_keyboard(lang))
+            # Для остальных — загрузка фото (если нет)
+            if not data.get("photo") and not data.get("user_photo_id"):
+                await state.set_state(CreateForm.waiting_view)
+                lang = await db.get_user_language(message_or_callback.from_user.id)
+                text = get_string("upload_product", lang)
+                if isinstance(message_or_callback, Message):
+                    await message_or_callback.answer(text, reply_markup=back_step_keyboard(lang))
+                else:
+                    await _replace_with_text(message_or_callback, text, reply_markup=back_step_keyboard(lang))
+            elif not data.get("aspect"):
+                # Если нет формата — просим его
+                await state.set_state(CreateForm.waiting_aspect)
+                lang = await db.get_user_language(message_or_callback.from_user.id)
+                from bot.keyboards import aspect_ratio_keyboard
+                text = get_string("select_format", lang)
+                if isinstance(message_or_callback, Message):
+                    await message_or_callback.answer(text, reply_markup=aspect_ratio_keyboard(lang))
+                else:
+                    await _replace_with_text(message_or_callback, text, reply_markup=aspect_ratio_keyboard(lang))
             else:
-                await _replace_with_text(message_or_callback, text, reply_markup=back_step_keyboard(lang))
+                # Если всё есть — подтверждение
+                await _show_confirmation(message_or_callback, state, db)
         return
 
     step = steps[current_step_index]
@@ -3485,8 +3575,8 @@ async def on_result_repeat(callback: CallbackQuery, state: FSMContext, db: Datab
     await state.update_data(current_step_index=0) # Начинаем с 0, _show_next_step пропустит всё заполненное
     
     # 4. Проверяем, является ли категория динамической (пресеты, рандом и т.д.)
-    cat_id = await db.get_category_id(cat) if cat else None
-    if cat_id:
+    category_db = await db.get_category_by_key(cat) if cat else None
+    if category_db:
         # Для динамических категорий — просто запускаем флоу с начала.
         # _show_next_step сама пропустит все шаги, для которых данные уже есть (age, size, model_id и т.д.)
         # и остановится на шаге "photo" или первом пустом.
@@ -3500,9 +3590,9 @@ async def on_result_repeat(callback: CallbackQuery, state: FSMContext, db: Datab
         # Для инфографики (если вдруг нет в БД как категории)
         callback.data = f"create_cat:{cat}"
         # Мы не вызываем on_infographic_category, так как она сбросит state.
-        # Вместо этого пытаемся найти cat_id еще раз (для infographic_clothing и т.д.)
-        inf_cat_id = await db.get_category_id(cat)
-        if inf_cat_id:
+        # Вместо этого пытаемся найти в БД еще раз (для infographic_clothing и т.д.)
+        inf_cat_db = await db.get_category_by_key(cat)
+        if inf_cat_db:
             await state.set_state(CreateForm.waiting_dynamic_step)
             await _show_next_step(callback, state, db)
         else:

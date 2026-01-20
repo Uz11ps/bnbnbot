@@ -153,6 +153,7 @@ class CreateForm(StatesGroup):
     # Own background flow
     waiting_own_bg_photo = State()
     waiting_own_product_photo = State()
+    waiting_dynamic_step = State() # Новый статус для динамических шагов
 
 WELCOME_TEXT = (
     "👋 Добро пожаловать в Fashion AI Generator!\n\n"
@@ -201,6 +202,104 @@ async def _ask_sleeve_length(message_or_callback: Message | CallbackQuery, state
     else:
         await _replace_with_text(message_or_callback, text, reply_markup=own_sleeve_length_keyboard(lang))
     await state.set_state(CreateForm.waiting_own_sleeve)
+
+# --- Динамические шаги ---
+async def _show_next_step(message_or_callback: Message | CallbackQuery, state: FSMContext, db: Database) -> None:
+    data = await state.get_data()
+    cat_key = data.get("category")
+    if not cat_key:
+        return
+    
+    category = await db.get_category_by_key(cat_key)
+    if not category:
+        return
+    
+    cat_id = category[0]
+    steps = await db.list_steps(cat_id)
+    
+    current_step_index = data.get("current_step_index", 0)
+    
+    if current_step_index >= len(steps):
+        # Все шаги пройдены — переходим к финалу
+        if cat_key == "whitebg":
+            await state.set_state(CreateForm.waiting_aspect)
+            lang = await db.get_user_language(message_or_callback.from_user.id)
+            text = get_string("select_aspect", lang)
+            from bot.keyboards import aspect_ratio_keyboard
+            if isinstance(message_or_callback, Message):
+                await message_or_callback.answer(text, reply_markup=aspect_ratio_keyboard(lang))
+            else:
+                await _replace_with_text(message_or_callback, text, reply_markup=aspect_ratio_keyboard(lang))
+        else:
+            await state.set_state(CreateForm.waiting_view)
+            lang = await db.get_user_language(message_or_callback.from_user.id)
+            text = get_string("upload_product", lang)
+            if isinstance(message_or_callback, Message):
+                await message_or_callback.answer(text, reply_markup=back_step_keyboard(lang))
+            else:
+                await _replace_with_text(message_or_callback, text, reply_markup=back_step_keyboard(lang))
+        return
+
+    step = steps[current_step_index]
+    step_id, step_key, question, input_type, is_optional, _order = step
+    
+    await state.update_data(current_step_id=step_id, current_step_key=step_key)
+    await state.set_state(CreateForm.waiting_dynamic_step)
+    
+    lang = await db.get_user_language(message_or_callback.from_user.id)
+    
+    if input_type == "buttons":
+        options = await db.list_step_options(step_id)
+        from bot.keyboards import dynamic_keyboard
+        kb = dynamic_keyboard(options, is_optional=bool(is_optional), lang=lang)
+        if isinstance(message_or_callback, Message):
+            await message_or_callback.answer(question, reply_markup=kb)
+        else:
+            await _replace_with_text(message_or_callback, question, reply_markup=kb)
+    elif input_type == "photo":
+        kb = back_step_keyboard(lang)
+        if isinstance(message_or_callback, Message):
+            await message_or_callback.answer(question, reply_markup=kb)
+        else:
+            await _replace_with_text(message_or_callback, question, reply_markup=kb)
+    else: # text
+        kb = None
+        if is_optional:
+            from bot.keyboards import skip_step_keyboard
+            kb = skip_step_keyboard(step_key, lang)
+        else:
+            kb = back_step_keyboard(lang)
+            
+        if isinstance(message_or_callback, Message):
+            await message_or_callback.answer(question, reply_markup=kb)
+        else:
+            await _replace_with_text(message_or_callback, question, reply_markup=kb)
+
+@router.callback_query(CreateForm.waiting_dynamic_step, F.data.startswith("dyn_opt:"))
+async def on_dynamic_option(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    val = callback.data.split(":", 1)[1]
+    data = await state.get_data()
+    step_key = data.get("current_step_key")
+    
+    if val != "skip":
+        await state.update_data({step_key: val})
+    
+    await state.update_data(current_step_index=data.get("current_step_index", 0) + 1)
+    await _show_next_step(callback, state, db)
+    await _safe_answer(callback)
+
+@router.message(CreateForm.waiting_dynamic_step)
+async def on_dynamic_input(message: Message, state: FSMContext, db: Database) -> None:
+    data = await state.get_data()
+    step_key = data.get("current_step_key")
+    
+    if message.photo:
+        await state.update_data({step_key: message.photo[-1].file_id})
+    else:
+        await state.update_data({step_key: message.text})
+    
+    await state.update_data(current_step_index=data.get("current_step_index", 0) + 1)
+    await _show_next_step(message, state, db)
 
 @router.callback_query(F.data.startswith("own_sleeve:"))
 async def on_own_sleeve(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
@@ -338,36 +437,109 @@ async def _check_subscription(user_id: int, bot: Bot, db: Database) -> bool:
         # Если бот не в канале или канал не найден — разрешаем работу, чтобы не блокировать всех
         return True
 
-async def _ensure_access(message_or_callback, db: Database, bot: Bot) -> bool:
-    """Проверяет условия доступа (соглашение и подписка) и выводит нужный экран"""
-    user_id = message_or_callback.from_user.id
-    lang = await db.get_user_language(user_id)
-    from bot.keyboards import terms_keyboard, subscription_check_keyboard
+async def _show_next_step(message_or_callback: Message | CallbackQuery, state: FSMContext, db: Database) -> None:
+    data = await state.get_data()
+    cat_key = data.get("category")
+    if not cat_key:
+        return
     
-    # 1. Сначала Соглашение
-    accepted = await db.get_user_accepted_terms(user_id)
-    if not accepted:
-        text = get_string("start_welcome", lang)
-        if isinstance(message_or_callback, Message):
-            await message_or_callback.answer(text, reply_markup=terms_keyboard(lang))
-        else:
-            await _replace_with_text(message_or_callback, text, reply_markup=terms_keyboard(lang))
-        return False
-        
-    # 2. Потом Подписка
-    channel_id = await db.get_app_setting("required_channel_id")
-    if channel_id:
-        is_subbed = await _check_subscription(user_id, bot, db)
-        if not is_subbed:
-            channel_url = await db.get_app_setting("required_channel_url", "https://t.me/bnbslow")
-            text = get_string("subscribe_channel", lang)
+    category = await db.get_category_by_key(cat_key)
+    if not category:
+        # Фолбэк на старую логику или ошибку
+        return
+    
+    cat_id = category[0]
+    steps = await db.list_steps(cat_id)
+    
+    # Определяем текущий индекс шага
+    current_step_index = data.get("current_step_index", 0)
+    
+    if current_step_index >= len(steps):
+        # Все шаги пройдены — переходим к финалу (обычно выбор формата или генерация)
+        # В большинстве наших флоу это waiting_aspect или waiting_view
+        if cat_key == "whitebg":
+            await state.set_state(CreateForm.waiting_aspect)
+            lang = await db.get_user_language(message_or_callback.from_user.id)
+            text = get_string("select_aspect", lang)
+            from bot.keyboards import aspect_ratio_keyboard
             if isinstance(message_or_callback, Message):
-                await message_or_callback.answer(text, reply_markup=subscription_check_keyboard(channel_url, lang))
+                await message_or_callback.answer(text, reply_markup=aspect_ratio_keyboard(lang))
             else:
-                await _replace_with_text(message_or_callback, text, reply_markup=subscription_check_keyboard(channel_url, lang))
-            return False
+                await _replace_with_text(message_or_callback, text, reply_markup=aspect_ratio_keyboard(lang))
+        else:
+            # Для остальных — загрузка фото (waiting_view)
+            await state.set_state(CreateForm.waiting_view)
+            lang = await db.get_user_language(message_or_callback.from_user.id)
+            text = get_string("upload_product", lang)
+            if isinstance(message_or_callback, Message):
+                await message_or_callback.answer(text, reply_markup=back_step_keyboard(lang))
+            else:
+                await _replace_with_text(message_or_callback, text, reply_markup=back_step_keyboard(lang))
+        return
+
+    step = steps[current_step_index]
+    step_id, step_key, question, input_type, is_optional, _order = step
+    
+    await state.update_data(current_step_id=step_id, current_step_key=step_key)
+    await state.set_state(CreateForm.waiting_dynamic_step)
+    
+    lang = await db.get_user_language(message_or_callback.from_user.id)
+    
+    if input_type == "buttons":
+        options = await db.list_step_options(step_id)
+        from bot.keyboards import dynamic_keyboard
+        kb = dynamic_keyboard(options, is_optional=bool(is_optional), lang=lang)
+        if isinstance(message_or_callback, Message):
+            await message_or_callback.answer(question, reply_markup=kb)
+        else:
+            await _replace_with_text(message_or_callback, question, reply_markup=kb)
+    elif input_type == "photo":
+        kb = back_step_keyboard(lang)
+        if isinstance(message_or_callback, Message):
+            await message_or_callback.answer(question, reply_markup=kb)
+        else:
+            await _replace_with_text(message_or_callback, question, reply_markup=kb)
+    else: # text
+        kb = None
+        if is_optional:
+            from bot.keyboards import skip_step_keyboard
+            kb = skip_step_keyboard(step_key, lang)
+        else:
+            kb = back_step_keyboard(lang)
             
-    return True
+        if isinstance(message_or_callback, Message):
+            await message_or_callback.answer(question, reply_markup=kb)
+        else:
+            await _replace_with_text(message_or_callback, question, reply_markup=kb)
+
+@router.callback_query(CreateForm.waiting_dynamic_step, F.data.startswith("dyn_opt:"))
+async def on_dynamic_option(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    val = callback.data.split(":", 1)[1]
+    data = await state.get_data()
+    step_key = data.get("current_step_key")
+    
+    if val != "skip":
+        await state.update_data({step_key: val})
+    
+    # Переходим к следующему шагу
+    await state.update_data(current_step_index=data.get("current_step_index", 0) + 1)
+    await _show_next_step(callback, state, db)
+    await _safe_answer(callback)
+
+@router.message(CreateForm.waiting_dynamic_step)
+async def on_dynamic_input(message: Message, state: FSMContext, db: Database) -> None:
+    data = await state.get_data()
+    step_key = data.get("current_step_key")
+    
+    # Если ожидается фото
+    if message.photo:
+        await state.update_data({step_key: message.photo[-1].file_id})
+    else:
+        await state.update_data({step_key: message.text})
+    
+    # Переходим к следующему шагу
+    await state.update_data(current_step_index=data.get("current_step_index", 0) + 1)
+    await _show_next_step(message, state, db)
 
 @router.message(CommandStart())
 async def cmd_start(message: Message, db: Database) -> None:
@@ -477,56 +649,80 @@ async def on_marketplace_menu(callback: CallbackQuery, db: Database) -> None:
     await _safe_answer(callback)
 
 
-@router.callback_query(F.data == "create_cat:presets")
-async def on_ready_presets(callback: CallbackQuery, db: Database) -> None:
-    enabled = await db.list_categories_enabled()
-    logger.info(f"Presets menu accessed. Categories status: {enabled}") # Отладочный лог
+@router.callback_query(F.data.startswith("create_cat:"))
+async def on_create_category_universal(callback: CallbackQuery, db: Database, state: FSMContext) -> None:
+    """Универсальный обработчик выбора категории, поддерживающий динамические шаги"""
+    cat_key = callback.data.split(":")[1]
     lang = await db.get_user_language(callback.from_user.id)
-    from bot.keyboards import ready_presets_keyboard
-    await _replace_with_text(callback, get_string("cat_presets", lang), reply_markup=ready_presets_keyboard(enabled, lang))
+    
+    # Техработы
+    if await db.get_maintenance():
+        settings = load_settings()
+        if callback.from_user.id not in (settings.admin_ids or []):
+            await _safe_answer(callback, get_string("maintenance_alert", lang), show_alert=True)
+            return
+            
+    # Проверка, что категория включена
+    if not await db.get_category_enabled(cat_key):
+        await _safe_answer(callback, get_string("no_models_in_category_alert", lang), show_alert=True)
+        return
+
+    # Специальные меню-прокладки (пресеты, инфографика)
+    if cat_key in ("presets", "infographics"):
+        if cat_key == "presets":
+            await on_ready_presets(callback, db)
+        else:
+            await on_infographic_selection_menu(callback, db)
+        return
+
+    # Инициализация состояния
+    await state.clear()
+    await state.update_data(category=cat_key)
+    
+    # Пытаемся запустить динамический флоу
+    category_db = await db.get_category_by_key(cat_key)
+    if category_db:
+        steps = await db.list_steps(category_db[0])
+        if steps:
+            await state.update_data(current_step_index=0)
+            await _show_next_step(callback, state, db)
+            await _safe_answer(callback)
+            return
+
+    # Если динамических шагов нет — используем старую логику (фолбэк)
+    if cat_key == "female": await on_female_category(callback, db, state)
+    elif cat_key == "male": await on_male_category(callback, db, state)
+    elif cat_key == "child": await on_child_category(callback, db, state)
+    elif cat_key == "storefront": await on_storefront_category(callback, db, state)
+    elif cat_key == "whitebg": await on_whitebg_category(callback, db, state)
+    elif cat_key == "own": await on_create_own(callback, db, state)
+    elif cat_key == "own_variant": await on_create_own_variant(callback, db, state)
+    elif cat_key.startswith("infographic"): await on_infographic_category(callback, state, db)
+    
     await _safe_answer(callback)
+
+async def on_infographic_selection_menu(callback: CallbackQuery, db: Database) -> None:
+    lang = await db.get_user_language(callback.from_user.id)
+    enabled = await db.list_categories_enabled()
+    from bot.keyboards import infographic_selection_keyboard
+    await _replace_with_text(callback, get_string("cat_infographics", lang), reply_markup=infographic_selection_keyboard(enabled, lang))
 
 @router.callback_query(F.data == "create_cat:female")
 async def on_female_category(callback: CallbackQuery, db: Database, state: FSMContext) -> None:
-    if await db.get_maintenance():
-        settings = load_settings()
-        if callback.from_user.id not in (settings.admin_ids or []):
-            await _safe_answer(callback, get_string("maintenance_alert", await db.get_user_language(callback.from_user.id)), show_alert=True)
-            return
-    if not await db.get_category_enabled("female"):
-        await _safe_answer(callback, get_string("no_models_in_category_alert", await db.get_user_language(callback.from_user.id)), show_alert=True)
-        return
-    
+    # Фолбэк (теперь вызывается из универсального обработчика)
     await state.clear()
     await state.update_data(category="female", cloth="all", is_preset=True)
     lang = await db.get_user_language(callback.from_user.id)
-    
-    # СРАЗУ к возрасту (п. 1.1)
-    from bot.keyboards import form_age_keyboard
     await _replace_with_text(callback, get_string("select_age", lang), reply_markup=form_age_keyboard(lang))
     await state.set_state(CreateForm.waiting_age)
-    await _safe_answer(callback)
 
-@router.callback_query(F.data == "create_cat:male")
 async def on_male_category(callback: CallbackQuery, db: Database, state: FSMContext) -> None:
-    if await db.get_maintenance():
-        settings = load_settings()
-        if callback.from_user.id not in (settings.admin_ids or []):
-            await _safe_answer(callback, get_string("maintenance_alert", await db.get_user_language(callback.from_user.id)), show_alert=True)
-            return
-    if not await db.get_category_enabled("male"):
-        await _safe_answer(callback, get_string("no_models_in_category_alert", await db.get_user_language(callback.from_user.id)), show_alert=True)
-        return
-    
+    # Фолбэк
     await state.clear()
     await state.update_data(category="male", cloth="all", is_preset=True)
     lang = await db.get_user_language(callback.from_user.id)
-    
-    # СРАЗУ к возрасту (п. 1.1)
-    from bot.keyboards import form_age_keyboard
     await _replace_with_text(callback, get_string("select_age", lang), reply_markup=form_age_keyboard(lang))
     await state.set_state(CreateForm.waiting_age)
-    await _safe_answer(callback)
 
 async def _show_models_for_category(callback: CallbackQuery, db: Database, category: str, cloth: str, index: int = 0, logic_category: str = None) -> None:
     total = await db.count_models(category, cloth)
@@ -549,40 +745,42 @@ async def _show_models_for_category(callback: CallbackQuery, db: Database, categ
     else:
         await _replace_with_text(callback, text, reply_markup=kb)
 
-@router.callback_query(F.data == "create_cat:child")
 async def on_child_category(callback: CallbackQuery, db: Database, state: FSMContext) -> None:
-    if await db.get_maintenance():
-        settings = load_settings()
-        if callback.from_user.id not in (settings.admin_ids or []):
-            await _safe_answer(callback, get_string("maintenance_alert", await db.get_user_language(callback.from_user.id)), show_alert=True)
-            return
-    if not await db.get_category_enabled("child"):
-        await _safe_answer(callback, get_string("no_models_in_category_alert", await db.get_user_language(callback.from_user.id)), show_alert=True)
-        return
+    # Фолбэк
     await state.update_data(category="child")
     lang = await db.get_user_language(callback.from_user.id)
     await _replace_with_text(callback, get_string("select_gender", lang), reply_markup=child_gender_keyboard(lang))
-    await _safe_answer(callback)
-@router.callback_query(F.data == "create_random")
-async def on_create_random(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
-    if await db.get_maintenance():
-        settings = load_settings()
-        if callback.from_user.id not in (settings.admin_ids or []):
-            await _safe_answer(callback, "Идут техработы. Пожалуйста, попробуйте позже.", show_alert=True)
+@router.callback_query(F.data.in_(["create_random", "create_random_other"]))
+async def on_create_random_universal(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    cat_key = "random" if callback.data == "create_random" else "random_other"
+    lang = await db.get_user_language(callback.from_user.id)
+    
+    # Пытаемся запустить динамический флоу
+    category_db = await db.get_category_by_key(cat_key)
+    if category_db:
+        await state.clear()
+        await state.update_data(category=cat_key)
+        steps = await db.list_steps(category_db[0])
+        if steps:
+            await state.update_data(current_step_index=0)
+            await _show_next_step(callback, state, db)
+            await _safe_answer(callback)
             return
-    # Проверка, что категория включена
-    if not await db.get_category_enabled("random"):
-        await _safe_answer(callback, "Категория временно недоступна", show_alert=True)
-        return
+
+    # Фолбэк на старую логику
+    if cat_key == "random":
+        await on_create_random(callback, state, db)
+    else:
+        await on_create_random_other(callback, state, db)
+    await _safe_answer(callback)
+
+async def on_create_random(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    # Оставляем тело функции для фолбэка
     await state.clear()
     await state.update_data(random_mode=True, category="random")
     lang = await db.get_user_language(callback.from_user.id)
-    
-    # 1. Тип локации
-    from bot.keyboards import random_loc_group_keyboard
     await _replace_with_text(callback, get_string("select_loc_group", lang), reply_markup=random_loc_group_keyboard(lang))
     await state.set_state(CreateForm.waiting_rand_loc_group)
-    await _safe_answer(callback)
 
 @router.callback_query(CreateForm.waiting_rand_loc, F.data.startswith("rand_location:"))
 @router.callback_query(CreateForm.waiting_custom_location)
@@ -626,25 +824,13 @@ async def on_random_gender(callback: CallbackQuery, state: FSMContext, db: Datab
     await _safe_answer(callback)
 
 
-@router.callback_query(F.data == "create_random_other")
 async def on_create_random_other(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
-    if await db.get_maintenance():
-        settings = load_settings()
-        if callback.from_user.id not in (settings.admin_ids or []):
-            await _safe_answer(callback, get_string("maintenance_alert", await db.get_user_language(callback.from_user.id)), show_alert=True)
-            return
-    # Проверка, что категория включена
-    if not await db.get_category_enabled("random_other"):
-        await _safe_answer(callback, "Категория временно недоступна", show_alert=True)
-        return
+    # Оставляем тело функции для фолбэка
     await state.clear()
     await state.update_data(random_other_mode=True, category="random_other")
     lang = await db.get_user_language(callback.from_user.id)
-    
-    # Сначала спрашиваем Присутствие человека
     await _replace_with_text(callback, get_string("has_person_ask", lang), reply_markup=yes_no_keyboard(lang))
     await state.set_state(CreateForm.waiting_rand_other_has_person)
-    await _safe_answer(callback)
 
 @router.callback_query(CreateForm.waiting_rand_other_has_person, F.data.startswith("choice:"))
 async def on_rand_other_has_person(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
@@ -1390,10 +1576,35 @@ async def on_aspect_selected(callback: CallbackQuery, state: FSMContext, db: Dat
         await _safe_answer(callback)
         return
 
-    parts.append(f"🖼️ **Формат**: {aspect.replace('x', ':')}\n\n")
+    # --- ДОБАВЛЯЕМ ДИНАМИЧЕСКИЕ ПАРАМЕТРЫ В ПРЕВЬЮ ---
+    exclude_keys = {
+        "category", "cloth", "index", "model_id", "prompt_id", 
+        "current_step_id", "current_step_key", "current_step_index",
+        "is_preset", "random_mode", "random_other_mode", "normal_gen_mode",
+        "infographic_mode", "own_mode", "storefront_mode",
+        "photos", "downloaded_paths", "own_bg_photo_id", "own_product_photo_id",
+        "user_photo_id", "result_photo_id", "has_person", "age", "size", "height", "body_type",
+        "pants_style", "sleeve", "length", "pose", "dist", "view", "season", "holiday",
+        "info_gender", "info_load", "info_lang", "info_brand", "info_extra", "info_angle", "info_pose",
+        "info_season", "info_holiday", "aspect", "prompt", "own_sleeve", "own_length",
+        "height_cm", "width_cm", "length_cm", "product_name", "style"
+    }
+    
+    dynamic_found = False
+    for k, v in data.items():
+        if k not in exclude_keys and v and isinstance(v, (str, int, float)):
+            # Пропускаем file_id
+            if isinstance(v, str) and v.startswith("AgAC"):
+                continue
+            if not dynamic_found:
+                parts.append("\n🔹 **Дополнительно**:\n")
+                dynamic_found = True
+            parts.append(f"• {k}: {v}\n")
+
+    parts.append(f"\n🖼️ **Формат**: {aspect.replace('x', ':')}\n\n")
     parts.append("Все верно? Нажмите кнопку ниже для генерации.")
     
-    await _replace_with_text(callback, "".join(parts), reply_markup=form_generate_keyboard())
+    await _replace_with_text(callback, "".join(parts), reply_markup=form_generate_keyboard(lang))
     await _safe_answer(callback)
 
 
@@ -2400,6 +2611,23 @@ async def on_back_step(callback: CallbackQuery, state: FSMContext, db: Database)
         await on_back_main(callback, state, db)
         return
 
+    # --- Поддержка динамических шагов ---
+    current_index = data.get("current_step_index")
+    if current_index is not None:
+        if current_index > 0:
+            # Возвращаемся к предыдущему динамическому шагу
+            await state.update_data(current_step_index=current_index - 1)
+            await _show_next_step(callback, state, db)
+            await _safe_answer(callback)
+            return
+        else:
+            # Мы в начале динамического флоу — возвращаемся в меню
+            await on_marketplace_menu(callback, db)
+            await state.clear()
+            await _safe_answer(callback)
+            return
+
+    # --- Старая логика (фолбэк) ---
     # 1. Специфичные состояния, не зависящие от категории
     if current_state == CreateForm.waiting_prompt.state:
         await _replace_with_text(callback, get_string("upload_photo", lang), reply_markup=back_main_keyboard(lang))
@@ -3074,6 +3302,27 @@ async def _build_final_prompt(data: dict, db: Database) -> str:
             if data.get("pose"): prompt_filled += f" Model pose: {data.get('pose')}."
             if data.get("dist"): prompt_filled += f" Camera distance: {data.get('dist')}."
             if data.get("season"): prompt_filled += f" Season: {data.get('season')}."
+
+    # --- ДОБАВЛЯЕМ ДИНАМИЧЕСКИЕ ПАРАМЕТРЫ ---
+    dynamic_parts = []
+    exclude_keys = {
+        "category", "cloth", "index", "model_id", "prompt_id", 
+        "current_step_id", "current_step_key", "current_step_index",
+        "is_preset", "random_mode", "random_other_mode", "normal_gen_mode",
+        "infographic_mode", "own_mode", "storefront_mode",
+        "photos", "downloaded_paths", "own_bg_photo_id", "own_product_photo_id",
+        "user_photo_id", "result_photo_id", "has_person", "age", "size", "height", "body_type",
+        "pants_style", "sleeve", "length", "pose", "dist", "view", "season", "holiday",
+        "info_gender", "info_load", "info_lang", "info_brand", "info_extra", "info_angle", "info_pose",
+        "info_season", "info_holiday"
+    }
+    for k, v in data.items():
+        if k not in exclude_keys and v and isinstance(v, str):
+            if not v.startswith("AgAC"): # Пропускаем file_id
+                dynamic_parts.append(f"{k}: {v}")
+    
+    if dynamic_parts:
+        prompt_filled += ". Additional details: " + ", ".join(dynamic_parts) + "."
 
     # Добавляем брендинг
     prompt_filled = db.add_ai_room_branding(prompt_filled)

@@ -863,3 +863,72 @@ async def toggle_maintenance(db: aiosqlite.Connection = Depends(get_db), user: s
     await db.execute("INSERT INTO app_settings (key, value) VALUES ('maintenance', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (new_val,))
     await db.commit()
     return RedirectResponse(url="/", status_code=303)
+
+# --- Конструктор категорий и шагов ---
+@app.get("/constructor", response_class=HTMLResponse)
+async def constructor_page(request: Request, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    async with db.execute("SELECT id, key, name_ru, is_active, order_index FROM categories ORDER BY order_index, id") as cur:
+        categories = await cur.fetchall()
+    return templates.TemplateResponse("constructor.html", {"request": request, "categories": categories})
+
+@app.get("/constructor/category/{cat_id}", response_class=HTMLResponse)
+async def category_steps_page(request: Request, cat_id: int, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    async with db.execute("SELECT id, key, name_ru, is_active, order_index FROM categories WHERE id=?", (cat_id,)) as cur:
+        category = await cur.fetchone()
+    if not category:
+        return RedirectResponse("/constructor")
+    
+    async with db.execute(
+        "SELECT id, step_key, question_text, input_type, is_optional, order_index FROM steps WHERE category_id=? ORDER BY order_index, id",
+        (cat_id,)
+    ) as cur:
+        steps = await cur.fetchall()
+    
+    steps_with_options = []
+    for step in steps:
+        async with db.execute(
+            "SELECT id, option_text, option_value, order_index FROM step_options WHERE step_id=? ORDER BY order_index, id",
+            (step['id'],)
+        ) as cur_opt:
+            options = await cur_opt.fetchall()
+        
+        steps_with_options.append({
+            "id": step['id'],
+            "key": step['step_key'],
+            "question": step['question_text'],
+            "type": step['input_type'],
+            "optional": step['is_optional'],
+            "order": step['order_index'],
+            "options": options
+        })
+    
+    return templates.TemplateResponse("category_edit.html", {
+        "request": request, 
+        "category": category, 
+        "steps": steps_with_options
+    })
+
+@app.post("/constructor/step/add/{cat_id}")
+async def admin_add_step(cat_id: int, step_key: str = Form(...), question: str = Form(...), input_type: str = Form(...), is_optional: int = Form(0), order: int = Form(0), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    await db.execute(
+        "INSERT INTO steps (category_id, step_key, question_text, input_type, is_optional, order_index) VALUES (?, ?, ?, ?, ?, ?)",
+        (cat_id, step_key, question, input_type, is_optional, order)
+    )
+    await db.commit()
+    return RedirectResponse(f"/constructor/category/{cat_id}", status_code=303)
+
+@app.post("/constructor/step/delete/{cat_id}/{step_id}")
+async def admin_delete_step(cat_id: int, step_id: int, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    await db.execute("DELETE FROM step_options WHERE step_id=?", (step_id,))
+    await db.execute("DELETE FROM steps WHERE id=?", (step_id,))
+    await db.commit()
+    return RedirectResponse(f"/constructor/category/{cat_id}", status_code=303)
+
+@app.post("/constructor/option/add/{cat_id}/{step_id}")
+async def admin_add_option(cat_id: int, step_id: int, text: str = Form(...), value: str = Form(...), order: int = Form(0), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    await db.execute(
+        "INSERT INTO step_options (step_id, option_text, option_value, order_index) VALUES (?, ?, ?, ?)",
+        (step_id, text, value, order)
+    )
+    await db.commit()
+    return RedirectResponse(f"/constructor/category/{cat_id}", status_code=303)

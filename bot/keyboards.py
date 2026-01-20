@@ -963,3 +963,20 @@ def admin_howto_edit_keyboard(lang="ru") -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text=get_string("back", lang), callback_data="admin_main")],
         ]
     )
+
+def dynamic_keyboard(options: list[tuple], is_optional: bool = False, lang="ru") -> InlineKeyboardMarkup:
+    """Универсальная клавиатура для динамических шагов"""
+    rows = []
+    # options: list of (id, text, value, order)
+    # Группируем по 2 кнопки в ряд
+    for i in range(0, len(options), 2):
+        row = []
+        for opt in options[i:i+2]:
+            row.append(InlineKeyboardButton(text=opt[1], callback_data=f"dyn_opt:{opt[2]}"))
+        rows.append(row)
+    
+    if is_optional:
+        rows.append([InlineKeyboardButton(text=get_string("skip", lang), callback_data="dyn_opt:skip")])
+    
+    rows.append([InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)

@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container">
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-line"><a href="/constructor">Конструктор</a></li>
+            <li class="breadcrumb-item active" aria-current="page">Настройка {{ category['name_ru'] }}</li>
+        </ol>
+    </nav>
+
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2><i class="bi bi-pencil-square me-2"></i> {{ category['name_ru'] }}</h2>
+    </div>
+
+    <div class="card shadow-sm mb-4 border-0">
+        <div class="card-header bg-white py-3">
+            <h5 class="mb-0">Добавить новый вопрос (шаг)</h5>
+        </div>
+        <div class="card-body">
+            <form action="/constructor/step/add/{{ category['id'] }}" method="post" class="row g-3">
+                <div class="col-md-3">
+                    <label class="form-label">Ключ (ID шага)</label>
+                    <input type="text" name="step_key" class="form-control" placeholder="например: age" required>
+                </div>
+                <div class="col-md-5">
+                    <label class="form-label">Текст вопроса в боте</label>
+                    <input type="text" name="question" class="form-control" placeholder="Введите ваш возраст:" required>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Тип ввода</label>
+                    <select name="input_type" class="form-select">
+                        <option value="buttons">Кнопки</option>
+                        <option value="text">Текст</option>
+                        <option value="photo">Фото</option>
+                    </select>
+                </div>
+                <div class="col-md-1">
+                    <label class="form-label">Обязат.</label>
+                    <select name="is_optional" class="form-select">
+                        <option value="0">Да</option>
+                        <option value="1">Нет (Skip)</option>
+                    </select>
+                </div>
+                <div class="col-md-1 d-flex align-items-end">
+                    <button type="submit" class="btn btn-success w-100"><i class="bi bi-plus"></i></button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <h4 class="mb-3">Существующие вопросы:</h4>
+    <div class="accordion shadow-sm" id="stepsAccordion">
+        {% for step in steps %}
+        <div class="accordion-item border-0 mb-2 shadow-sm" style="border-radius: 12px; overflow: hidden;">
+            <h2 class="accordion-header">
+                <button class="accordion-button collapsed py-3" type="button" data-bs-toggle="collapse" data-bs-target="#collapse{{ step.id }}">
+                    <div class="d-flex w-100 justify-content-between align-items-center pe-3">
+                        <div>
+                            <span class="badge bg-secondary me-2">#{{ step.order }}</span>
+                            <span class="fw-bold">{{ step.question }}</span>
+                            <small class="text-muted ms-2">({{ step.key }})</small>
+                        </div>
+                        <div>
+                            <span class="badge bg-info me-2">{{ step.type }}</span>
+                            {% if step.optional %}<span class="badge bg-warning">Optional</span>{% endif %}
+                        </div>
+                    </div>
+                </button>
+            </h2>
+            <div id="collapse{{ step.id }}" class="accordion-collapse collapse" data-bs-parent="#stepsAccordion">
+                <div class="accordion-body bg-light">
+                    {% if step.type == 'buttons' %}
+                    <div class="mb-3">
+                        <h6>Варианты ответов (кнопки):</h6>
+                        <div class="d-flex flex-wrap gap-2 mb-3">
+                            {% for opt in step.options %}
+                            <div class="badge bg-white text-dark border p-2 d-flex align-items-center shadow-sm">
+                                <span>{{ opt[1] }} <small class="text-muted">({{ opt[2] }})</small></span>
+                                <button class="btn btn-link btn-xs text-danger ms-2 p-0"><i class="bi bi-x-circle"></i></button>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        
+                        <form action="/constructor/option/add/{{ category['id'] }}/{{ step.id }}" method="post" class="row g-2 align-items-center">
+                            <div class="col-auto">
+                                <input type="text" name="text" class="form-control form-control-sm" placeholder="Текст кнопки" required>
+                            </div>
+                            <div class="col-auto">
+                                <input type="text" name="value" class="form-control form-control-sm" placeholder="Значение (ID)" required>
+                            </div>
+                            <div class="col-auto">
+                                <button type="submit" class="btn btn-primary btn-sm btn-round">Добавить кнопку</button>
+                            </div>
+                        </form>
+                    </div>
+                    <hr>
+                    {% endif %}
+                    
+                    <div class="d-flex justify-content-between">
+                        <small class="text-muted">Тип: {{ step.type }} | Ключ: {{ step.key }}</small>
+                        <form action="/constructor/step/delete/{{ category['id'] }}/{{ step.id }}" method="post" onsubmit="return confirm('Удалить этот вопрос?');">
+                            <button type="submit" class="btn btn-outline-danger btn-sm">
+                                <i class="bi bi-trash me-1"></i> Удалить вопрос
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    {% if not steps %}
+    <div class="text-center py-5">
+        <div class="text-muted mb-3"><i class="bi bi-patch-question h1"></i></div>
+        <h5>В этой категории пока нет настроенных вопросов.</h5>
+        <p class="text-muted">Добавьте первый вопрос, используя форму выше.</p>
+    </div>
+    {% endif %}
+
+    <div class="mt-5 text-center">
+        <a href="/constructor" class="btn btn-outline-secondary btn-round px-4">
+            <i class="bi bi-arrow-left me-2"></i> Назад к списку категорий
+        </a>
+    </div>
+</div>
+
+<style>
+    .breadcrumb-item + .breadcrumb-item::before { content: "›"; }
+    .accordion-button:not(.collapsed) { background-color: #f8f9fa; color: inherit; box-shadow: none; }
+    .accordion-button:focus { box-shadow: none; border-color: rgba(0,0,0,.125); }
+    .btn-round { border-radius: 30px; }
+</style>
+{% endblock %}
+

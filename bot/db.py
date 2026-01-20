@@ -1476,7 +1476,7 @@ class Database:
         await self.add_step_option(s4, "Длинный", "long", 2)
         await self.add_step_option(s4, "Без рукавов", "none", 3)
 
-        await self.add_step(cat_id, "length", "📏 Выберите длину изделия:", "buttons", is_optional=1, order_index=6)
+        await self.add_step(cat_id, "length", "📏 Выберите длину изделия. Внимание! если ваш продукт Костюм 2-к, 3-к то длину можно не указывать.", "buttons", is_optional=1, order_index=6)
         # Опции длины обычно с картинками, в БД храним текст/значение
         
         s5 = await self.add_step(cat_id, "pose", "💃 Выберите тип позы:", "buttons", order_index=7)
@@ -1554,7 +1554,7 @@ class Database:
         await self.add_step(cat_id, "info_angle", "📐 Угол камеры (Спереди/Сзади):", "buttons", order_index=15)
         await self.add_step(cat_id, "info_dist", "👁️ Ракурс (Дальний/Средний/Близкий):", "buttons", order_index=16)
         await self.add_step(cat_id, "info_pose", "💃 Поза модели:", "buttons", order_index=17)
-        await self.add_step(cat_id, "length", "📏 Длина изделия:", "buttons", is_optional=1, order_index=18)
+        await self.add_step(cat_id, "length", "📏 Выберите длину изделия. Внимание! если ваш продукт Костюм 2-к, 3-к то длину можно не указывать.", "buttons", is_optional=1, order_index=18)
         await self.add_step(cat_id, "photo", "📸 Пришлите фото товара:", "photo", order_index=19)
         await self.add_step(cat_id, "aspect", "📐 Выбор формата:", "buttons", order_index=20)
 
@@ -1586,7 +1586,7 @@ class Database:
         cat_id = await self.add_category("storefront", "📸 Витринное фото", order_index=6)
         await self.add_step(cat_id, "angle", "📐 Угол камеры (Спереди/Сзади):", "buttons", order_index=1)
         await self.add_step(cat_id, "dist", "👁️ Ракурс (Дальний/Средний/Близкий):", "buttons", order_index=2)
-        await self.add_step(cat_id, "length", "📏 Длина изделия:", "buttons", is_optional=1, order_index=3)
+        await self.add_step(cat_id, "length", "📏 Выберите длину изделия. Внимание! если ваш продукт Костюм 2-к, 3-к то длину можно не указывать.", "buttons", is_optional=1, order_index=3)
         await self.add_step(cat_id, "photo", "📸 Пришлите фото товара:", "photo", order_index=4)
 
         # 7. На белом фоне
@@ -1596,7 +1596,7 @@ class Database:
 
         # 8. Свой вариант модели
         cat_id = await self.add_category("own", "💃 Свой вариант модели", order_index=8)
-        await self.add_step(cat_id, "length", "📏 Длина изделия:", "buttons", order_index=1)
+        await self.add_step(cat_id, "length", "📏 Выберите длину изделия. Внимание! если ваш продукт Костюм 2-к, 3-к то длину можно не указывать.", "buttons", order_index=1)
         await self.add_step(cat_id, "sleeve", "🧥 Тип рукавов:", "buttons", is_optional=1, order_index=2)
         await self.add_step(cat_id, "photo", "📸 Пришлите фото товара:", "photo", order_index=3)
 
@@ -1605,7 +1605,7 @@ class Database:
         await self.add_step(cat_id, "bg_photo", "📸 Пришлите фото фона:", "photo", order_index=1)
         await self.add_step(cat_id, "photo", "📸 Пришлите фото товара:", "photo", order_index=2)
         await self.add_step(cat_id, "sleeve", "🧥 Длина рукава:", "buttons", order_index=3)
-        await self.add_step(cat_id, "length", "📏 Длина изделия:", "buttons", order_index=4)
+        await self.add_step(cat_id, "length", "📏 Выберите длину изделия. Внимание! если ваш продукт Костюм 2-к, 3-к то длину можно не указывать.", "buttons", order_index=4)
         await self.add_step(cat_id, "aspect", "📐 Выбор формата:", "buttons", order_index=5)
 
 

@@ -391,6 +391,20 @@ async def _show_next_step(message_or_callback: Message | CallbackQuery, state: F
         options = await db.list_step_options(step_id)
         from bot.keyboards import dynamic_keyboard
         kb = dynamic_keyboard(options, is_optional=bool(is_optional), lang=lang)
+        
+        # Специальная обработка для длины изделия (добавляем фото-гайд)
+        if step_key == "length":
+            photo_path = "garment_length_guide.jpeg"
+            import os
+            if os.path.exists(photo_path):
+                if isinstance(message_or_callback, CallbackQuery):
+                    try: await message_or_callback.message.delete()
+                    except: pass
+                    await message_or_callback.message.answer_photo(FSInputFile(photo_path), caption=question, reply_markup=kb)
+                else:
+                    await message_or_callback.answer_photo(FSInputFile(photo_path), caption=question, reply_markup=kb)
+                return
+
         if isinstance(message_or_callback, Message):
             await message_or_callback.answer(question, reply_markup=kb)
         else:

@@ -2145,7 +2145,7 @@ async def form_set_size(callback: CallbackQuery, state: FSMContext, db: Database
     lang = await db.get_user_language(callback.from_user.id)
     # 9. Рост модели (п. 4.9)
     await _replace_with_text(callback, "📏 Введите рост модели числом (например: 170):", reply_markup=back_step_keyboard(lang))
-        await state.set_state(CreateForm.waiting_height)
+    await state.set_state(CreateForm.waiting_height)
     await _safe_answer(callback)
 
 

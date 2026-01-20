@@ -168,7 +168,7 @@ WELCOME_TEXT = (
 async def _safe_answer(callback: CallbackQuery, text: str | None = None, show_alert: bool = False) -> None:
     try:
         if callback.id != "0":
-        await callback.answer(text, show_alert=show_alert)
+            await callback.answer(text, show_alert=show_alert)
     except Exception:
         pass
 

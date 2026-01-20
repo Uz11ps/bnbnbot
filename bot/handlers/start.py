@@ -559,7 +559,7 @@ async def on_accept_terms(callback: CallbackQuery, db: Database, bot: Bot) -> No
     await db.set_terms_acceptance(callback.from_user.id, True)
     # После принятия соглашения проверяем подписку (через middleware или явно)
     if await _ensure_access(callback, db, bot):
-    lang = await db.get_user_language(callback.from_user.id)
+        lang = await db.get_user_language(callback.from_user.id)
         await _replace_with_text(callback, get_string("main_menu_title", lang), reply_markup=main_menu_keyboard(lang))
     await _safe_answer(callback)
 

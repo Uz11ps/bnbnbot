@@ -473,6 +473,42 @@ async def cmd_start(message: Message, state: FSMContext, db: Database) -> None:
     lang = await db.get_user_language(user.id)
     await message.answer(get_string("start_welcome", lang), reply_markup=main_menu_keyboard(lang))
 
+@router.message(F.text == "/profile")
+async def cmd_profile(message: Message, db: Database) -> None:
+    # Dummy callback to reuse on_menu_profile logic
+    class FakeCallback:
+        def __init__(self, message, from_user):
+            self.message = message
+            self.from_user = from_user
+        async def answer(self, *args, **kwargs): pass
+    await on_menu_profile(FakeCallback(message, message.from_user), db)
+
+
+@router.message(F.text == "/settings")
+async def cmd_settings(message: Message, db: Database) -> None:
+    class FakeCallback:
+        def __init__(self, message, from_user):
+            self.message = message
+            self.from_user = from_user
+        async def answer(self, *args, **kwargs): pass
+    await on_menu_settings(FakeCallback(message, message.from_user), db)
+
+@router.message(F.text == "/reset")
+async def cmd_reset(message: Message, state: FSMContext, db: Database) -> None:
+    await state.clear()
+    lang = await db.get_user_language(message.from_user.id)
+    await message.answer(get_string("main_menu_title", lang), reply_markup=main_menu_keyboard(lang))
+
+
+@router.message(F.text == "/help")
+async def cmd_help(message: Message, db: Database) -> None:
+    class FakeCallback:
+        def __init__(self, message, from_user):
+            self.message = message
+            self.from_user = from_user
+        async def answer(self, *args, **kwargs): pass
+    await on_menu_howto(FakeCallback(message, message.from_user), db)
+
 @router.callback_query(CreateForm.waiting_dynamic_step, F.data.startswith("dyn_opt:"))
 async def on_dynamic_option(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     val = callback.data.split(":", 1)[1]
@@ -689,15 +725,16 @@ async def on_create_category_universal(callback: CallbackQuery, db: Database, st
     elif cat_key.startswith("infographic"): await state.update_data(infographic_mode=True)
     elif cat_key == "storefront": await state.update_data(storefront_mode=True)
     
-    # Пытаемся запустить динамический флоу
-    category_db = await db.get_category_by_key(cat_key)
-    if category_db:
-        steps = await db.list_steps(category_db[0])
-        if steps:
-            await state.update_data(current_step_index=0)
-            await _show_next_step(callback, state, db)
-            await _safe_answer(callback)
-        return
+    # Пытаемся запустить динамический флоу (кроме пресетов и инфографики, у них свои меню)
+    if cat_key not in ("presets", "infographics") and not cat_key.startswith("infographic"):
+        category_db = await db.get_category_by_key(cat_key)
+        if category_db:
+            steps = await db.list_steps(category_db[0])
+            if steps:
+                await state.update_data(current_step_index=0)
+                await _show_next_step(callback, state, db)
+                await _safe_answer(callback)
+                return
 
     # Если динамических шагов нет — используем старую логику (фолбэк)
     if cat_key == "female": await on_female_category(callback, db, state)
@@ -722,9 +759,8 @@ async def on_preset_gender_selected(callback: CallbackQuery, state: FSMContext, 
     # Сохраняем выбранный пол и флаг пресета
     await state.update_data(category="presets", gender=gender, is_preset=True)
     
-    # Начинаем с самого начала флоу (индекс 0 - Тип локации)
-    await state.update_data(current_step_index=0)
-    await _show_next_step(callback, state, db)
+    # Показываем выбор моделей для этого пола
+    await _show_models_for_category(callback, db, category=gender, cloth="all", index=0, logic_category="presets")
     await _safe_answer(callback)
 
 async def on_infographic_selection_menu(callback: CallbackQuery, db: Database) -> None:
@@ -1925,6 +1961,13 @@ async def on_model_pick(callback: CallbackQuery, db: Database, state: FSMContext
     lang = await db.get_user_language(callback.from_user.id)
     data = await state.get_data()
     
+    # Если мы в режиме пресетов или это пресетная категория — используем динамический флоу
+    if category == "presets" or data.get("is_preset"):
+        await state.update_data(current_step_index=0)
+        await _show_next_step(callback, state, db)
+        await _safe_answer(callback)
+        return
+
     # Витринное фото (НОВЫЙ ФЛОУ)
     if category == "storefront" or data.get("storefront_mode"):
         await _replace_with_text(callback, get_string("select_camera_angle", lang), reply_markup=form_view_keyboard(lang))
@@ -2652,6 +2695,18 @@ async def on_back_step(callback: CallbackQuery, state: FSMContext, db: Database)
                     break
             
             if new_index < 0:
+                # Если это пресеты — возвращаемся к выбору моделей
+                if data.get("is_preset") and data.get("gender"):
+                    await _show_models_for_category(
+                        callback, db, 
+                        category=data.get("gender"), 
+                        cloth=data.get("cloth", "all"), 
+                        index=data.get("index", 0), 
+                        logic_category="presets"
+                    )
+                    await _safe_answer(callback)
+                    return
+                    
                 await on_marketplace_menu(callback, db)
                 await state.clear()
                 await _safe_answer(callback)
@@ -4307,42 +4362,6 @@ async def on_menu_agreement(callback: CallbackQuery, db: Database) -> None:
     
     await _replace_with_text(callback, text, reply_markup=reply_markup)
     await _safe_answer(callback)
-
-@router.message(F.text == "/profile")
-async def cmd_profile(message: Message, db: Database) -> None:
-    # Dummy callback to reuse on_menu_profile logic
-    class FakeCallback:
-        def __init__(self, message, from_user):
-            self.message = message
-            self.from_user = from_user
-        async def answer(self, *args, **kwargs): pass
-    await on_menu_profile(FakeCallback(message, message.from_user), db)
-
-
-@router.message(F.text == "/settings")
-async def cmd_settings(message: Message, db: Database) -> None:
-    class FakeCallback:
-        def __init__(self, message, from_user):
-            self.message = message
-            self.from_user = from_user
-        async def answer(self, *args, **kwargs): pass
-    await on_menu_settings(FakeCallback(message, message.from_user), db)
-
-@router.message(F.text == "/reset")
-async def cmd_reset(message: Message, state: FSMContext, db: Database) -> None:
-    await state.clear()
-    lang = await db.get_user_language(message.from_user.id)
-    await message.answer(get_string("main_menu_title", lang), reply_markup=main_menu_keyboard(lang))
-
-
-@router.message(F.text == "/help")
-async def cmd_help(message: Message, db: Database) -> None:
-    class FakeCallback:
-        def __init__(self, message, from_user):
-            self.message = message
-            self.from_user = from_user
-        async def answer(self, *args, **kwargs): pass
-    await on_menu_howto(FakeCallback(message, message.from_user), db)
 
 @router.callback_query(F.data.startswith("buy_plan:"))
 async def on_buy_plan(callback: CallbackQuery, db: Database) -> None:

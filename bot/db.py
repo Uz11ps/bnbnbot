@@ -1465,8 +1465,11 @@ class Database:
 
     async def _seed_categories(self) -> None:
         """Предзаполнение категорий и шагов текущей логикой"""
-        # Мы убрали очистку и ранний выход, так как теперь add_category/add_step сами проверяют существование
-        # Это позволяет досеивать новые категории и шаги в существующую базу данных
+        # ОЧИСТКА: Удаляем старые шаги 'photo' и 'aspect', так как они теперь обрабатываются в коде
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute("DELETE FROM step_options WHERE step_id IN (SELECT id FROM steps WHERE step_key IN ('photo', 'aspect'))")
+            await db.execute("DELETE FROM steps WHERE step_key IN ('photo', 'aspect')")
+            await db.commit()
 
         # --- ОБЩИЕ ОПЦИИ ДЛЯ ПОВТОРНОГО ИСПОЛЬЗОВАНИЯ ---
         length_options = [
@@ -1645,8 +1648,6 @@ class Database:
         await self.add_step_option(s_styl_ro, "Дизайнерский", "design", 5)
         await self.add_step_option(s_styl_ro, "Праздничный", "festive", 6)
 
-        await self.add_step(cat_id, "photo", "📸 Пришлите фото товара:", "photo", order_index=12)
-
         # 4. Инфографика одежда
         cat_id = await self.add_category("infographic_clothing", "👕 Инфогр: Одежда и обувь", order_index=4)
         s_gend_ic = await self.add_step(cat_id, "info_gender", "👤 Выберите пол:", "buttons", order_index=1)
@@ -1701,13 +1702,6 @@ class Database:
         s_len_ic = await self.add_step(cat_id, "length", "📏 Выберите длину изделия. Внимание! если ваш продукт Костюм 2-к, 3-к то длину можно не указывать.", "buttons", is_optional=1, order_index=18)
         for i, (t, v) in enumerate(length_options, 1):
             await self.add_step_option(s_len_ic, t, v, i)
-
-        await self.add_step(cat_id, "photo", "📸 Пришлите фото товара:", "photo", order_index=19)
-        
-        s_asp_ic = await self.add_step(cat_id, "aspect", "📐 Выбор формата:", "buttons", order_index=20)
-        await self.add_step_option(s_asp_ic, "1:1", "1:1", 1)
-        await self.add_step_option(s_asp_ic, "3:4", "3:4", 2)
-        await self.add_step_option(s_asp_ic, "4:3", "4:3", 3)
 
         # 5. Инфографика прочее
         cat_id = await self.add_category("infographic_other", "📦 Инфогр: Остальные товары", order_index=5)

@@ -1583,13 +1583,14 @@ async def on_prompt_input(message: Message, state: FSMContext, db: Database) -> 
 
 
 @router.callback_query(CreateForm.waiting_aspect, F.data.startswith("form_aspect:"))
-@router.callback_query(CreateForm.waiting_aspect, F.data.startswith("form_aspect:"))
 async def on_aspect_selected(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     aspect = callback.data.split(":", 1)[1]
+    # Приводим к единому формату
+    aspect = aspect.replace('x', ':')
     await state.update_data(aspect=aspect)
     
-    # Используем единую функцию подтверждения для всех режимов
-    await _show_confirmation(callback, state, db)
+    # Возвращаемся в основной флоу для показа подтверждения
+    await _show_next_step(callback, state, db)
     await _safe_answer(callback)
 
 
@@ -2256,21 +2257,9 @@ async def form_set_view(callback: CallbackQuery, state: FSMContext, db: Database
         await _safe_answer(callback)
         return
 
-    # Стандартная логика: сохраняем ракурс и сразу просим фото
+    # Стандартная логика: сохраняем ракурс и возвращаемся в флоу
     await state.update_data(view=view)
-    text = (
-        "📸 Пожалуйста пришлите фотографию вашего товара.\n\n"
-        "⚠️ Обратите внимание: фотография должна быть четкой без лишних бликов и размытостей.\n\n"
-        "Если остались вопросы - пишите в поддержку @bnbslow"
-    )
-    
-    # Проверка на дубликат сообщения (чтобы не отправлять дважды)
-    if callback.message.text and "📸 Пожалуйста пришлите фотографию" in callback.message.text:
-        await _safe_answer(callback)
-        return
-
-    await state.set_state(CreateForm.waiting_view)
-    await _replace_with_text(callback, text)
+    await _show_next_step(callback, state, db)
     await _safe_answer(callback)
 
 @router.callback_query(CreateForm.waiting_preset_pose, F.data.startswith("pose:"))
@@ -2472,10 +2461,8 @@ async def handle_user_photo(message: Message, state: FSMContext, db: Database) -
         await on_aspect_selected(dummy_callback, state, db)
         return
 
-    # ДЛЯ ВСЕХ ОСТАЛЬНЫХ РЕЖИМОВ: фото — это ПОСЛЕДНИЙ шаг перед форматом
-    from bot.keyboards import aspect_ratio_keyboard
-    await message.answer(get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
-    await state.set_state(CreateForm.waiting_aspect)
+    # ДЛЯ ВСЕХ ОСТАЛЬНЫХ РЕЖИМОВ: возвращаемся в основной флоу
+    await _show_next_step(message, state, db)
 
 
 @router.callback_query(F.data == "back_step")
@@ -2918,12 +2905,8 @@ async def form_generate(callback: CallbackQuery, state: FSMContext, db: Database
                 await _safe_answer(callback, "Сначала загрузите фотографию товара.", show_alert=True)
                 return
         else:
-            if not data.get("user_photo_id"):
-                text = (
-                    "📸 Пожалуйста пришлите фотографию вашего товара.\n\n"
-                    "⚠️ Обратите внимание: фотография должна быть четкой без лишних бликов и размытостей.\n\n"
-                    "Если остались вопросы - пишите в поддержку @bnbslow"
-                )
+            if not (data.get("user_photo_id") or data.get("photo")):
+                text = get_string("upload_product", lang)
                 await state.set_state(CreateForm.waiting_view)
                 await callback.message.answer(text)
                 await _safe_answer(callback)
@@ -3039,7 +3022,7 @@ async def form_generate(callback: CallbackQuery, state: FSMContext, db: Database
                 elif data.get("own_mode"):
                     input_photos = [data.get("own_product_photo_id")]
                 else:
-                    input_photos = [data.get("user_photo_id")]
+                    input_photos = [data.get("user_photo_id") or data.get("photo")]
             
             try:
                 bot = callback.bot
@@ -3239,7 +3222,7 @@ async def on_result_edit_text(message: Message, state: FSMContext, db: Database)
         elif data.get("own_mode"):
             input_photos = [data.get("own_product_photo_id")]
     else:
-        input_photos = [data.get("user_photo_id")]
+        input_photos = [data.get("user_photo_id") or data.get("photo")]
     
     input_photos = [fid for fid in input_photos if fid]
     if not input_photos:

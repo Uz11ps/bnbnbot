@@ -3095,17 +3095,23 @@ async def _do_generate(message_or_callback: Message | CallbackQuery, state: FSMC
                     
                     anim_task.cancel()
                     from aiogram.types import FSInputFile
-                    res_msg = await ans_obj.answer_photo(photo=FSInputFile(result_path), caption=get_string("gen_success", lang))
+                    from bot.keyboards import result_actions_keyboard, result_actions_own_keyboard
+                    
+                    # Определяем клавиатуру ЗАРАНЕЕ
+                    kb_res = result_actions_own_keyboard(lang) if (data.get("own_mode") or category == "own_variant") else result_actions_keyboard(lang)
+                    
+                    res_msg = await ans_obj.answer_photo(
+                        photo=FSInputFile(result_path), 
+                        caption=get_string("gen_success", lang),
+                        reply_markup=kb_res
+                    )
+                    
                     try: os.remove(result_path)
                     except: pass
                     
                     res_photo_id = res_msg.photo[-1].file_id
                     await db.add_generation_history(user_id, prompt_filled, res_photo_id, category)
                     await state.update_data(result_photo_id=res_photo_id)
-                    
-                    from bot.keyboards import result_actions_keyboard, result_actions_own_keyboard
-                    kb_res = result_actions_own_keyboard(lang) if (data.get("own_mode") or category == "own_variant") else result_actions_keyboard(lang)
-                    await res_msg.edit_reply_markup(reply_markup=kb_res)
                     
                     try: await process_msg.delete()
                     except: pass

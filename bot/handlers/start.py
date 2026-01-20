@@ -1103,7 +1103,7 @@ async def on_generic_gender_select(callback: CallbackQuery, state: FSMContext, d
             cloth_val = gender if display_cat == "child" else "all"
             await _show_models_for_category(callback, db, display_cat, cloth_val, logic_category="storefront")
     else:
-    await _show_models_for_category(callback, db, category, "all")
+        await _show_models_for_category(callback, db, category, "all")
     await _safe_answer(callback)
 
 # --- РАЗДЕЛ ИНФОГРАФИКА ---

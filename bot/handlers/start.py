@@ -2901,6 +2901,7 @@ async def _do_generate(message_or_callback: Message | CallbackQuery, state: FSMC
     data = await state.get_data()
     logger.info(f"[_do_generate] Начало генерации для пользователя {user_id}. Данные сессии: {data}")
     
+    # Определяем объект для ответов и бота
     if isinstance(message_or_callback, CallbackQuery):
         ans_obj = message_or_callback.message
         bot = message_or_callback.bot
@@ -2908,6 +2909,7 @@ async def _do_generate(message_or_callback: Message | CallbackQuery, state: FSMC
         ans_obj = message_or_callback
         bot = message_or_callback.bot
 
+    # Проверка техработ
     if await db.get_maintenance():
         settings = load_settings()
         if user_id not in (settings.admin_ids or []):
@@ -2918,6 +2920,7 @@ async def _do_generate(message_or_callback: Message | CallbackQuery, state: FSMC
                 await ans_obj.answer(get_string("maintenance_alert", lang))
             return
 
+    # Если не обычная генерация и нет фото - просим прислать (для пресетов и т.д.)
     category = data.get("category")
     lang = await db.get_user_language(user_id)
 
@@ -2952,6 +2955,7 @@ async def _do_generate(message_or_callback: Message | CallbackQuery, state: FSMC
                 await ans_obj.answer(get_string("limit_rem_zero", lang))
             return
         
+        # sub structure: (plan_type, expires_at, daily_limit, daily_usage, ind_key)
         plan_type, expires_at, daily_limit, daily_usage, ind_key = sub
         if daily_usage >= daily_limit:
             if isinstance(message_or_callback, CallbackQuery):
@@ -2961,6 +2965,15 @@ async def _do_generate(message_or_callback: Message | CallbackQuery, state: FSMC
             return
         
         quality = '4K' if '4K' in plan_type.upper() else 'HD'
+
+        if not data:
+            logger.error(f"[_do_generate] КРИТИЧЕСКАЯ ОШИБКА: Данные сессии пусты для пользователя {user_id}")
+            if isinstance(message_or_callback, CallbackQuery):
+                await _safe_answer(message_or_callback, get_string("session_not_found", lang) + " (пустые данные)", show_alert=True)
+            else:
+                await ans_obj.answer(get_string("session_not_found", lang) + " (пустые данные)")
+            return
+
         balance = await db.get_user_balance(user_id)
         frac = await db.get_user_fraction(user_id)
         total_tenths = balance * 10 + frac
@@ -2974,24 +2987,38 @@ async def _do_generate(message_or_callback: Message | CallbackQuery, state: FSMC
             return
 
         prompt_filled = await _build_final_prompt(data, db)
+
         if quality == '4K':
             prompt_filled += " High quality, 4K resolution, ultra detailed."
 
+        # Отправляем сообщение о начале генерации с анимацией
         process_msg = await ans_obj.answer("🎨 ⚡️ ⏳")
         
         async def animate_gen(msg, lang_code):
             start_time = time.time()
-            steps_text = ["Изучаю ваш запрос", "Обрабатываю детали", "Применяю нейронные фильтры", "Улучшаю качество", "Финализирую"]
+            steps_text = [
+                "Изучаю ваш запрос",
+                "Обрабатываю детали",
+                "Применяю нейронные фильтры",
+                "Улучшаю качество",
+                "Финализирую"
+            ]
+            total_steps = 5
             try:
-                for step in range(1, 6):
+                for step in range(1, total_steps + 1):
                     for sub in range(4):
                         elapsed = int(time.time() - start_time)
-                        progress = int(((step - 1) / 5 + (sub / 4) / 5) * 100)
+                        progress = int(((step - 1) / total_steps + (sub / 4) / total_steps) * 100)
                         if progress > 99: progress = 99
                         filled = int(progress / 10)
                         bar = "🟦" * filled + "⬜️" * (10 - filled)
-                        text = (f"🚀 Генерация\n\n{steps_text[step-1]}\n\n{bar} {progress}%\n\n"
-                                f"Прошло: {elapsed}с • Шаг {step}/5\n\nРезультат вас приятно удивит")
+                        text = (
+                            f"🚀 Генерация\n\n"
+                            f"{steps_text[step-1]}\n\n"
+                            f"{bar} {progress}%\n\n"
+                            f"Прошло: {elapsed}с • Шаг {step}/{total_steps}\n\n"
+                            f"Результат вас приятно удивит"
+                        )
                         await msg.edit_text(text)
                         await asyncio.sleep(1.5)
             except: pass
@@ -2999,29 +3026,43 @@ async def _do_generate(message_or_callback: Message | CallbackQuery, state: FSMC
         anim_task = asyncio.create_task(animate_gen(process_msg, lang))
     
         is_own_variant = (category == "own_variant")
-        api_keys = await db.list_own_variant_api_keys() if is_own_variant else await db.list_api_keys()
-        active_keys = [k for k in api_keys if k[2]]
-        
+        if data.get("normal_gen_mode"):
+            is_own_variant = False
+            
+        if is_own_variant:
+            api_keys = await db.list_own_variant_api_keys()
+        else:
+            api_keys = await db.list_api_keys()
+            
+        active_keys = [k for k in api_keys if k[2]] # is_active
         if not active_keys:
             anim_task.cancel()
-            await process_msg.delete()
+            try: await process_msg.delete()
+            except: pass
             err_text = get_string("api_error_user", lang)
-            if isinstance(message_or_callback, CallbackQuery): await _replace_with_text(message_or_callback, err_text)
-            else: await ans_obj.answer(err_text)
+            if isinstance(message_or_callback, CallbackQuery):
+                await _replace_with_text(message_or_callback, err_text)
+            else:
+                await ans_obj.answer(err_text)
             return
             
         import random
         random.shuffle(active_keys)
         
         for key_tuple in active_keys:
-            kid, token = key_tuple[0], key_tuple[1]
-            ok, _ = await db.check_own_variant_rate_limit(kid) if is_own_variant else await db.check_api_key_limits(kid)
+            kid = key_tuple[0]
+            token = key_tuple[1]
+            if is_own_variant:
+                ok, limit_err = await db.check_own_variant_rate_limit(kid)
+            else:
+                ok, limit_err = await db.check_api_key_limits(kid)
             if not ok: continue
-                
+            
             try:
                 downloaded_paths = []
                 import uuid
                 for fid in input_photos:
+                    if not fid: continue
                     f_info = await bot.get_file(fid)
                     ext = f_info.file_path.split('.')[-1]
                     p = f"data/temp_{uuid.uuid4()}.{ext}"
@@ -3038,9 +3079,19 @@ async def _do_generate(message_or_callback: Message | CallbackQuery, state: FSMC
                     except: pass
                 
                 if result_path:
-                    await db.log_api_usage(kid, user_id, prompt_filled, quality, True)
-                    await db.reduce_user_daily_limit(user_id)
-                    await db.deduct_user_balance_tenths(user_id, price_tenths)
+                    if is_own_variant: await db.record_own_variant_usage(kid)
+                    else: await db.record_api_usage(kid)
+                    
+                    await db.update_daily_usage(user_id)
+                    await db.increment_user_balance(user_id, -(price_tenths // 10))
+                    rem = price_tenths % 10
+                    if rem > 0:
+                        cur_frac = await db.get_user_fraction(user_id)
+                        new_frac = cur_frac - rem
+                        if new_frac < 0:
+                            await db.increment_user_balance(user_id, -1)
+                            new_frac += 10
+                        await db.set_user_fraction(user_id, new_frac)
                     
                     anim_task.cancel()
                     from aiogram.types import FSInputFile
@@ -3060,10 +3111,13 @@ async def _do_generate(message_or_callback: Message | CallbackQuery, state: FSMC
                     except: pass
                     if isinstance(message_or_callback, CallbackQuery): await _safe_answer(message_or_callback)
                     return
+                else:
+                    from bot.gemini import is_proxy_error
+                    await db.record_api_error(kid, token[:10], "EmptyResult", "Empty result from API", is_proxy_error=False)
             except Exception as e:
                 logger.error(f"Ошибка генерации на ключе {kid}: {e}")
-                await db.log_api_usage(kid, user_id, prompt_filled, quality, False, str(e))
-                await db.log_api_error(kid, str(e))
+                from bot.gemini import is_proxy_error
+                await db.record_api_error(kid, token[:10], type(e).__name__, str(e), is_proxy_error=is_proxy_error(e))
         
         anim_task.cancel()
         try: await process_msg.delete()
@@ -3078,205 +3132,6 @@ async def _do_generate(message_or_callback: Message | CallbackQuery, state: FSMC
         err_text = get_string("gen_error_contact_support", lang)
         if isinstance(message_or_callback, CallbackQuery): await _replace_with_text(message_or_callback, err_text)
         else: await ans_obj.answer(err_text)
-    
-        # Выбор API ключа
-        category = data.get("category")
-        is_own_variant = (category == "own_variant")
-        
-        # Если normal_gen_mode, используем обычные ключи Gemini
-        if data.get("normal_gen_mode"):
-            is_own_variant = False
-            
-        if is_own_variant:
-            api_keys = await db.list_own_variant_api_keys()
-        else:
-            api_keys = await db.list_api_keys()
-            
-        # Фильтруем только активные
-        active_keys = [k for k in api_keys if k[2]] # is_active
-        if not active_keys:
-            await _replace_with_text(callback, get_string("api_error_user", lang))
-            return
-            
-        # Перебираем ключи пока не найдем рабочий (rotate)
-        result_url = None
-        error_msg = None
-        
-        import random
-        random.shuffle(active_keys)
-        
-        for key_tuple in active_keys:
-            kid = key_tuple[0]
-            token = key_tuple[1]
-            
-            # Проверка лимитов ключа
-            if is_own_variant:
-                ok, limit_err = await db.check_own_variant_rate_limit(kid)
-            else:
-                ok, limit_err = await db.check_api_key_limits(kid)
-                
-            if not ok:
-                logger.warning(f"Key {kid} reached limit: {limit_err}")
-                continue
-                
-            # Пробуем генерацию
-            from bot.gemini import generate_image
-            
-            input_photos = data.get("photos", [])
-            # Если это не обычная генерация, берем user_photo_id
-            if not data.get("normal_gen_mode"):
-                if category == "own_variant":
-                    input_photos = [data.get("own_bg_photo_id"), data.get("own_product_photo_id")]
-                elif data.get("own_mode"):
-                    input_photos = [data.get("own_product_photo_id")]
-                else:
-                    input_photos = [data.get("user_photo_id") or data.get("photo")]
-            
-            try:
-                bot = callback.bot
-                
-                downloaded_paths = []
-                import uuid
-                for fid in input_photos:
-                    if not fid: continue
-                    f_info = await bot.get_file(fid)
-                    ext = f_info.file_path.split('.')[-1]
-                    p = f"data/temp_{uuid.uuid4()}.{ext}"
-                    await bot.download_file(f_info.file_path, p)
-                    downloaded_paths.append(p)
-                
-                # Aspect ratio
-                aspect = data.get("aspect", "1:1").replace(":", "x")
-                
-                # Вызываем генерацию
-                result_path = await generate_image(
-                    api_key=token,
-                    prompt=prompt_filled,
-                    image_paths=downloaded_paths,
-                    aspect_ratio=aspect,
-                    quality=quality
-                )
-                
-                # Чистим временные файлы
-                import os
-                for p in downloaded_paths:
-                    try: os.remove(p)
-                    except: pass
-                
-                if result_path:
-                    # Успех! Записываем использование
-                    if is_own_variant:
-                        await db.record_own_variant_usage(kid)
-                    else:
-                        await db.record_api_usage(kid)
-                        
-                    # Отправляем результат
-                    from aiogram.types import FSInputFile
-                    from bot.keyboards import result_actions_keyboard, result_actions_own_keyboard
-                    
-                    # Останавливаем анимацию и удаляем сообщение о загрузке
-                    anim_task.cancel()
-                    try: await process_msg.delete()
-                    except: pass
-
-                    res_msg = await bot.send_photo(
-                        chat_id=user_id,
-                        photo=FSInputFile(result_path),
-                        caption=get_string("gen_success", lang),
-                        reply_markup=result_actions_keyboard(lang) if not is_own_variant else result_actions_own_keyboard(lang)
-                    )
-                    
-                    # Сохраняем в историю
-                    import json
-                    import os
-                    pid = await db.generate_pid()
-                    
-                    # Создаем папку для истории
-                    history_dir = os.path.join("data", "history")
-                    os.makedirs(history_dir, exist_ok=True)
-                    
-                    # Сохраняем локальные пути для админки
-                    local_input_paths = []
-                    local_result_path = os.path.join(history_dir, f"result_{pid}.jpg")
-                    
-                    try:
-                        # Качаем результат
-                        file_info = await bot.get_file(res_msg.photo[-1].file_id)
-                        await bot.download_file(file_info.file_path, local_result_path)
-                        
-                        # Качаем входные фото
-                        for i, f_id in enumerate(input_photos):
-                            if not f_id: continue
-                            inp_path = os.path.join(history_dir, f"input_{pid}_{i}.jpg")
-                            try:
-                                f_info = await bot.get_file(f_id)
-                                await bot.download_file(f_info.file_path, inp_path)
-                                local_input_paths.append(inp_path)
-                            except: pass
-                    except Exception as e:
-                        logger.error(f"Error downloading images for history: {e}")
-
-                    await db.add_generation_history(
-                        pid=pid,
-                        user_id=user_id,
-                        category=category,
-                        params=json.dumps(data),
-                        input_photos=json.dumps(input_photos),
-                        result_photo_id=res_msg.photo[-1].file_id,
-                        input_paths=json.dumps(local_input_paths),
-                        result_path=local_result_path
-                    )
-                    
-                    # Списываем баланс
-                    await db.increment_user_balance(user_id, -(price_tenths // 10))
-                    # Остаток в фракции
-                    rem = price_tenths % 10
-                    if rem > 0:
-                        cur_frac = await db.get_user_fraction(user_id)
-                        new_frac = cur_frac - rem
-                        if new_frac < 0:
-                            await db.increment_user_balance(user_id, -1)
-                            new_frac += 10
-                        await db.set_user_fraction(user_id, new_frac)
-                    
-                    # Инкрементируем daily_usage подписки
-                    await db.update_daily_usage(user_id)
-                    
-                    try: os.remove(result_path)
-                    except: pass
-                    
-                    await state.set_state(CreateForm.result_ready)
-                    await state.update_data(last_pid=pid)
-                    return
-                    
-            except Exception as e:
-                logger.error(f"Generation error with key {kid}: {e}")
-                
-                # Останавливаем анимацию при ошибке
-                anim_task.cancel()
-                try: await process_msg.delete()
-                except: pass
-
-                from bot.gemini import is_proxy_error
-                await db.record_api_error(
-                    key_id=kid,
-                    api_key_preview=token[:10],
-                    error_type=type(e).__name__,
-                    error_message=str(e),
-                    is_proxy_error=is_proxy_error(e)
-                )
-                error_msg = str(e)
-                continue
-        
-        # Если дошли сюда, значит все ключи не сработали
-        await _replace_with_text(callback, get_string("api_error_user", lang))
-        
-    except Exception as e:
-        logger.exception(f"Critical error in form_generate: {e}")
-        await _safe_answer(callback, get_string("internal_error", lang), show_alert=True)
-    
-    await _safe_answer(callback)
-
 
 @router.callback_query(F.data == "result_edit")
 async def on_result_edit(callback: CallbackQuery, state: FSMContext, db: Database) -> None:

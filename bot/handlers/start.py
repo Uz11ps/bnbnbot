@@ -1203,10 +1203,10 @@ async def on_infographic_load_input(message: Message, state: FSMContext, db: Dat
     # Извлекаем только цифры или проверяем на пропуск
     load_value = ""
     if text.lower() not in ("пропустить", "skip"):
-    digits = ''.join(ch for ch in text if ch.isdigit())
+        digits = ''.join(ch for ch in text if ch.isdigit())
         if not digits or not (1 <= int(digits) <= 10):
-        await message.answer(get_string("enter_info_load_error", lang))
-        return
+            await message.answer(get_string("enter_info_load_error", lang))
+            return
         load_value = digits
     
     await state.update_data(info_load=load_value)
@@ -1218,7 +1218,7 @@ async def on_infographic_load_input(message: Message, state: FSMContext, db: Dat
     else:
         # 4. Язык инфографики (п. 4.4)
         from bot.keyboards import info_lang_keyboard
-    await message.answer(get_string("select_info_lang", lang), reply_markup=info_lang_keyboard(lang))
+        await message.answer(get_string("select_info_lang", lang), reply_markup=info_lang_keyboard(lang))
         await state.set_state(CreateForm.waiting_info_lang)
 
 @router.callback_query(F.data == "info_load:skip")
@@ -1233,8 +1233,8 @@ async def on_infographic_load_skip_btn(callback: CallbackQuery, state: FSMContex
         await state.set_state(CreateForm.waiting_rand_other_name)
     else:
         # Выбор языка
-    from bot.keyboards import info_lang_keyboard
-    await _replace_with_text(callback, get_string("select_info_lang", lang), reply_markup=info_lang_keyboard(lang))
+        from bot.keyboards import info_lang_keyboard
+        await _replace_with_text(callback, get_string("select_info_lang", lang), reply_markup=info_lang_keyboard(lang))
         await state.set_state(CreateForm.waiting_info_lang)
     await _safe_answer(callback)
 

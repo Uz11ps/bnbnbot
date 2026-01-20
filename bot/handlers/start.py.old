@@ -1583,14 +1583,174 @@ async def on_prompt_input(message: Message, state: FSMContext, db: Database) -> 
 
 
 @router.callback_query(CreateForm.waiting_aspect, F.data.startswith("form_aspect:"))
+@router.callback_query(CreateForm.waiting_aspect, F.data.startswith("form_aspect:"))
 async def on_aspect_selected(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     aspect = callback.data.split(":", 1)[1]
-    # Приводим к единому формату
-    aspect = aspect.replace('x', ':')
     await state.update_data(aspect=aspect)
     
-    # Возвращаемся в основной флоу для показа подтверждения
-    await _show_next_step(callback, state, db)
+    data = await state.get_data()
+    category = data.get("category")
+    lang = await db.get_user_language(callback.from_user.id)
+    parts = ["📋 Проверьте выбранные параметры:\n\n"]
+    
+    if data.get("normal_gen_mode"):
+        parts.append("📦 **Категория**: ✨ ОБЫЧНАЯ ГЕНЕРАЦИЯ\n")
+        parts.append(f"📝 **Промпт**: {data.get('prompt', '—')}\n")
+    
+    elif category == "own_variant" or data.get("category") == "own_variant":
+        parts.append("📦 **Категория**: 🖼️ Свой вариант ФОНА\n")
+        parts.append(f"🧥 **Длина рукав**: {data.get('own_sleeve', '—')}\n")
+        parts.append(f"📏 **Длина изделия**: {data.get('own_length', '—')}\n")
+    
+    elif category == "random_other" or data.get("random_other_mode"):
+        parts.append("📦 **Категория**: 📦 Рандом для остальных видов товара\n")
+        has_person = "Да" if data.get("has_person") else "Нет"
+        parts.append(f"👤 **Человек**: {has_person}\n")
+        if data.get("has_person"):
+            parts.append(f"📊 **Нагруженность**: {data.get('info_load', '—')}\n")
+            parts.append(f"📝 **Название**: {data.get('product_name', '—')}\n")
+            view_map = {"front": "Спереди", "back": "Сзади"}
+            parts.append(f"👀 **Угол**: {view_map.get(data.get('view'), '—')}\n")
+            dist_map = {"close": "Близкий", "far": "Дальний", "medium": "Средний"}
+            parts.append(f"📏 **Ракурс**: {dist_map.get(data.get('dist'), '—')}\n")
+            dims = f"{data.get('height_cm', '—')}x{data.get('width_cm', '—')}x{data.get('length_cm', '—')}"
+            parts.append(f"📐 **ВxШxД**: {dims} см\n")
+            parts.append(f"⏳ **Сезон**: {data.get('season', '—')}\n")
+            parts.append(f"🎨 **Стиль**: {data.get('style', '—')}\n")
+    
+    elif category == "own" or data.get("own_mode"):
+        parts.append("📦 **Категория**: ✨ Свой вариант МОДЕЛИ\n")
+        parts.append(f"🧥 **Длина рукав**: {data.get('own_sleeve', '—')}\n")
+        parts.append(f"📏 **Длина изделия**: {data.get('own_length', '—')}\n")
+        
+    elif data.get("infographic_mode"):
+        parts.append(f"📦 **Категория**: 📊 Инфографика ({category})\n")
+        
+        has_person = "Да" if data.get("has_person") else "Нет"
+        parts.append(f"👤 **Человек**: {has_person}\n")
+        if data.get("has_person"):
+            parts.append(f"🚻 **Пол**: {data.get('info_gender', '—')}\n")
+            parts.append(f"🔢 **Возраст**: {data.get('age', '—')}\n")
+            parts.append(f"🧘 **Поза**: {data.get('info_pose', '—')}\n")
+
+        parts.append(f"📊 **Нагруженность**: {data.get('info_load', '—')}/10\n")
+        parts.append(f"🌐 **Язык**: {data.get('info_lang', '—')}\n")
+        parts.append(f"📝 **Бренд/Название**: {data.get('info_brand', '—')}\n")
+        adv = f"{data.get('info_adv1', '')} {data.get('info_adv2', '')} {data.get('info_adv3', '')}".strip() or "—"
+        parts.append(f"✨ **Преимущества**: {adv}\n")
+        parts.append(f"➕ **Доп. инфо**: {data.get('info_extra', '—')}\n")
+        
+        view_map = {"front": "Спереди", "back": "Сзади"}
+        parts.append(f"👀 **Угол**: {view_map.get(data.get('info_angle'), '—')}\n")
+        parts.append(f"📏 **Ракурс**: {data.get('info_dist', '—')}\n")
+        
+        if category == "infographic_clothing":
+            parts.append(f"📐 **Телосложение (тип)**: {data.get('size', '—')}\n")
+            parts.append(f"📏 **Рост**: {data.get('height', '—')} см\n")
+            parts.append(f"⚖️ **Телосложение (число)**: {data.get('body_type', '—')}\n")
+            parts.append(f"✂️ **Крой**: {data.get('pants_style', '—')}\n")
+            parts.append(f"🧥 **Рукав**: {data.get('sleeve', '—')}\n")
+            parts.append(f"👗 **Длина**: {data.get('length', '—')}\n")
+        
+        if category == "infographic_other":
+            parts.append(f"⏳ **Сезон**: {data.get('info_season', '—')}\n")
+            parts.append(f"🎉 **Праздник**: {data.get('info_holiday', '—')}\n")
+        
+    elif category == "whitebg":
+        parts.append("📦 **Категория**: ⚪ На белом фоне\n")
+    
+    elif category == "storefront":
+        parts.append("📦 **Категория**: 📸 Витринное фото\n")
+        view_map = {"front": "Спереди", "back": "Сзади"}
+        parts.append(f"👀 **Угол**: {view_map.get(data.get('view'), '—')}\n")
+        parts.append(f"📏 **Ракурс**: {data.get('dist', '—')}\n")
+        parts.append(f"👗 **Длина**: {data.get('own_length', '—')}\n")
+            
+    elif data.get("random_mode"):
+        parts.append("📦 **Категория**: 🎨 Рандом (Одежда)\n")
+        gender_map = {"male":"Мужчина","female":"Женщина","boy":"Мальчик","girl":"Девочка"}
+        parts.append(f"🚻 **Пол**: {gender_map.get(data.get('rand_gender'), '—')}\n")
+        
+        loc_map = {"inside_restaurant":"В ресторане","photo_studio":"В фотостудии","coffee_shop":"В кофейне","city":"В городе","building":"У здания","wall":"У стены","park":"В парке","coffee_shop_out":"У кофейни","forest":"В лесу","car":"У машины"}
+        location = data.get("rand_location")
+        if location == "custom":
+            parts.append(f"📍 **Локация**: {data.get('rand_location_custom', '—')}\n")
+        else:
+            parts.append(f"📍 **Локация**: {loc_map.get(location, location or '—')}\n")
+
+        if data.get("age"): 
+            parts.append(f"🎂 **Возраст**: {data.get('age')}\n")
+        parts.append(f"📏 **Рост**: {data.get('height', '—')} см\n")
+        parts.append(f"⚖️ **Телосложение (число)**: {data.get('body_type', '—')}\n")
+        parts.append(f"📐 **Телосложение (тип)**: {data.get('size', '—')}\n")
+        parts.append(f"✂️ **Крой**: {data.get('pants_style', '—')}\n")
+        parts.append(f"🧥 **Рукав**: {data.get('sleeve', '—')}\n")
+        parts.append(f"👗 **Длина**: {data.get('length', '—')}\n")
+        parts.append(f"🧘 **Поза**: {data.get('pose', '—')}\n")
+        parts.append(f"📏 **Ракурс**: {data.get('dist', '—')}\n")
+        parts.append(f"👀 **Вид**: {data.get('view', '—')}\n")
+        parts.append(f"⏳ **Сезон**: {data.get('season', '—')}\n")
+        parts.append(f"🎉 **Праздник**: {data.get('holiday', '—')}\n")
+
+    else:
+        # Обычная модель (Пресеты)
+        cat_name = "Женская" if category == "female" else "Мужская" if category == "male" else "Детская" if category == "child" else category
+        parts.append(f"📦 **Категория**: {cat_name}\n")
+        
+        if not data.get("is_preset"):
+            parts.append(f"👕 **Тип одежды**: {data.get('cloth', '—')}\n")
+        
+        age_map = {"20_26": "20-26 лет", "30_38": "30-38 лет", "40_48": "40-48 лет", "55_60": "55-60 лет"}
+        if data.get("age"):
+            parts.append(f"🎂 **Возраст**: {age_map.get(data.get('age'), data.get('age', '—'))}\n")
+            
+        parts.append(f"📐 **Телосложение**: {data.get('size', '—')}\n")
+        parts.append(f"📏 **Рост**: {data.get('height', '—')} см\n")
+        parts.append(f"✂️ **Крой**: {data.get('pants_style', '—')}\n")
+        parts.append(f"🧥 **Рукав**: {data.get('sleeve', '—')}\n")
+        parts.append(f"👗 **Длина**: {data.get('length', '—')}\n")
+        parts.append(f"🧘 **Поза**: {data.get('pose', '—')}\n")
+        parts.append(f"📏 **Ракурс**: {data.get('dist', '—')}\n")
+        parts.append(f"👀 **Вид**: {data.get('view', '—')}\n")
+        parts.append(f"⏳ **Сезон**: {data.get('season', '—')}\n")
+
+    # Если это инфографика ОДЕЖДА и фото еще нет - просим прислать (п. 4.19)
+    if category == "infographic_clothing" and not data.get("user_photo_id"):
+        back_kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")]])
+        await _replace_with_text(callback, get_string("upload_photo", lang), reply_markup=back_kb)
+        await state.set_state(CreateForm.waiting_view)
+        await _safe_answer(callback)
+        return
+
+    # --- ДОБАВЛЯЕМ ДИНАМИЧЕСКИЕ ПАРАМЕТРЫ В ПРЕВЬЮ ---
+    exclude_keys = {
+        "category", "cloth", "index", "model_id", "prompt_id", 
+        "current_step_id", "current_step_key", "current_step_index",
+        "is_preset", "random_mode", "random_other_mode", "normal_gen_mode",
+        "infographic_mode", "own_mode", "storefront_mode",
+        "photos", "downloaded_paths", "own_bg_photo_id", "own_product_photo_id",
+        "user_photo_id", "result_photo_id", "has_person", "age", "size", "height", "body_type",
+        "pants_style", "sleeve", "length", "pose", "dist", "view", "season", "holiday",
+        "info_gender", "info_load", "info_lang", "info_brand", "info_extra", "info_angle", "info_pose",
+        "info_season", "info_holiday", "aspect", "prompt", "own_sleeve", "own_length",
+        "height_cm", "width_cm", "length_cm", "product_name", "style"
+    }
+    
+    dynamic_found = False
+    for k, v in data.items():
+        if k not in exclude_keys and v and isinstance(v, (str, int, float)):
+            # Пропускаем file_id
+            if isinstance(v, str) and v.startswith("AgAC"):
+                continue
+            if not dynamic_found:
+                parts.append("\n🔹 **Дополнительно**:\n")
+                dynamic_found = True
+            parts.append(f"• {k}: {v}\n")
+
+    parts.append(f"\n🖼️ **Формат**: {aspect.replace('x', ':')}\n\n")
+    parts.append("Все верно? Нажмите кнопку ниже для генерации.")
+    
+    await _replace_with_text(callback, "".join(parts), reply_markup=form_generate_keyboard(lang))
     await _safe_answer(callback)
 
 
@@ -2257,9 +2417,21 @@ async def form_set_view(callback: CallbackQuery, state: FSMContext, db: Database
         await _safe_answer(callback)
         return
 
-    # Стандартная логика: сохраняем ракурс и возвращаемся в флоу
+    # Стандартная логика: сохраняем ракурс и сразу просим фото
     await state.update_data(view=view)
-    await _show_next_step(callback, state, db)
+    text = (
+        "📸 Пожалуйста пришлите фотографию вашего товара.\n\n"
+        "⚠️ Обратите внимание: фотография должна быть четкой без лишних бликов и размытостей.\n\n"
+        "Если остались вопросы - пишите в поддержку @bnbslow"
+    )
+    
+    # Проверка на дубликат сообщения (чтобы не отправлять дважды)
+    if callback.message.text and "📸 Пожалуйста пришлите фотографию" in callback.message.text:
+        await _safe_answer(callback)
+        return
+
+    await state.set_state(CreateForm.waiting_view)
+    await _replace_with_text(callback, text)
     await _safe_answer(callback)
 
 @router.callback_query(CreateForm.waiting_preset_pose, F.data.startswith("pose:"))
@@ -2461,8 +2633,10 @@ async def handle_user_photo(message: Message, state: FSMContext, db: Database) -
         await on_aspect_selected(dummy_callback, state, db)
         return
 
-    # ДЛЯ ВСЕХ ОСТАЛЬНЫХ РЕЖИМОВ: возвращаемся в основной флоу
-    await _show_next_step(message, state, db)
+    # ДЛЯ ВСЕХ ОСТАЛЬНЫХ РЕЖИМОВ: фото — это ПОСЛЕДНИЙ шаг перед форматом
+    from bot.keyboards import aspect_ratio_keyboard
+    await message.answer(get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
+    await state.set_state(CreateForm.waiting_aspect)
 
 
 @router.callback_query(F.data == "back_step")
@@ -2875,7 +3049,8 @@ async def _build_final_prompt(data: dict, db: Database) -> str:
     if dynamic_parts:
         prompt_filled += ". Additional details: " + ", ".join(dynamic_parts) + "."
 
-    # prompt_filled = db.add_ai_room_branding(prompt_filled) # Убрали брендинг
+    # Добавляем брендинг
+    prompt_filled = db.add_ai_room_branding(prompt_filled)
     return prompt_filled
 
 
@@ -2904,8 +3079,12 @@ async def form_generate(callback: CallbackQuery, state: FSMContext, db: Database
                 await _safe_answer(callback, "Сначала загрузите фотографию товара.", show_alert=True)
                 return
         else:
-            if not (data.get("user_photo_id") or data.get("photo")):
-                text = get_string("upload_product", lang)
+            if not data.get("user_photo_id"):
+                text = (
+                    "📸 Пожалуйста пришлите фотографию вашего товара.\n\n"
+                    "⚠️ Обратите внимание: фотография должна быть четкой без лишних бликов и размытостей.\n\n"
+                    "Если остались вопросы - пишите в поддержку @bnbslow"
+                )
                 await state.set_state(CreateForm.waiting_view)
                 await callback.message.answer(text)
                 await _safe_answer(callback)
@@ -2949,17 +3128,18 @@ async def form_generate(callback: CallbackQuery, state: FSMContext, db: Database
         if quality == '4K':
             prompt_filled += " High quality, 4K resolution, ultra detailed."
 
-        # prompt_filled = db.add_ai_room_branding(prompt_filled) # Убрали брендинг по просьбе
+        # Добавляем брендинг
+        prompt_filled = db.add_ai_room_branding(prompt_filled)
         
         # Отправляем сообщение о начале генерации с анимацией
         process_msg = await callback.message.answer("🎨 ⚡️ ⏳")
         
         async def animate_gen(msg, lang_code):
             frames = [
-                "🎨 ⏳ AI-ROOM Генерирует...",
-                "🎨 ⌛️ AI-ROOM Почти готово...",
-                "🎨 ✨ AI-ROOM Создает шедевр...",
-                "🎨 🔄 AI-ROOM Финализирует..."
+                "🎨 ⏳ Генерируем...",
+                "🎨 ⌛️ Почти готово...",
+                "🎨 ✨ Магия нейросетей...",
+                "🎨 🔄 Улучшаем детали..."
             ]
             try:
                 for i in range(20):
@@ -3020,7 +3200,7 @@ async def form_generate(callback: CallbackQuery, state: FSMContext, db: Database
                 elif data.get("own_mode"):
                     input_photos = [data.get("own_product_photo_id")]
                 else:
-                    input_photos = [data.get("user_photo_id") or data.get("photo")]
+                    input_photos = [data.get("user_photo_id")]
             
             try:
                 bot = callback.bot
@@ -3213,17 +3393,14 @@ async def on_result_edit_text(message: Message, state: FSMContext, db: Database)
         quality = '4K'
 
     # Собираем фото
-    if data.get("normal_gen_mode"):
-        input_photos = data.get("photos", [])
-        if not input_photos:
-            input_photos = [data.get("user_photo_id") or data.get("photo")]
-    elif category == "own_variant":
-        input_photos = [data.get("own_bg_photo_id"), data.get("own_product_photo_id")]
-    elif data.get("own_mode"):
-        input_photos = [data.get("own_product_photo_id")]
+    input_photos = data.get("photos", [])
+    if not data.get("normal_gen_mode"):
+        if category == "own_variant":
+            input_photos = [data.get("own_bg_photo_id"), data.get("own_product_photo_id")]
+        elif data.get("own_mode"):
+            input_photos = [data.get("own_product_photo_id")]
     else:
-        # Для пресетов и других динамических режимов
-        input_photos = [data.get("user_photo_id") or data.get("photo")]
+        input_photos = [data.get("user_photo_id")]
     
     input_photos = [fid for fid in input_photos if fid]
     if not input_photos:
@@ -3234,12 +3411,7 @@ async def on_result_edit_text(message: Message, state: FSMContext, db: Database)
     # Анимация
     process_msg = await message.answer("🎨 ⚡️ ⏳")
     async def animate_gen(msg):
-        frames = [
-            "🎨 ⏳ AI-ROOM Применяем правки...",
-            "🎨 ⌛️ AI-ROOM Перерисовываем...",
-            "🎨 ✨ AI-ROOM Создает шедевр...",
-            "🎨 🔄 AI-ROOM Финализирует..."
-        ]
+        frames = ["🎨 ⏳ Применяем правки...", "🎨 ⌛️ Перерисовываем...", "🎨 ✨ Магия нейросетей...", "🎨 🔄 Финализируем..."]
         try:
             for i in range(20):
                 await asyncio.sleep(1.5)

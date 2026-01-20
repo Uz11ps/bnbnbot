@@ -753,12 +753,6 @@ class Database:
         return result
 
     @staticmethod
-    def add_ai_room_branding(prompt: str) -> str:
-        """Раньше добавляла брендинг, теперь просто возвращает промпт без изменений"""
-        if prompt and prompt.strip():
-            return prompt.strip()
-        return prompt
-
     # Category enable/disable
     async def get_category_enabled(self, name: str) -> bool:
         async with aiosqlite.connect(self._db_path) as db:

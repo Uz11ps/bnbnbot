@@ -270,31 +270,6 @@ def back_step_keyboard(lang="ru") -> InlineKeyboardMarkup:
         inline_keyboard=[[InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")]]
     )
 
-def form_age_keyboard(lang="ru") -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="20-26", callback_data="form_age:20_26"), InlineKeyboardButton(text="30-38", callback_data="form_age:30_38")],
-            [InlineKeyboardButton(text="40-48", callback_data="form_age:40_48"), InlineKeyboardButton(text="55-60", callback_data="form_age:55_60")],
-            [InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")],
-        ]
-    )
-
-def form_size_keyboard(category="female", lang="ru") -> InlineKeyboardMarkup:
-    if category == "male":
-        rows = [
-            [InlineKeyboardButton(text="Худой и стройный", callback_data="form_size:thin")],
-            [InlineKeyboardButton(text="Телосложение пышное", callback_data="form_size:curvy")],
-            [InlineKeyboardButton(text="Size Plus очень крупное", callback_data="form_size:plus")],
-        ]
-    else:
-        rows = [
-            [InlineKeyboardButton(text="Худая и стройная", callback_data="form_size:thin")],
-            [InlineKeyboardButton(text="Телосложение пышное", callback_data="form_size:curvy")],
-            [InlineKeyboardButton(text="Size Plus очень крупное", callback_data="form_size:plus")],
-        ]
-    rows.append([InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
-
 def random_vibe_keyboard(lang="ru") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -317,14 +292,6 @@ def random_shot_keyboard(lang="ru") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="В полный рост", callback_data="rand_shot:full"), InlineKeyboardButton(text="Крупный план", callback_data="rand_shot:close")],
-            [InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")],
-        ]
-    )
-
-def random_skip_keyboard(lang="ru") -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=get_string("skip", lang), callback_data="rand_age:skip")],
             [InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")],
         ]
     )

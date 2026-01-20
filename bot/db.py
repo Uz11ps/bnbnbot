@@ -1496,18 +1496,10 @@ class Database:
         await self.add_step_option(s0, "В помещении", "indoor", 2)
 
         # Шаг 3: Возраст
-        s2 = await self.add_step(cat_id, "age", "🎂 Выберите возраст модели:", "buttons", order_index=3)
-        await self.add_step_option(s2, "20-26 лет", "20_26", 1)
-        await self.add_step_option(s2, "30-38 лет", "30_38", 2)
-        await self.add_step_option(s2, "40-48 лет", "40_48", 3)
-        await self.add_step_option(s2, "55-60 лет", "55_60", 4)
+        s2 = await self.add_step(cat_id, "age", "🎂 Введите возраст модели числом:", "text", order_index=3)
         
         # Шаг 4: Телосложение
-        s3 = await self.add_step(cat_id, "size", "📏 Выберите телосложение:", "buttons", order_index=4)
-        await self.add_step_option(s3, "Худощавое", "slender", 1)
-        await self.add_step_option(s3, "Спортивное", "sporty", 2)
-        await self.add_step_option(s3, "Среднее", "medium", 3)
-        await self.add_step_option(s3, "Плотное", "large", 4)
+        s3 = await self.add_step(cat_id, "size", "📏 Введите размер одежды или телосложение числом:", "text", order_index=4)
 
         # Шаг 5: Рост
         await self.add_step(cat_id, "height", "📏 Введите рост модели числом (например: 170):", "text", order_index=5)
@@ -1575,17 +1567,9 @@ class Database:
             await self.add_step_option(s_gend, t, v, i)
         await self.add_step_option(s_gend, "Унисекс", "unisex", 5)
 
-        s_age_r = await self.add_step(cat_id, "age", "🎂 Выберите возраст модели:", "buttons", order_index=3)
-        await self.add_step_option(s_age_r, "20-26 лет", "20_26", 1)
-        await self.add_step_option(s_age_r, "30-38 лет", "30_38", 2)
-        await self.add_step_option(s_age_r, "40-48 лет", "40_48", 3)
-        await self.add_step_option(s_age_r, "55-60 лет", "55_60", 4)
+        s_age_r = await self.add_step(cat_id, "age", "🎂 Введите возраст модели числом:", "text", order_index=3)
 
-        s_size_r = await self.add_step(cat_id, "size", "📏 Выберите телосложение:", "buttons", order_index=4)
-        await self.add_step_option(s_size_r, "Худощавое", "slender", 1)
-        await self.add_step_option(s_size_r, "Спортивное", "sporty", 2)
-        await self.add_step_option(s_size_r, "Среднее", "medium", 3)
-        await self.add_step_option(s_size_r, "Плотное", "large", 4)
+        s_size_r = await self.add_step(cat_id, "size", "📏 Введите размер одежды или телосложение числом:", "text", order_index=4)
 
         await self.add_step(cat_id, "height", "📏 Введите рост модели числом (например: 170):", "text", order_index=5)
 
@@ -1693,11 +1677,7 @@ class Database:
         await self.add_step(cat_id, "info_adv3", "✨ Преимущество 3 (до 100 симв):", "text", is_optional=1, order_index=8)
         await self.add_step(cat_id, "info_extra", "➕ Доп. текст (до 65 симв):", "text", is_optional=1, order_index=9)
         
-        s_size_ic = await self.add_step(cat_id, "size", "📏 Телосложение модели:", "buttons", order_index=10)
-        await self.add_step_option(s_size_ic, "Худощавое", "slender", 1)
-        await self.add_step_option(s_size_ic, "Спортивное", "sporty", 2)
-        await self.add_step_option(s_size_ic, "Среднее", "medium", 3)
-        await self.add_step_option(s_size_ic, "Плотное", "large", 4)
+        s_size_ic = await self.add_step(cat_id, "size", "📏 Введите размер одежды или телосложение числом:", "text", order_index=10)
 
         await self.add_step(cat_id, "height", "📏 Рост модели (числом):", "text", order_index=11)
         await self.add_step(cat_id, "body_type", "⚖️ Телосложение (от 1 до 10):", "text", order_index=12)

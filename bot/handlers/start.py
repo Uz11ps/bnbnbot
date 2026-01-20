@@ -1970,8 +1970,8 @@ async def on_model_pick(callback: CallbackQuery, db: Database, state: FSMContext
 
     # Витринное фото (НОВЫЙ ФЛОУ)
     if category == "storefront" or data.get("storefront_mode"):
-        await _replace_with_text(callback, get_string("select_camera_angle", lang), reply_markup=form_view_keyboard(lang))
-        await state.set_state(CreateForm.waiting_preset_view)
+        await state.update_data(current_step_index=0)
+        await _show_next_step(callback, state, db)
         await _safe_answer(callback)
         return
 
@@ -2068,152 +2068,25 @@ async def on_plus_season(callback: CallbackQuery, state: FSMContext) -> None:
 
 
 @router.callback_query(F.data.startswith("plus_vibe:"))
-async def on_plus_vibe(callback: CallbackQuery, state: FSMContext) -> None:
+async def on_plus_vibe(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     vibe = callback.data.split(":", 1)[1]
     await state.update_data(plus_vibe=vibe)
-    # после вайба — возраст для взрослых
-    await _replace_with_text(callback, "🎂 Пожалуйста выберите возраст модели:", reply_markup=form_age_keyboard())
-    await state.set_state(CreateForm.waiting_age)
-    await _safe_answer(callback)
-
-
-@router.callback_query(CreateForm.waiting_age, F.data.startswith("form_age:"))
-async def form_set_age(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
-    data = await state.get_data()
-    if not data:
-        await _safe_answer(callback)
-        return
     
-    age_key = callback.data.split(":", 1)[1]
-    await state.update_data(age=age_key)
-    
-    # 2. Телосложение (Размер)
-    lang = await db.get_user_language(callback.from_user.id)
-    category = data.get("category")
-    await _replace_with_text(callback, get_string("select_body_type", lang), reply_markup=form_size_keyboard(category, lang))
-    await state.set_state(CreateForm.waiting_size)
-    await _safe_answer(callback)
-
-
-@router.message(CreateForm.waiting_age)
-async def form_set_age_message(message: Message, state: FSMContext, db: Database) -> None:
+    # Пытаемся запустить динамический флоу
     data = await state.get_data()
-    if not data:
-        return
-    text = (message.text or "").strip()
-    if not text:
-        await message.answer("Введите возраст числом, например: 7")
-        return
-    category = data.get("category")
-    if category == "child":
-        if text.lower() in ("пропустить", "skip"):
-            await state.update_data(age="")
-        else:
-            digits = ''.join(ch for ch in text if ch.isdigit())
-            if not digits:
-                await message.answer("Введите возраст числом, например: 7 или отправьте 'Пропустить'")
-                return
-            await state.update_data(age=f"{digits} лет")
-        # После возраста — для детской одежды тоже спрашиваем длину изделия (кроме обуви)
-        cloth = data.get("cloth")
-        lang = await db.get_user_language(message.from_user.id)
-        if cloth == "shoes":
-            await state.set_state(CreateForm.waiting_view)
-            await message.answer(get_string("select_camera_dist", lang), reply_markup=form_view_keyboard(lang))
-        else:
-            await _ask_garment_length(message, state, db)
+    cat_key = data.get("category")
+    category_db = await db.get_category_by_key(cat_key)
+    if category_db:
+        await state.update_data(current_step_index=0)
+        await _show_next_step(callback, state, db)
     else:
-        # Взрослые: после возраста — к выбору телосложения
-        await state.set_state(CreateForm.waiting_size)
-        await message.answer("Выберите телосложение:", reply_markup=form_size_keyboard(data.get("category")))
-
-
-@router.callback_query(CreateForm.waiting_size, F.data.startswith("form_size:"))
-async def form_set_size(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
-    val = callback.data.split(":", 1)[1]
-    data = await state.get_data()
-    category = data.get("category")
-    gender = data.get("info_gender") or category
+        # Фолбэк на случай если категории нет в базе
+        lang = await db.get_user_language(callback.from_user.id)
+        await _replace_with_text(callback, "🎂 Введите возраст модели числом:", reply_markup=back_step_keyboard(lang))
+        await state.set_state(CreateForm.waiting_dynamic_step)
+        await state.update_data(current_step_key="age")
     
-    # Маппинг телосложения
-    size_map = {
-        "thin": "Худая и стройная",
-        "curvy": "Телосложение пышное и полные ноги пухлое лицо.",
-        "plus": "Size Plus очень крупное и пышное телосложение полные ноги и круглое и пухлое лицо.",
-    }
-    if gender == "male":
-        size_map = {
-            "thin": "Худой и стройный",
-            "curvy": "Телосложение пышное и полные ноги, пухлое лицо.",
-            "plus": "Size Plus очень крупное и пышное телосложение, полные ноги и круглое пухлое лицо.",
-        }
-    elif gender == "boy":
-        size_map = {
-            "thin": "Худой и стройный мальчик",
-            "curvy": "Крепкий и пышный мальчик",
-            "plus": "Крупный мальчик",
-        }
-    elif gender == "girl":
-        size_map = {
-            "thin": "Худая и стройная девочка",
-            "curvy": "Пышная девочка",
-            "plus": "Крупная девочка",
-        }
-    
-    await state.update_data(size=size_map.get(val, ""))
-    
-    lang = await db.get_user_language(callback.from_user.id)
-    # 9. Рост модели (п. 4.9)
-    await _replace_with_text(callback, "📏 Введите рост модели числом (например: 170):", reply_markup=back_step_keyboard(lang))
-    await state.set_state(CreateForm.waiting_height)
     await _safe_answer(callback)
-
-
-@router.message(CreateForm.waiting_body_type)
-async def on_body_type_input(message: Message, state: FSMContext, db: Database) -> None:
-    text = (message.text or "").strip()
-    lang = await db.get_user_language(message.from_user.id)
-    await state.update_data(body_type=text)
-    
-    # 11. Тип кроя
-    from bot.keyboards import pants_style_keyboard
-    await message.answer(get_string("select_pants_style", lang), reply_markup=pants_style_keyboard(lang))
-    await state.set_state(CreateForm.waiting_pants_style)
-
-@router.callback_query(F.data == "body_type:skip")
-async def on_body_type_skip(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
-    lang = await db.get_user_language(callback.from_user.id)
-    await state.update_data(body_type="")
-    
-    # 11. Тип кроя
-    from bot.keyboards import pants_style_keyboard
-    await _replace_with_text(callback, get_string("select_pants_style", lang), reply_markup=pants_style_keyboard(lang))
-    await state.set_state(CreateForm.waiting_pants_style)
-    await _safe_answer(callback)
-
-@router.message(CreateForm.waiting_height)
-async def form_set_height(message: Message, state: FSMContext, db: Database) -> None:
-    text = message.text.strip()
-    # простая валидация числа
-    digits = ''.join(ch for ch in text if ch.isdigit())
-    if not digits:
-        await message.answer("Введите число, например: 170")
-        return
-    height = int(digits)
-    await state.update_data(height=height)
-    data = await state.get_data()
-    lang = await db.get_user_language(message.from_user.id)
-    
-    if (data.get("infographic_mode") and data.get("category") == "infographic_clothing") or data.get("random_mode"):
-        # 10. Телосложение числом (п. 4.10 и п. 2.6 для Рандома)
-        await message.answer("🔢 Введите телосложение числом (или пропустите):", reply_markup=skip_step_keyboard("body_type", lang))
-        await state.set_state(CreateForm.waiting_body_type)
-        return
-
-    # 5. Тип кроя штанов
-    from bot.keyboards import pants_style_keyboard
-    await message.answer(get_string("select_pants_style", lang), reply_markup=pants_style_keyboard(lang))
-    await state.set_state(CreateForm.waiting_pants_style)
 
 
 @router.callback_query(F.data.startswith("garment_len:"))

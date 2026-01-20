@@ -486,38 +486,28 @@ async def _show_next_step(message_or_callback: Message | CallbackQuery, state: F
             await _show_confirmation(message_or_callback, state, db)
             return
 
-        if cat_key == "whitebg":
+        # Для всех категорий проверяем сначала наличие фото
+        if not photo_id:
+            await state.set_state(CreateForm.waiting_view)
+            lang = await db.get_user_language(message_or_callback.from_user.id)
+            text = get_string("upload_product", lang)
+            if isinstance(message_or_callback, Message):
+                await message_or_callback.answer(text, reply_markup=back_step_keyboard(lang))
+            else:
+                await _replace_with_text(message_or_callback, text, reply_markup=back_step_keyboard(lang))
+        elif not aspect:
+            # Если нет формата — просим его
             await state.set_state(CreateForm.waiting_aspect)
             lang = await db.get_user_language(message_or_callback.from_user.id)
-            text = get_string("select_aspect", lang)
             from bot.keyboards import aspect_ratio_keyboard
+            text = get_string("select_format", lang)
             if isinstance(message_or_callback, Message):
                 await message_or_callback.answer(text, reply_markup=aspect_ratio_keyboard(lang))
             else:
                 await _replace_with_text(message_or_callback, text, reply_markup=aspect_ratio_keyboard(lang))
         else:
-            # Для остальных — загрузка фото (если нет)
-            if not photo_id:
-                await state.set_state(CreateForm.waiting_view)
-                lang = await db.get_user_language(message_or_callback.from_user.id)
-                text = get_string("upload_product", lang)
-                if isinstance(message_or_callback, Message):
-                    await message_or_callback.answer(text, reply_markup=back_step_keyboard(lang))
-                else:
-                    await _replace_with_text(message_or_callback, text, reply_markup=back_step_keyboard(lang))
-            elif not aspect:
-                # Если нет формата — просим его
-                await state.set_state(CreateForm.waiting_aspect)
-                lang = await db.get_user_language(message_or_callback.from_user.id)
-                from bot.keyboards import aspect_ratio_keyboard
-                text = get_string("select_format", lang)
-                if isinstance(message_or_callback, Message):
-                    await message_or_callback.answer(text, reply_markup=aspect_ratio_keyboard(lang))
-                else:
-                    await _replace_with_text(message_or_callback, text, reply_markup=aspect_ratio_keyboard(lang))
-            else:
-                # Если всё есть — подтверждение
-                await _show_confirmation(message_or_callback, state, db)
+            # Если всё есть (но мы тут оказаться не должны из-за проверки выше) — подтверждение
+            await _show_confirmation(message_or_callback, state, db)
         return
 
     step = steps[current_step_index]
@@ -3446,12 +3436,12 @@ async def on_result_repeat(callback: CallbackQuery, state: FSMContext, db: Datab
         return
 
     # 1. Список ключей, которые нужно ОЧИСТИТЬ (старые результаты)
-    # Мы оставляем все параметры: age, size, model_id, gender, prompt и т.д.
+    # Мы оставляем параметры: age, size, model_id, gender, prompt и т.д.
     remove_keys = [
         "photo", "photo_id", "user_photo_id", "own_product_photo_id",
         "last_pid", "current_step_index", "current_step_key",
         "user_photo_count", "photos", "normal_gen_prompt_msg",
-        "waiting_dynamic_step"
+        "waiting_dynamic_step", "aspect"
     ]
     
     # Сохраняем категорию и режимы

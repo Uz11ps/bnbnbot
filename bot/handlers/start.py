@@ -1558,7 +1558,7 @@ async def on_aspect_selected(callback: CallbackQuery, state: FSMContext, db: Dat
         location = data.get("rand_location")
         if location == "custom":
             parts.append(f"📍 **Локация**: {data.get('rand_location_custom', '—')}\n")
-    else:
+        else:
             parts.append(f"📍 **Локация**: {loc_map.get(location, location or '—')}\n")
 
         if data.get("age"): parts.append(f"🎂 **Возраст**: {data.get('age')}\n")
@@ -1601,7 +1601,7 @@ async def on_aspect_selected(callback: CallbackQuery, state: FSMContext, db: Dat
         back_kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")]])
         await _replace_with_text(callback, get_string("upload_photo", lang), reply_markup=back_kb)
         await state.set_state(CreateForm.waiting_view)
-    await _safe_answer(callback)
+        await _safe_answer(callback)
         return
 
     # --- ДОБАВЛЯЕМ ДИНАМИЧЕСКИЕ ПАРАМЕТРЫ В ПРЕВЬЮ ---

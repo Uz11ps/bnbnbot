@@ -460,6 +460,19 @@ async def _show_next_step(message_or_callback: Message | CallbackQuery, state: F
         else:
             await _replace_with_text(message_or_callback, question, reply_markup=kb)
 
+@router.message(CommandStart())
+async def cmd_start(message: Message, state: FSMContext, db: Database) -> None:
+    await state.clear()
+    user = message.from_user
+    await db.upsert_user(
+        user_id=user.id,
+        username=user.username,
+        first_name=user.first_name,
+        last_name=user.last_name,
+    )
+    lang = await db.get_user_language(user.id)
+    await message.answer(get_string("start_welcome", lang), reply_markup=main_menu_keyboard(lang))
+
 @router.callback_query(CreateForm.waiting_dynamic_step, F.data.startswith("dyn_opt:"))
 async def on_dynamic_option(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     val = callback.data.split(":", 1)[1]
@@ -469,8 +482,12 @@ async def on_dynamic_option(callback: CallbackQuery, state: FSMContext, db: Data
     if val != "skip":
         await state.update_data({step_key: val})
     
+    # Получаем актуальные данные после обновления значения шага
+    new_data = await state.get_data()
+    current_idx = new_data.get("current_step_index", 0)
+    
     # Переходим к следующему шагу
-    await state.update_data(current_step_index=data.get("current_step_index", 0) + 1)
+    await state.update_data(current_step_index=current_idx + 1)
     await _show_next_step(callback, state, db)
     await _safe_answer(callback)
 
@@ -485,21 +502,13 @@ async def on_dynamic_input(message: Message, state: FSMContext, db: Database) ->
     else:
         await state.update_data({step_key: message.text})
     
+    # Получаем актуальные данные
+    new_data = await state.get_data()
+    current_idx = new_data.get("current_step_index", 0)
+    
     # Переходим к следующему шагу
-    await state.update_data(current_step_index=data.get("current_step_index", 0) + 1)
+    await state.update_data(current_step_index=current_idx + 1)
     await _show_next_step(message, state, db)
-
-@router.message(CommandStart())
-async def cmd_start(message: Message, db: Database) -> None:
-    user = message.from_user
-    await db.upsert_user(
-        user_id=user.id,
-        username=user.username,
-        first_name=user.first_name,
-        last_name=user.last_name,
-    )
-    lang = await db.get_user_language(user.id)
-    await message.answer(get_string("main_menu_title", lang), reply_markup=main_menu_keyboard(lang))
 
 
 @router.callback_query(F.data == "accept_terms")
@@ -2629,12 +2638,12 @@ async def on_back_step(callback: CallbackQuery, state: FSMContext, db: Database)
                 while new_index >= 0:
                     step = steps[new_index]
                     s_key = step[1]
-                    gender = data.get("gender") or data.get("rand_gender") or data.get("info_gender")
+                    gender = data.get("gender") or data.get("rand_gender") or data.get("info_gender") or data.get("child_gender")
                     
                     should_skip = False
                     if s_key == "age" and gender in ("boy", "girl"):
                         should_skip = True
-                    elif s_key in ("gender", "rand_gender", "info_gender") and data.get(s_key):
+                    elif s_key in ("gender", "rand_gender", "info_gender", "child_gender") and data.get(s_key):
                         should_skip = True
                         
                     if should_skip:
@@ -2647,6 +2656,12 @@ async def on_back_step(callback: CallbackQuery, state: FSMContext, db: Database)
                 await state.clear()
                 await _safe_answer(callback)
                 return
+                
+            # Очищаем значение шага, к которому возвращаемся, чтобы _show_next_step не пропустил его
+            # Но только если это динамический шаг (steps[new_index][1] - это step_key)
+            if cat_db:
+                target_step_key = steps[new_index][1]
+                await state.update_data({target_step_key: None})
                 
             await state.update_data(current_step_index=new_index)
             await _show_next_step(callback, state, db)

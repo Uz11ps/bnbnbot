@@ -1554,17 +1554,6 @@ class Database:
         await self.add_step_option(s10, "Осень", "autumn", 3)
         await self.add_step_option(s10, "Весна", "spring", 4)
 
-        # Шаг 13: Фото
-        await self.add_step(cat_id, "photo", "📸 Пожалуйста пришлите фотографию вашего товара:", "photo", order_index=13)
-        
-        # Шаг 14: Формат
-        s11 = await self.add_step(cat_id, "aspect", "📐 Выберите формат (соотношение сторон):", "buttons", order_index=14)
-        await self.add_step_option(s11, "1:1", "1:1", 1)
-        await self.add_step_option(s11, "3:4", "3:4", 2)
-        await self.add_step_option(s11, "4:3", "4:3", 3)
-        await self.add_step_option(s11, "9:16", "9:16", 4)
-        await self.add_step_option(s11, "16:9", "16:9", 5)
-
         # 2. Одежда и обувь РАНДОМ
         cat_id = await self.add_category("random", "🎲 Одежда и обувь РАНДОМ", order_index=2)
         s_locg = await self.add_step(cat_id, "rand_loc_group", "📍 Выберите тип локации:", "buttons", order_index=1)
@@ -1615,12 +1604,6 @@ class Database:
         s_hold_r = await self.add_step(cat_id, "holiday", "🎉 Выберите праздник (если есть):", "buttons", is_optional=1, order_index=13)
         await self.add_step_option(s_hold_r, "Новый год", "new_year", 1)
         await self.add_step_option(s_hold_r, "День рождения", "birthday", 2)
-
-        await self.add_step(cat_id, "photo", "📸 Пришлите фото товара:", "photo", order_index=14)
-        
-        s_asp_r = await self.add_step(cat_id, "aspect", "📐 Выбор формата:", "buttons", order_index=15)
-        await self.add_step_option(s_asp_r, "1:1", "1:1", 1)
-        await self.add_step_option(s_asp_r, "3:4", "3:4", 2)
 
         # 3. Рандом прочие категории
         cat_id = await self.add_category("random_other", "📦 Рандом · Прочие категории", order_index=3)
@@ -1769,8 +1752,6 @@ class Database:
         await self.add_step_option(s_hold_io, "Новый год", "new_year", 1)
         await self.add_step_option(s_hold_io, "День рождения", "birthday", 2)
 
-        await self.add_step(cat_id, "photo", "📸 Пришлите фото товара:", "photo", order_index=14)
-        
         # 6. Витринное фото
         cat_id = await self.add_category("storefront", "📸 Витринное фото", order_index=6)
         s_ang_sf = await self.add_step(cat_id, "angle", "📐 Угол камеры:", "buttons", order_index=1)
@@ -1786,14 +1767,8 @@ class Database:
         for i, (t, v) in enumerate(length_options, 1):
             await self.add_step_option(s_len_sf, t, v, i)
 
-        await self.add_step(cat_id, "photo", "📸 Пришлите фото товара:", "photo", order_index=4)
-
         # 7. На белом фоне
         cat_id = await self.add_category("whitebg", "⬜ На белом фоне", order_index=7)
-        await self.add_step(cat_id, "photo", "📸 Пришлите фото товара:", "photo", order_index=1)
-        s_asp_wb = await self.add_step(cat_id, "aspect", "📐 Выберите формат:", "buttons", order_index=2)
-        await self.add_step_option(s_asp_wb, "1:1", "1:1", 1)
-        await self.add_step_option(s_asp_wb, "3:4", "3:4", 2)
 
         # 8. Свой вариант модели
         cat_id = await self.add_category("own", "💃 Свой вариант модели", order_index=8)
@@ -1804,8 +1779,6 @@ class Database:
         s_sleev_om = await self.add_step(cat_id, "sleeve", "🧥 Тип рукавов:", "buttons", is_optional=1, order_index=2)
         await self.add_step_option(s_sleev_om, "Короткий", "short", 1)
         await self.add_step_option(s_sleev_om, "Длинный", "long", 2)
-
-        await self.add_step(cat_id, "photo", "📸 Пришлите фото товара:", "photo", order_index=3)
 
         # 9. Свой вариант фона
         cat_id = await self.add_category("own_variant", "🖼️ Свой вариант фона", order_index=9)
@@ -1819,10 +1792,6 @@ class Database:
         s_len_ov = await self.add_step(cat_id, "length", "📏 Выберите длину изделия. Внимание! если ваш продукт Костюм 2-к, 3-к то длину можно не указывать.", "buttons", order_index=4)
         for i, (t, v) in enumerate(length_options, 1):
             await self.add_step_option(s_len_ov, t, v, i)
-
-        s_asp_ov = await self.add_step(cat_id, "aspect", "📐 Выбор формата:", "buttons", order_index=5)
-        await self.add_step_option(s_asp_ov, "1:1", "1:1", 1)
-        await self.add_step_option(s_asp_ov, "3:4", "3:4", 2)
 
 
 

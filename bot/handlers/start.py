@@ -414,7 +414,12 @@ async def _show_next_step(message_or_callback: Message | CallbackQuery, state: F
     if not cat_key:
         return
     
-    category = await db.get_category_by_key(cat_key)
+    # Если это пресетная категория, но ключ - пол, переключаемся на 'presets' для поиска шагов
+    logic_cat = cat_key
+    if data.get("is_preset") and cat_key in ("female", "male", "child"):
+        logic_cat = "presets"
+    
+    category = await db.get_category_by_key(logic_cat)
     if not category:
         # Фолбэк на старую логику или ошибку
         return
@@ -431,34 +436,36 @@ async def _show_next_step(message_or_callback: Message | CallbackQuery, state: F
         step_id, step_key, question, input_type, is_optional, order = step
         gender = data.get("gender") or data.get("rand_gender") or data.get("info_gender") or data.get("child_gender")
         
-        # 1. Пропускаем возраст для детей в пресетах и инфографике
+        # 1. Пропускаем возраст для детей
         if step_key == "age" and gender in ("boy", "girl"):
             current_step_index += 1
-            await state.update_data(current_step_index=current_step_index)
             continue
             
-        # 2. Пропускаем шаги, которые уже есть в данных (например, пол, выбранный в меню)
+        # 2. Пропускаем шаги, которые уже есть в данных
         if step_key in data and data.get(step_key) is not None:
             current_step_index += 1
-            await state.update_data(current_step_index=current_step_index)
             continue
-
+            
         # 3. Проверка на наличие опций для кнопочных шагов
         if input_type == "buttons":
             options = await db.list_step_options(step_id)
             if not options and not is_optional:
-                # Если опций нет и шаг обязательный — это ошибка конфигурации, но мы пропустим чтобы не стопорить
                 current_step_index += 1
-                await state.update_data(current_step_index=current_step_index)
                 continue
 
         # Если шаг не пропущен — выходим из цикла
         break
 
+    # ОБЯЗАТЕЛЬНО сохраняем текущий индекс, чтобы обработчики (on_dynamic_option) знали, где мы
+    await state.update_data(current_step_index=current_step_index)
+
     if current_step_index >= len(steps):
-        # Все шаги пройдены — переходим к финалу (обычно выбор формата или генерация)
+        # Все шаги пройдены — переходим к финалу
         # Но сначала проверим, есть ли фото и формат (обязательные для генерации)
-        if (data.get("photo") or data.get("user_photo_id")) and data.get("aspect"):
+        photo_id = data.get("photo") or data.get("user_photo_id")
+        aspect = data.get("aspect")
+        
+        if photo_id and aspect:
             await _show_confirmation(message_or_callback, state, db)
             return
 
@@ -473,7 +480,7 @@ async def _show_next_step(message_or_callback: Message | CallbackQuery, state: F
                 await _replace_with_text(message_or_callback, text, reply_markup=aspect_ratio_keyboard(lang))
         else:
             # Для остальных — загрузка фото (если нет)
-            if not data.get("photo") and not data.get("user_photo_id"):
+            if not photo_id:
                 await state.set_state(CreateForm.waiting_view)
                 lang = await db.get_user_language(message_or_callback.from_user.id)
                 text = get_string("upload_product", lang)
@@ -481,7 +488,7 @@ async def _show_next_step(message_or_callback: Message | CallbackQuery, state: F
                     await message_or_callback.answer(text, reply_markup=back_step_keyboard(lang))
                 else:
                     await _replace_with_text(message_or_callback, text, reply_markup=back_step_keyboard(lang))
-            elif not data.get("aspect"):
+            elif not aspect:
                 # Если нет формата — просим его
                 await state.set_state(CreateForm.waiting_aspect)
                 lang = await db.get_user_language(message_or_callback.from_user.id)

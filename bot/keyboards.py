@@ -64,9 +64,9 @@ def marketplace_menu_keyboard(enabled: dict[str, bool], lang="ru") -> InlineKeyb
 
     # Разделы Рандом
     if enabled.get("random", True):
-        rows.append([InlineKeyboardButton(text=get_string("cat_random", lang), callback_data="create_random")])
+        rows.append([InlineKeyboardButton(text=get_string("cat_random", lang), callback_data="create_cat:random")])
     if enabled.get("random_other", True):
-        rows.append([InlineKeyboardButton(text=get_string("cat_random_other", lang), callback_data="create_random_other")])
+        rows.append([InlineKeyboardButton(text=get_string("cat_random_other", lang), callback_data="create_cat:random_other")])
     
     # Кнопка Инфографика (внутри которой теперь 3 кнопки)
     rows.append([InlineKeyboardButton(text=get_string("cat_infographics", lang), callback_data="create_cat:infographics")])

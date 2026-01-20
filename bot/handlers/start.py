@@ -649,6 +649,54 @@ async def on_marketplace_menu(callback: CallbackQuery, db: Database) -> None:
     await _safe_answer(callback)
 
 
+async def _check_subscription(user_id: int, bot: Bot, db: Database) -> bool:
+    """Проверяет подписку пользователя на обязательный канал"""
+    channel_id = await db.get_app_setting("required_channel_id")
+    if not channel_id:
+        return True 
+    try:
+        # Пытаемся получить статус участника
+        member = await bot.get_chat_member(chat_id=channel_id, user_id=user_id)
+        # Статусы, которые считаются "подписан"
+        is_subbed = member.status in ("member", "administrator", "creator")
+        logger.debug(f"Subscription check for {user_id} in {channel_id}: {member.status} (is_subbed: {is_subbed})")
+        return is_subbed
+    except Exception as e:
+        logger.error(f"Error checking subscription for {user_id} in {channel_id}: {e}")
+        # Если бот не в канале или канал не найден — разрешаем работу, чтобы не блокировать всех
+        return True
+
+async def _ensure_access(message_or_callback: Message | CallbackQuery, db: Database, bot: Bot) -> bool:
+    """Проверяет условия доступа (соглашение и подписка) и выводит нужный экран"""
+    user_id = message_or_callback.from_user.id
+    lang = await db.get_user_language(user_id)
+    from bot.keyboards import terms_keyboard, subscription_check_keyboard
+    
+    # 1. Сначала Соглашение
+    accepted = await db.get_user_accepted_terms(user_id)
+    if not accepted:
+        text = get_string("start_welcome", lang)
+        if isinstance(message_or_callback, Message):
+            await message_or_callback.answer(text, reply_markup=terms_keyboard(lang))
+        else:
+            await _replace_with_text(message_or_callback, text, reply_markup=terms_keyboard(lang))
+        return False
+        
+    # 2. Потом Подписка
+    channel_id = await db.get_app_setting("required_channel_id")
+    if channel_id:
+        is_subbed = await _check_subscription(user_id, bot, db)
+        if not is_subbed:
+            channel_url = await db.get_app_setting("required_channel_url", "https://t.me/bnbslow")
+            text = get_string("subscribe_channel", lang)
+            if isinstance(message_or_callback, Message):
+                await message_or_callback.answer(text, reply_markup=subscription_check_keyboard(channel_url, lang))
+            else:
+                await _replace_with_text(message_or_callback, text, reply_markup=subscription_check_keyboard(channel_url, lang))
+            return False
+            
+    return True
+
 @router.callback_query(F.data.startswith("create_cat:"))
 async def on_create_category_universal(callback: CallbackQuery, db: Database, state: FSMContext) -> None:
     """Универсальный обработчик выбора категории, поддерживающий динамические шаги"""

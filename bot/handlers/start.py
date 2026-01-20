@@ -168,7 +168,7 @@ WELCOME_TEXT = (
 async def _safe_answer(callback: CallbackQuery, text: str | None = None, show_alert: bool = False) -> None:
     try:
         if callback.id != "0":
-            await callback.answer(text, show_alert=show_alert)
+        await callback.answer(text, show_alert=show_alert)
     except Exception:
         pass
 
@@ -559,7 +559,7 @@ async def on_accept_terms(callback: CallbackQuery, db: Database, bot: Bot) -> No
     await db.set_terms_acceptance(callback.from_user.id, True)
     # После принятия соглашения проверяем подписку (через middleware или явно)
     if await _ensure_access(callback, db, bot):
-        lang = await db.get_user_language(callback.from_user.id)
+    lang = await db.get_user_language(callback.from_user.id)
         await _replace_with_text(callback, get_string("main_menu_title", lang), reply_markup=main_menu_keyboard(lang))
     await _safe_answer(callback)
 
@@ -1103,7 +1103,7 @@ async def on_generic_gender_select(callback: CallbackQuery, state: FSMContext, d
             cloth_val = gender if display_cat == "child" else "all"
             await _show_models_for_category(callback, db, display_cat, cloth_val, logic_category="storefront")
     else:
-        await _show_models_for_category(callback, db, category, "all")
+    await _show_models_for_category(callback, db, category, "all")
     await _safe_answer(callback)
 
 # --- РАЗДЕЛ ИНФОГРАФИКА ---
@@ -1203,10 +1203,10 @@ async def on_infographic_load_input(message: Message, state: FSMContext, db: Dat
     # Извлекаем только цифры или проверяем на пропуск
     load_value = ""
     if text.lower() not in ("пропустить", "skip"):
-        digits = ''.join(ch for ch in text if ch.isdigit())
+    digits = ''.join(ch for ch in text if ch.isdigit())
         if not digits or not (1 <= int(digits) <= 10):
-            await message.answer(get_string("enter_info_load_error", lang))
-            return
+        await message.answer(get_string("enter_info_load_error", lang))
+        return
         load_value = digits
     
     await state.update_data(info_load=load_value)
@@ -1218,7 +1218,7 @@ async def on_infographic_load_input(message: Message, state: FSMContext, db: Dat
     else:
         # 4. Язык инфографики (п. 4.4)
         from bot.keyboards import info_lang_keyboard
-        await message.answer(get_string("select_info_lang", lang), reply_markup=info_lang_keyboard(lang))
+    await message.answer(get_string("select_info_lang", lang), reply_markup=info_lang_keyboard(lang))
         await state.set_state(CreateForm.waiting_info_lang)
 
 @router.callback_query(F.data == "info_load:skip")
@@ -1233,8 +1233,8 @@ async def on_infographic_load_skip_btn(callback: CallbackQuery, state: FSMContex
         await state.set_state(CreateForm.waiting_rand_other_name)
     else:
         # Выбор языка
-        from bot.keyboards import info_lang_keyboard
-        await _replace_with_text(callback, get_string("select_info_lang", lang), reply_markup=info_lang_keyboard(lang))
+    from bot.keyboards import info_lang_keyboard
+    await _replace_with_text(callback, get_string("select_info_lang", lang), reply_markup=info_lang_keyboard(lang))
         await state.set_state(CreateForm.waiting_info_lang)
     await _safe_answer(callback)
 
@@ -1558,7 +1558,7 @@ async def on_aspect_selected(callback: CallbackQuery, state: FSMContext, db: Dat
         location = data.get("rand_location")
         if location == "custom":
             parts.append(f"📍 **Локация**: {data.get('rand_location_custom', '—')}\n")
-        else:
+    else:
             parts.append(f"📍 **Локация**: {loc_map.get(location, location or '—')}\n")
 
         if data.get("age"): parts.append(f"🎂 **Возраст**: {data.get('age')}\n")
@@ -1601,7 +1601,7 @@ async def on_aspect_selected(callback: CallbackQuery, state: FSMContext, db: Dat
         back_kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")]])
         await _replace_with_text(callback, get_string("upload_photo", lang), reply_markup=back_kb)
         await state.set_state(CreateForm.waiting_view)
-        await _safe_answer(callback)
+    await _safe_answer(callback)
         return
 
     # --- ДОБАВЛЯЕМ ДИНАМИЧЕСКИЕ ПАРАМЕТРЫ В ПРЕВЬЮ ---
@@ -1660,7 +1660,7 @@ async def on_own_model_product_photo(message: Message, state: FSMContext, db: Da
     
     # Для режима "Свой вариант модели" переходим к выбору рукава (п. 3)
     if data.get("own_mode"):
-        await _ask_sleeve_length(message, state, db)
+    await _ask_sleeve_length(message, state, db)
     else:
         # Сразу переходим к выбору формата для прочих (если такие есть через этот хендлер)
         lang = await db.get_user_language(message.from_user.id)
@@ -1962,7 +1962,7 @@ async def on_model_pick(callback: CallbackQuery, db: Database, state: FSMContext
     else:
         # Для детей пропускаем возраст, сразу к телосложению
         await _replace_with_text(callback, get_string("select_body_type", lang), reply_markup=form_size_keyboard(category, lang))
-        await state.set_state(CreateForm.waiting_size)
+                    await state.set_state(CreateForm.waiting_size)
         
     await _safe_answer(callback)
 
@@ -2145,7 +2145,7 @@ async def form_set_size(callback: CallbackQuery, state: FSMContext, db: Database
     lang = await db.get_user_language(callback.from_user.id)
     # 9. Рост модели (п. 4.9)
     await _replace_with_text(callback, "📏 Введите рост модели числом (например: 170):", reply_markup=back_step_keyboard(lang))
-    await state.set_state(CreateForm.waiting_height)
+        await state.set_state(CreateForm.waiting_height)
     await _safe_answer(callback)
 
 
@@ -2237,8 +2237,8 @@ async def on_garment_len_callback(callback: CallbackQuery, state: FSMContext, db
             from bot.keyboards import aspect_ratio_keyboard
             await _replace_with_text(callback, get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
             await state.set_state(CreateForm.waiting_aspect)
-        await _safe_answer(callback)
-        return
+            await _safe_answer(callback)
+            return
 
         # Для инфографики ОДЕЖДА: после длины идет ВЫБОР ФОРМАТА (п. 4.17)
         if category == "infographic_clothing":
@@ -2248,11 +2248,11 @@ async def on_garment_len_callback(callback: CallbackQuery, state: FSMContext, db
             await _safe_answer(callback)
             return
 
-        # Для других (Свой вариант модели, Витрина, Инфографика прочее) — просим фото товара в конце
+        # Для других (Витрина, Инфографика прочее) — просим фото товара в конце
         back_kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")]])
         await _replace_with_text(callback, get_string("upload_photo", lang), reply_markup=back_kb)
         await state.set_state(CreateForm.waiting_view)
-    await _safe_answer(callback)
+        await _safe_answer(callback)
         return
 
     # Для пресетов и Рандом Одежда: после длины — к позе (п. 9)
@@ -2321,6 +2321,14 @@ async def form_set_sleeve(callback: CallbackQuery, state: FSMContext, db: Databa
     lang = await db.get_user_language(callback.from_user.id)
     category = data.get("category")
     
+    # Маппинг рукава для текста
+    sleeve_map = {
+        "short": "Короткий", "three_quarters": "3/4", 
+        "long": "Длинный", "extra_long": "Удлиненный",
+        "skip": "—"
+    }
+    sleeve_text = sleeve_map.get(val, val)
+
     # Для всех режимов "Свой вариант" после рукава переходим к ракурсу или сразу к формату
     if data.get("own_mode") or category == "own_variant":
         await state.update_data(own_sleeve=sleeve_text)

@@ -1413,10 +1413,20 @@ class Database:
     async def add_step(self, category_id: int, step_key: str, question_text: str, input_type: str, is_optional: int = 0, order_index: int = 0) -> int:
         async with aiosqlite.connect(self._db_path) as db:
             # Проверяем не существует ли уже такой шаг
-            async with db.execute("SELECT id FROM steps WHERE category_id=? AND step_key=?", (category_id, step_key)) as cur:
+            async with db.execute("SELECT id, input_type FROM steps WHERE category_id=? AND step_key=?", (category_id, step_key)) as cur:
                 row = await cur.fetchone()
                 if row:
-                    return row[0]
+                    step_id, old_type = row
+                    # Обновляем существующий шаг, чтобы изменения в коде (например, смена типа на text) применились
+                    await db.execute(
+                        "UPDATE steps SET question_text=?, input_type=?, is_optional=?, order_index=? WHERE id=?",
+                        (question_text, input_type, is_optional, order_index, step_id)
+                    )
+                    # Если тип сменился с кнопок на текст — удаляем старые кнопки
+                    if old_type == "buttons" and input_type != "buttons":
+                        await db.execute("DELETE FROM step_options WHERE step_id=?", (step_id,))
+                    await db.commit()
+                    return step_id
                     
             await db.execute(
                 "INSERT INTO steps (category_id, step_key, question_text, input_type, is_optional, order_index) VALUES (?, ?, ?, ?, ?, ?)",

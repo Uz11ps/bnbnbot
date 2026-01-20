@@ -1660,7 +1660,7 @@ async def on_own_model_product_photo(message: Message, state: FSMContext, db: Da
     
     # Для режима "Свой вариант модели" переходим к выбору рукава (п. 3)
     if data.get("own_mode"):
-    await _ask_sleeve_length(message, state, db)
+        await _ask_sleeve_length(message, state, db)
     else:
         # Сразу переходим к выбору формата для прочих (если такие есть через этот хендлер)
         lang = await db.get_user_language(message.from_user.id)

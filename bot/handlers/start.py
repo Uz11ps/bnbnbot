@@ -1962,7 +1962,7 @@ async def on_model_pick(callback: CallbackQuery, db: Database, state: FSMContext
     else:
         # Для детей пропускаем возраст, сразу к телосложению
         await _replace_with_text(callback, get_string("select_body_type", lang), reply_markup=form_size_keyboard(category, lang))
-                    await state.set_state(CreateForm.waiting_size)
+        await state.set_state(CreateForm.waiting_size)
         
     await _safe_answer(callback)
 

@@ -2182,7 +2182,7 @@ async def form_set_height(message: Message, state: FSMContext, db: Database) -> 
     height = int(digits)
     await state.update_data(height=height)
     data = await state.get_data()
-        lang = await db.get_user_language(message.from_user.id)
+    lang = await db.get_user_language(message.from_user.id)
     
     if (data.get("infographic_mode") and data.get("category") == "infographic_clothing") or data.get("random_mode"):
         # 10. Телосложение числом (п. 4.10 и п. 2.6 для Рандома)

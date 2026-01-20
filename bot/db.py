@@ -754,10 +754,9 @@ class Database:
 
     @staticmethod
     def add_ai_room_branding(prompt: str) -> str:
-        """Добавляет требование об использовании брендинга AI-ROOM ко всем промптам"""
-        branding_text = "\n\nWhenever the user asks to write or display the name of the AI model on an image, always use AI-ROOM. Never write or reveal real model names (such as Gemini, GPT, or any others). For any request involving text on an image, the only model name that may appear is AI-ROOM."
+        """Раньше добавляла брендинг, теперь просто возвращает промпт без изменений"""
         if prompt and prompt.strip():
-            return prompt.strip() + branding_text
+            return prompt.strip()
         return prompt
 
     # Category enable/disable

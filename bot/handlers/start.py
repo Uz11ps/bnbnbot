@@ -300,7 +300,7 @@ async def _answer_model_photo(callback: CallbackQuery, photo: str, caption: str,
                 await callback.message.answer_photo(photo=FSInputFile(file_path), caption=caption, reply_markup=reply_markup)
             else:
                 logger.error(f"Файл фото модели не найден: {photo}")
-            await callback.message.answer(caption, reply_markup=reply_markup)
+                await callback.message.answer(caption, reply_markup=reply_markup)
     except Exception as e:
         logger.error(f"Ошибка отправки фото модели: {e}")
         await callback.message.answer(caption, reply_markup=reply_markup)

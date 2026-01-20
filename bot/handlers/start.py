@@ -3464,42 +3464,63 @@ async def on_result_repeat(callback: CallbackQuery, state: FSMContext, db: Datab
         await _safe_answer(callback, get_string("session_not_found", lang), show_alert=True)
         return
 
-    # Сохраняем ТОЛЬКО категорию и базовые режимы для чистого старта по требованию пользователя
-    # Это гарантирует, что каждый запрос будет абсолютно новым и не "испортит" результат
-    keep_keys = ["category", "random_mode", "random_other_mode", "infographic_mode", "own_mode", "plus_mode"]
+    # 1. Список ключей, которые нужно ОЧИСТИТЬ (старые результаты)
+    # Мы оставляем все параметры: age, size, model_id, gender, prompt и т.д.
+    remove_keys = [
+        "photo", "photo_id", "user_photo_id", "own_product_photo_id",
+        "last_pid", "current_step_index", "current_step_key",
+        "user_photo_count", "photos", "normal_gen_prompt_msg",
+        "waiting_dynamic_step"
+    ]
     
-    # Специальная обработка для "Своего варианта": сохраняем фото референса/фона
-    if data.get("own_mode") and data.get("own_ref_photo_id"):
-        keep_keys.append("own_ref_photo_id")
-    if data.get("category") == "own_variant" and data.get("own_bg_photo_id"):
-        keep_keys.append("own_bg_photo_id")
-
-    new_data = {k: v for k, v in data.items() if k in keep_keys}
-    # Мы НЕ устанавливаем repeat_mode=True, чтобы пользователь прошел весь опрос заново
+    # Сохраняем категорию и режимы
+    cat = data.get("category")
     
-    # Сбрасываем текущее состояние и данные полностью
+    # 2. Создаем новые данные
+    new_data = {k: v for k, v in data.items() if k not in remove_keys}
+    
+    # 3. Сбрасываем состояние и загружаем очищенные данные
     await state.clear()
     await state.update_data(**new_data)
+    await state.update_data(current_step_index=0) # Начинаем с 0, _show_next_step пропустит всё заполненное
     
-    # Отправляем пользователя в начало текущей категории
-    cat = new_data.get("category")
+    # 4. Проверяем, является ли категория динамической (пресеты, рандом и т.д.)
+    cat_id = await db.get_category_id(cat) if cat else None
+    if cat_id:
+        # Для динамических категорий — просто запускаем флоу с начала.
+        # _show_next_step сама пропустит все шаги, для которых данные уже есть (age, size, model_id и т.д.)
+        # и остановится на шаге "photo" или первом пустом.
+        await state.set_state(CreateForm.waiting_dynamic_step)
+        await _show_next_step(callback, state, db)
+        await _safe_answer(callback)
+        return
+
+    # 5. Фолбэк для кастомных/старых режимов
     if new_data.get("infographic_mode"):
+        # Для инфографики (если вдруг нет в БД как категории)
         callback.data = f"create_cat:{cat}"
-        await on_infographic_category(callback, state, db)
-    elif new_data.get("random_mode"):
-        await on_create_random(callback, state, db)
-    elif new_data.get("random_other_mode"):
-        await on_create_random_other(callback, state, db)
-    elif new_data.get("own_mode"):
-        await on_create_own(callback, state, db)
+        # Мы не вызываем on_infographic_category, так как она сбросит state.
+        # Вместо этого пытаемся найти cat_id еще раз (для infographic_clothing и т.д.)
+        inf_cat_id = await db.get_category_id(cat)
+        if inf_cat_id:
+            await state.set_state(CreateForm.waiting_dynamic_step)
+            await _show_next_step(callback, state, db)
+        else:
+            await on_infographic_category(callback, state, db)
     elif cat == "own_variant":
-        from bot.handlers.start import on_create_own_variant
-        await on_create_own_variant(callback, state, db)
+        # Для "Свой вариант фона": фон и параметры рукавов/длины сохраняем, просим только новое фото товара.
+        await callback.message.answer(get_string("upload_product", lang), reply_markup=back_step_keyboard(lang))
+        await state.set_state(CreateForm.waiting_own_product_photo)
+    elif new_data.get("normal_gen_mode"):
+        # Обычная генерация — сразу к вводу фото
+        await callback.message.answer(get_string("upload_photo", lang), reply_markup=back_main_keyboard(lang))
+        await state.set_state(CreateForm.waiting_view)
     elif cat == "storefront":
         await on_storefront_category(callback, db, state)
     elif cat == "whitebg":
         await on_whitebg_category(callback, db, state)
     else:
+        # По умолчанию — в начало пресетов
         await on_ready_presets(callback, db)
     
     await _safe_answer(callback)

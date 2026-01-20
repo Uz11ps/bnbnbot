@@ -356,6 +356,37 @@ async def _show_next_step(message_or_callback: Message | CallbackQuery, state: F
     # Определяем текущий индекс шага
     current_step_index = data.get("current_step_index", 0)
     
+    # Проверка на пропуск шагов
+    while current_step_index < len(steps):
+        step = steps[current_step_index]
+        step_id, step_key, question, input_type, is_optional, order = step
+        gender = data.get("gender") or data.get("rand_gender") or data.get("info_gender") or data.get("child_gender")
+        
+        # 1. Пропускаем возраст для детей в пресетах и инфографике
+        if step_key == "age" and gender in ("boy", "girl"):
+            current_step_index += 1
+            await state.update_data(current_step_index=current_step_index)
+            continue
+            
+        # 2. Пропускаем шаги, которые уже есть в данных (например, пол, выбранный в меню)
+        # НО: не пропускаем, если это финальные шаги (фото или формат)
+        if step_key in data and data.get(step_key) is not None and step_key not in ("photo", "aspect"):
+            current_step_index += 1
+            await state.update_data(current_step_index=current_step_index)
+            continue
+
+        # 3. Проверка на наличие опций для кнопочных шагов
+        if input_type == "buttons":
+            options = await db.list_step_options(step_id)
+            if not options and not is_optional:
+                # Если опций нет и шаг обязательный — это ошибка конфигурации, но мы пропустим чтобы не стопорить
+                current_step_index += 1
+                await state.update_data(current_step_index=current_step_index)
+                continue
+
+        # Если шаг не пропущен — выходим из цикла
+        break
+
     if current_step_index >= len(steps):
         # Все шаги пройдены — переходим к финалу (обычно выбор формата или генерация)
         # В большинстве наших флоу это waiting_aspect или waiting_view
@@ -632,14 +663,10 @@ async def on_create_category_universal(callback: CallbackQuery, db: Database, st
         await _safe_answer(callback, get_string("no_models_in_category_alert", lang), show_alert=True)
         return
 
-    # Специальные меню-прокладки (пресеты, инфографика)
-    if cat_key in ("presets", "infographics"):
-        if cat_key == "presets":
-            await on_ready_presets(callback, db)
-            return # Добавлено
-        else:
-            await on_infographic_selection_menu(callback, db)
-            return
+    # Специальные меню-прокладки (инфографика)
+    if cat_key == "infographics":
+        await on_infographic_selection_menu(callback, db)
+        return
 
     # Инициализация состояния
     await state.clear()
@@ -674,6 +701,7 @@ async def on_create_category_universal(callback: CallbackQuery, db: Database, st
     elif cat_key == "random": await on_create_random(callback, state, db)
     elif cat_key == "random_other": await on_create_random_other(callback, state, db)
     elif cat_key.startswith("infographic"): await on_infographic_category(callback, state, db)
+    elif cat_key == "presets": await on_ready_presets(callback, db)
     
     await _safe_answer(callback)
 
@@ -685,12 +713,8 @@ async def on_preset_gender_selected(callback: CallbackQuery, state: FSMContext, 
     # Сохраняем выбранный пол и флаг пресета
     await state.update_data(category="presets", gender=gender, is_preset=True)
     
-    # Определяем, какой шаг будет следующим (пропускаем возраст для детей)
-    next_index = 1
-    if gender in ("boy", "girl"):
-        next_index = 2
-        
-    await state.update_data(current_step_index=next_index)
+    # Начинаем с самого начала флоу (индекс 0 - Тип локации)
+    await state.update_data(current_step_index=0)
     await _show_next_step(callback, state, db)
     await _safe_answer(callback)
 
@@ -2595,8 +2619,36 @@ async def on_back_step(callback: CallbackQuery, state: FSMContext, db: Database)
     current_index = data.get("current_step_index")
     if current_index is not None:
         if current_index > 0:
-            # Возвращаемся к предыдущему динамическому шагу
-            await state.update_data(current_step_index=current_index - 1)
+            # Возвращаемся к предыдущему динамическому шагу, пропуская уже заполненные/пропущенные
+            new_index = current_index - 1
+            
+            # Получаем список шагов для проверки условий пропуска в обратном порядке
+            cat_db = await db.get_category_by_key(category)
+            if cat_db:
+                steps = await db.list_steps(cat_db[0])
+                while new_index >= 0:
+                    step = steps[new_index]
+                    s_key = step[1]
+                    gender = data.get("gender") or data.get("rand_gender") or data.get("info_gender")
+                    
+                    should_skip = False
+                    if s_key == "age" and gender in ("boy", "girl"):
+                        should_skip = True
+                    elif s_key in ("gender", "rand_gender", "info_gender") and data.get(s_key):
+                        should_skip = True
+                        
+                    if should_skip:
+                        new_index -= 1
+                        continue
+                    break
+            
+            if new_index < 0:
+                await on_marketplace_menu(callback, db)
+                await state.clear()
+                await _safe_answer(callback)
+                return
+                
+            await state.update_data(current_step_index=new_index)
             await _show_next_step(callback, state, db)
             await _safe_answer(callback)
             return

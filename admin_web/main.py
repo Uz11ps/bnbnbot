@@ -932,3 +932,9 @@ async def admin_add_option(cat_id: int, step_id: int, text: str = Form(...), val
     )
     await db.commit()
     return RedirectResponse(f"/constructor/category/{cat_id}", status_code=303)
+
+@app.post("/constructor/option/delete/{cat_id}/{opt_id}")
+async def admin_delete_option(cat_id: int, opt_id: int, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    await db.execute("DELETE FROM step_options WHERE id=?", (opt_id,))
+    await db.commit()
+    return RedirectResponse(f"/constructor/category/{cat_id}", status_code=303)

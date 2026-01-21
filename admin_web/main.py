@@ -233,6 +233,36 @@ async def run_migrations(db: aiosqlite.Connection):
         print(f"Migration error (library extra): {e}")
 
     try:
+        # Категория человек и кнопки
+        async with db.execute("SELECT id FROM button_categories WHERE name=?", ("Человек",)) as cur:
+            row = await cur.fetchone()
+        if row:
+            person_cat_id = row[0]
+        else:
+            await db.execute("INSERT INTO button_categories (name) VALUES (?)", ("Человек",))
+            await db.commit()
+            async with db.execute("SELECT id FROM button_categories WHERE name=?", ("Человек",)) as cur:
+                person_cat_id = (await cur.fetchone())[0]
+
+        person_buttons = [
+            ("Человек присутствует", "person_yes", None),
+            ("Без человека", "person_no", None),
+        ]
+        for text, value, prompt in person_buttons:
+            async with db.execute(
+                "SELECT id FROM library_options WHERE category_id=? AND option_value=?",
+                (person_cat_id, value)
+            ) as cur:
+                if not await cur.fetchone():
+                    await db.execute(
+                        "INSERT INTO library_options (category_id, option_text, option_value, custom_prompt) VALUES (?, ?, ?, ?)",
+                        (person_cat_id, text, value, prompt)
+                    )
+        await db.commit()
+    except Exception as e:
+        print(f"Migration error (library person): {e}")
+
+    try:
         # Библиотека вопросов: выбор модели
         async with db.execute("SELECT id FROM library_steps WHERE step_key=?", ("model_select",)) as cur:
             if not await cur.fetchone():

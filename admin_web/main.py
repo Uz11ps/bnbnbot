@@ -263,6 +263,95 @@ async def run_migrations(db: aiosqlite.Connection):
         print(f"Migration error (library person): {e}")
 
     try:
+        # Категория продукт и кнопка
+        async with db.execute("SELECT id FROM button_categories WHERE name=?", ("Продукт",)) as cur:
+            row = await cur.fetchone()
+        if row:
+            product_cat_id = row[0]
+        else:
+            await db.execute("INSERT INTO button_categories (name) VALUES (?)", ("Продукт",))
+            await db.commit()
+            async with db.execute("SELECT id FROM button_categories WHERE name=?", ("Продукт",)) as cur:
+                product_cat_id = (await cur.fetchone())[0]
+
+        product_buttons = [
+            ("Название товара/бренда", "product_name", None),
+        ]
+        for text, value, prompt in product_buttons:
+            async with db.execute(
+                "SELECT id FROM library_options WHERE category_id=? AND option_value=?",
+                (product_cat_id, value)
+            ) as cur:
+                if not await cur.fetchone():
+                    await db.execute(
+                        "INSERT INTO library_options (category_id, option_text, option_value, custom_prompt) VALUES (?, ?, ?, ?)",
+                        (product_cat_id, text, value, prompt)
+                    )
+        await db.commit()
+    except Exception as e:
+        print(f"Migration error (library product): {e}")
+
+    try:
+        # Категория стиль и кнопка
+        async with db.execute("SELECT id FROM button_categories WHERE name=?", ("Стиль",)) as cur:
+            row = await cur.fetchone()
+        if row:
+            style_cat_id = row[0]
+        else:
+            await db.execute("INSERT INTO button_categories (name) VALUES (?)", ("Стиль",))
+            await db.commit()
+            async with db.execute("SELECT id FROM button_categories WHERE name=?", ("Стиль",)) as cur:
+                style_cat_id = (await cur.fetchone())[0]
+
+        style_buttons = [
+            ("Стиль", "style", None),
+        ]
+        for text, value, prompt in style_buttons:
+            async with db.execute(
+                "SELECT id FROM library_options WHERE category_id=? AND option_value=?",
+                (style_cat_id, value)
+            ) as cur:
+                if not await cur.fetchone():
+                    await db.execute(
+                        "INSERT INTO library_options (category_id, option_text, option_value, custom_prompt) VALUES (?, ?, ?, ?)",
+                        (style_cat_id, text, value, prompt)
+                    )
+        await db.commit()
+    except Exception as e:
+        print(f"Migration error (library style): {e}")
+
+    try:
+        # Категория язык и кнопки
+        async with db.execute("SELECT id FROM button_categories WHERE name=?", ("Язык",)) as cur:
+            row = await cur.fetchone()
+        if row:
+            lang_cat_id = row[0]
+        else:
+            await db.execute("INSERT INTO button_categories (name) VALUES (?)", ("Язык",))
+            await db.commit()
+            async with db.execute("SELECT id FROM button_categories WHERE name=?", ("Язык",)) as cur:
+                lang_cat_id = (await cur.fetchone())[0]
+
+        lang_buttons = [
+            ("Русский", "lang_ru", None),
+            ("English", "lang_en", None),
+            ("Tiếng Việt", "lang_vi", None),
+        ]
+        for text, value, prompt in lang_buttons:
+            async with db.execute(
+                "SELECT id FROM library_options WHERE category_id=? AND option_value=?",
+                (lang_cat_id, value)
+            ) as cur:
+                if not await cur.fetchone():
+                    await db.execute(
+                        "INSERT INTO library_options (category_id, option_text, option_value, custom_prompt) VALUES (?, ?, ?, ?)",
+                        (lang_cat_id, text, value, prompt)
+                    )
+        await db.commit()
+    except Exception as e:
+        print(f"Migration error (library language): {e}")
+
+    try:
         # Библиотека вопросов: выбор модели
         async with db.execute("SELECT id FROM library_steps WHERE step_key=?", ("model_select",)) as cur:
             if not await cur.fetchone():

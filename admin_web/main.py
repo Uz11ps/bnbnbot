@@ -133,6 +133,38 @@ async def run_migrations(db: aiosqlite.Connection):
     except Exception as e:
         print(f"Migration error (presets.model_select): {e}")
 
+    try:
+        # Синхронизация системных кнопок в шаги с типом buttons
+        async with db.execute("SELECT id FROM button_categories WHERE name=?", ("Системные",)) as cur:
+            sys_row = await cur.fetchone()
+        sys_cat_id = sys_row[0] if sys_row else None
+        if sys_cat_id:
+            system_buttons = [
+                ("Свой вариант", "custom", "Введите ваш вариант текста:"),
+                ("Пропустить", "skip", None),
+                ("Назад", "back", None),
+            ]
+            async with db.execute("SELECT id FROM steps WHERE input_type='buttons'") as cur:
+                step_rows = await cur.fetchall()
+            for step_row in step_rows:
+                step_id = step_row[0]
+                async with db.execute("SELECT MAX(order_index) FROM step_options WHERE step_id=?", (step_id,)) as cur:
+                    row = await cur.fetchone()
+                order_base = row[0] or 0
+                for idx, (text, value, prompt) in enumerate(system_buttons, start=1):
+                    async with db.execute(
+                        "SELECT id FROM step_options WHERE step_id=? AND option_value=?",
+                        (step_id, value)
+                    ) as cur:
+                        if not await cur.fetchone():
+                            await db.execute(
+                                "INSERT INTO step_options (step_id, option_text, option_value, order_index, custom_prompt) VALUES (?, ?, ?, ?, ?)",
+                                (step_id, text, value, order_base + idx, prompt)
+                            )
+            await db.commit()
+    except Exception as e:
+        print(f"Migration error (step_options system sync): {e}")
+
     async with db.execute("PRAGMA table_info(subscription_plans)") as cur:
         p_cols = [row[1] for row in await cur.fetchall()]
     

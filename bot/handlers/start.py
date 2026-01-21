@@ -661,6 +661,16 @@ async def on_dynamic_option(callback: CallbackQuery, state: FSMContext, db: Data
                     if row:
                         opt_text, opt_val, custom_prompt = row
                         
+                        if opt_val == "back":
+                            await on_back_step(callback, state, db)
+                            await _safe_answer(callback)
+                            return
+
+                        if opt_val == "skip":
+                            # Пропускаем шаг без сохранения ответа
+                            opt_text = None
+                            opt_val = None
+
                         if custom_prompt:
                             # Если есть кастомный промпт — запрашиваем ввод текста
                             await state.update_data(waiting_custom_for=step_key)
@@ -668,10 +678,11 @@ async def on_dynamic_option(callback: CallbackQuery, state: FSMContext, db: Data
                             await _safe_answer(callback)
                             return
                         
-                        # Иначе просто сохраняем значение
-                        await state.update_data({step_key: opt_val})
-                        # Также сохраняем человекочитаемое название для сводки
-                        await state.update_data({f"{step_key}_label": opt_text})
+                        if opt_val is not None:
+                            # Иначе просто сохраняем значение
+                            await state.update_data({step_key: opt_val})
+                            # Также сохраняем человекочитаемое название для сводки
+                            await state.update_data({f"{step_key}_label": opt_text})
         except ValueError:
             # На случай если пришло не число (старый формат или ошибка)
             await state.update_data({step_key: val})

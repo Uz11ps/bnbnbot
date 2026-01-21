@@ -943,9 +943,4 @@ def dynamic_keyboard(options: list[tuple], is_optional: bool = False, lang="ru")
             # Используем ID опции для однозначной идентификации в колбэке
             row.append(InlineKeyboardButton(text=opt[1], callback_data=f"dyn_opt:{opt[0]}"))
         rows.append(row)
-    
-    if is_optional:
-        rows.append([InlineKeyboardButton(text=get_string("skip", lang), callback_data="dyn_opt:skip")])
-    
-    rows.append([InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")])
     return InlineKeyboardMarkup(inline_keyboard=rows)

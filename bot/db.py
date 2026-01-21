@@ -1425,7 +1425,7 @@ class Database:
     async def list_step_options(self, step_id: int) -> list[tuple]:
         async with aiosqlite.connect(self._db_path) as db:
             async with db.execute(
-                "SELECT id, option_text, option_value, order_index FROM step_options WHERE step_id=? ORDER BY order_index, id",
+                "SELECT id, option_text, option_value, order_index, custom_prompt FROM step_options WHERE step_id=? ORDER BY order_index, id",
                 (step_id,)
             ) as cur:
                 return await cur.fetchall()

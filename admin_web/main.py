@@ -531,6 +531,22 @@ async def cancel_subscription(user_id: int = Form(...), db: aiosqlite.Connection
     await db.commit()
     return RedirectResponse(url=f"/users?q={user_id}", status_code=303)
 
+@app.post("/users/add_requests")
+async def add_requests(
+    user_id: int = Form(...),
+    extra: int = Form(...),
+    db: aiosqlite.Connection = Depends(get_db),
+    user: str = Depends(get_current_username)
+):
+    if extra <= 0:
+        return RedirectResponse(url=f"/users?q={user_id}", status_code=303)
+    await db.execute(
+        "UPDATE subscriptions SET daily_limit = daily_limit + ? WHERE user_id=? AND datetime(expires_at) > CURRENT_TIMESTAMP",
+        (extra, user_id)
+    )
+    await db.commit()
+    return RedirectResponse(url=f"/users?q={user_id}", status_code=303)
+
 @app.get("/mailing", response_class=HTMLResponse)
 async def mailing_page(request: Request, user: str = Depends(get_current_username)):
     return templates.TemplateResponse("mailing.html", {"request": request})

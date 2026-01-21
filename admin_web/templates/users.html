@@ -29,6 +29,11 @@
                             <div class="text-truncate"><strong>Key:</strong> <code>{{ user.individual_api_key }}</code></div>
                         {% endif %}
                     </div>
+                    <form action="/users/add_requests" method="post" class="mt-2 d-flex gap-2">
+                        <input type="hidden" name="user_id" value="{{ user.id }}">
+                        <input type="number" name="extra" class="form-control form-control-sm" min="1" placeholder="Доп. запросы">
+                        <button type="submit" class="btn btn-sm btn-outline-primary">Добавить</button>
+                    </form>
                     <form action="/cancel_subscription" method="post" class="mt-2" onsubmit="return confirm('Вы уверены, что хотите полностью отменить подписку этого пользователя? Все дни и лимиты будут удалены.')">
                         <input type="hidden" name="user_id" value="{{ user.id }}">
                         <button type="submit" class="btn btn-sm btn-outline-danger w-100">Отменить подписку</button>

@@ -1609,7 +1609,7 @@ class Database:
                     )
 
             # 2. Категории кнопок
-            cats = ["Пол", "Рукава", "Длина", "Ракурс", "Вид", "Сезон", "Поза", "Праздники", "Системные"]
+            cats = ["Пол", "Рукава", "Длина", "Ракурс", "Вид", "Сезон", "Поза", "Праздники", "Размеры", "Системные"]
             for c in cats:
                 await db.execute("INSERT OR IGNORE INTO button_categories (name) VALUES (?)", (c,))
 
@@ -1666,6 +1666,10 @@ class Database:
                         (cat_ids["Праздники"], "Свадьба", "wedding", None),
                         (cat_ids["Праздники"], "Выпускной", "graduation", None),
                         (cat_ids["Праздники"], "Хэллоуин", "halloween", None),
+                        # Размеры
+                        (cat_ids["Размеры"], "Ширина", "width", None),
+                        (cat_ids["Размеры"], "Высота", "height", None),
+                        (cat_ids["Размеры"], "Длина", "length", None),
                         # Системные
                         (cat_ids["Системные"], "Свой вариант", "custom", "Введите ваш вариант текста:"),
                         (cat_ids["Системные"], "Пропустить", "skip", None),

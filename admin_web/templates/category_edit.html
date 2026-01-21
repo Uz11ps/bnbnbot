@@ -21,6 +21,29 @@
     </div>
 
     <div class="row g-4">
+        <!-- Левая колонка: Аббревиатуры для промпта -->
+        <div class="col-lg-2">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-header bg-white py-3">
+                    <h6 class="mb-0"><i class="bi bi-braces me-2"></i> Аббревиатуры</h6>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted small mb-3">
+                        Используйте эти шаблоны в промптах, чтобы подставлять ответы пользователя.
+                    </p>
+                    {% if prompt_placeholders %}
+                    <div class="d-flex flex-wrap gap-2">
+                        {% for token in prompt_placeholders %}
+                        <span class="badge bg-light text-dark border small">{{ token }}</span>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <div class="text-muted small">Пока нет доступных аббревиатур.</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
         <!-- Левая колонка: Библиотека кнопок -->
         <div class="col-lg-3">
             <div class="card shadow-sm border-0 h-100">
@@ -28,16 +51,6 @@
                     <h5 class="mb-0"><i class="bi bi-grid-3x3-gap me-2"></i> Библиотека кнопок</h5>
                 </div>
                 <div class="card-body overflow-auto" style="max-height: 80vh;">
-                    {% if prompt_placeholders %}
-                    <div class="mb-4">
-                        <h6 class="text-uppercase text-muted small fw-bold mb-3 border-bottom pb-1">Аббревиатуры для промпта</h6>
-                        <div class="d-flex flex-wrap gap-2">
-                            {% for token in prompt_placeholders %}
-                            <span class="badge bg-light text-dark border small">{{ token }}</span>
-                            {% endfor %}
-                        </div>
-                    </div>
-                    {% endif %}
                     {% for cat_name, buttons in lib_buttons.items() %}
                     <div class="mb-4">
                         <h6 class="text-uppercase text-muted small fw-bold mb-3 border-bottom pb-1">{{ cat_name }}</h6>
@@ -67,7 +80,7 @@
         </div>
 
         <!-- Центральная колонка: Холст вопросов -->
-        <div class="col-lg-6">
+        <div class="col-lg-5">
             <div class="card shadow-sm border-0 min-vh-100">
                 <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
                     <h5 class="mb-0"><i class="bi bi-list-task me-2"></i> Очередь вопросов</h5>
@@ -155,7 +168,7 @@
         </div>
 
         <!-- Правая колонка: Библиотека вопросов -->
-        <div class="col-lg-3">
+        <div class="col-lg-2">
             <div class="card shadow-sm border-0 h-100">
                 <div class="card-header bg-white py-3">
                     <h5 class="mb-0"><i class="bi bi-question-circle me-2"></i> Готовые вопросы</h5>

@@ -1562,7 +1562,7 @@ async def admin_add_library_step(step_key: str = Form(...), question: str = Form
     return RedirectResponse(request.headers.get("referer", "/constructor"), status_code=303)
 
 @app.post("/constructor/library/button/add")
-async def admin_add_library_button(text: str = Form(...), value: str = Form(...), category: str = Form("Системные"), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+async def admin_add_library_button(request: Request, text: str = Form(...), value: str = Form(...), category: str = Form("Системные"), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
     # Находим или создаем категорию кнопок
     async with db.execute("SELECT id FROM button_categories WHERE name=?", (category,)) as cur:
         row = await cur.fetchone()

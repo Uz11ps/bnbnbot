@@ -16,7 +16,7 @@
     </form>
 </div>
 
-<h5 class="mt-4">Ключи Gemini (20/мин, 250/день)</h5>
+<h5 class="mt-4">Ключи Gemini (20/мин, 235/день)</h5>
 <div class="table-responsive">
     <table class="table table-sm align-middle bg-white">
         <thead>
@@ -37,7 +37,7 @@
                         {{ "Active" if k.is_active else "Blocked" }}
                     </span>
                 </td>
-                <td>{{ k.daily_usage }} / 250</td>
+                <td>{{ k.daily_usage }} / 235</td>
                 <td>{{ k.total_usage }}</td>
                 <td>
                     <a href="/api_keys/delete/gemini/{{ k.id }}" class="btn btn-sm btn-outline-danger" onclick="return confirm('Удалить?')"><i class="bi bi-trash"></i></a>

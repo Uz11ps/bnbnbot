@@ -1,212 +1,628 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="container">
+<div class="container-fluid px-4">
     <nav aria-label="breadcrumb">
         <ol class="breadcrumb">
-            <li class="breadcrumb-line"><a href="/constructor">Конструктор</a></li>
+            <li class="breadcrumb-item"><a href="/constructor">Конструктор</a></li>
             <li class="breadcrumb-item active" aria-current="page">Настройка {{ category['name_ru'] }}</li>
         </ol>
     </nav>
 
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h2><i class="bi bi-pencil-square me-2"></i> {{ category['name_ru'] }}</h2>
-    </div>
-
-    <div class="card shadow-sm mb-4 border-0">
-        <div class="card-header bg-white py-3">
-            <h5 class="mb-0">Добавить новый вопрос (шаг)</h5>
-        </div>
-        <div class="card-body">
-            <form action="/constructor/step/add/{{ category['id'] }}" method="post" class="row g-3">
-                <div class="col-md-3">
-                    <label class="form-label">Ключ (ID шага)</label>
-                    <input type="text" name="step_key" class="form-control" placeholder="например: age" required>
-                </div>
-                <div class="col-md-5">
-                    <label class="form-label">Текст вопроса в боте</label>
-                    <input type="text" name="question" class="form-control" placeholder="Введите ваш возраст:" required>
-                </div>
-                <div class="col-md-2">
-                    <label class="form-label">Тип ввода</label>
-                    <select name="input_type" class="form-select">
-                        <option value="buttons">Кнопки</option>
-                        <option value="text">Текст</option>
-                        <option value="photo">Фото</option>
-                    </select>
-                </div>
-                <div class="col-md-1">
-                    <label class="form-label">Обязат.</label>
-                    <select name="is_optional" class="form-select">
-                        <option value="0">Да</option>
-                        <option value="1">Нет (Skip)</option>
-                    </select>
-                </div>
-                <div class="col-md-1 d-flex align-items-end">
-                    <button type="submit" class="btn btn-success w-100"><i class="bi bi-plus"></i></button>
-                </div>
-            </form>
+        <h2><i class="bi bi-pencil-square me-2"></i> Конструктор: {{ category['name_ru'] }}</h2>
+        <div class="d-flex gap-2">
+            <button id="saveAllBtn" class="btn btn-primary btn-round" onclick="saveAllChanges()" disabled>
+                <i class="bi bi-cloud-check me-1"></i> Сохранить всё
+            </button>
+            <a href="/constructor" class="btn btn-outline-secondary btn-round">
+                <i class="bi bi-arrow-left me-1"></i> Назад
+            </a>
         </div>
     </div>
 
-    <h4 class="mb-3 d-flex justify-content-between align-items-center">
-        <span>Существующие вопросы:</span>
-        <button id="saveOrderBtn" class="btn btn-primary btn-sm btn-round d-none" onclick="saveOrder()">
-            <i class="bi bi-save me-1"></i> Сохранить порядок
-        </button>
-    </h4>
-    <div class="accordion shadow-sm" id="stepsAccordion">
-        {% for step in steps %}
-        <div class="accordion-item border-0 mb-2 shadow-sm step-item" data-id="{{ step.id }}" style="border-radius: 12px; overflow: hidden;">
-            <h2 class="accordion-header d-flex align-items-center bg-white">
-                <div class="px-3 drag-handle" style="cursor: move; color: #ccc;">
-                    <i class="bi bi-grip-vertical h4 mb-0"></i>
+    <div class="row g-4">
+        <!-- Левая колонка: Библиотека кнопок -->
+        <div class="col-lg-3">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-header bg-white py-3">
+                    <h5 class="mb-0"><i class="bi bi-grid-3x3-gap me-2"></i> Библиотека кнопок</h5>
                 </div>
-                <button class="accordion-button collapsed py-3" type="button" data-bs-toggle="collapse" data-bs-target="#collapse{{ step.id }}" style="box-shadow: none;">
-                    <div class="d-flex w-100 justify-content-between align-items-center pe-3">
-                        <div>
-                            <span class="badge bg-secondary me-2 order-badge">#{{ step.order }}</span>
-                            <span class="fw-bold">{{ step.question }}</span>
-                            <small class="text-muted ms-2">({{ step.key }})</small>
-                        </div>
-                        <div>
-                            <span class="badge bg-info me-2">{{ step.type }}</span>
-                            {% if step.optional %}<span class="badge bg-warning">Optional</span>{% endif %}
-                        </div>
-                    </div>
-                </button>
-            </h2>
-            <div id="collapse{{ step.id }}" class="accordion-collapse collapse" data-bs-parent="#stepsAccordion">
-                <div class="accordion-body bg-light">
-                    {% if step.type == 'buttons' %}
-                    <div class="mb-3">
-                        <h6>Варианты ответов (кнопки):</h6>
-                        <div class="d-flex flex-wrap gap-2 mb-3">
-                            {% for opt in step.options %}
-                            <div class="badge bg-white text-dark border p-2 d-flex align-items-center shadow-sm">
-                                <span>{{ opt[1] }} <small class="text-muted">({{ opt[2] }})</small></span>
-                                <form action="/constructor/option/delete/{{ category['id'] }}/{{ opt[0] }}" method="post" style="display:inline;">
-                                    <button type="submit" class="btn btn-link btn-xs text-danger ms-2 p-0"><i class="bi bi-x-circle"></i></button>
-                                </form>
+                <div class="card-body overflow-auto" style="max-height: 80vh;">
+                    {% for cat_name, buttons in lib_buttons.items() %}
+                    <div class="mb-4">
+                        <h6 class="text-uppercase text-muted small fw-bold mb-3 border-bottom pb-1">{{ cat_name }}</h6>
+                        <div class="d-flex flex-wrap gap-2 library-buttons" id="lib-btns-{{ loop.index }}">
+                            {% for btn in buttons %}
+                            <div class="btn btn-sm btn-outline-secondary library-item" 
+                                 data-text="{{ btn['option_text'] }}" 
+                                 data-value="{{ btn['option_value'] }}"
+                                 data-prompt="{{ btn['custom_prompt'] or '' }}">
+                                {{ btn['option_text'] }}
                             </div>
                             {% endfor %}
                         </div>
-                        
-                        <form action="/constructor/option/add/{{ category['id'] }}/{{ step.id }}" method="post" class="row g-2 align-items-center">
-                            <div class="col-auto">
-                                <input type="text" name="text" class="form-control form-control-sm" placeholder="Текст кнопки" required>
-                            </div>
-                            <div class="col-auto">
-                                <input type="text" name="value" class="form-control form-control-sm" placeholder="Значение (ID)" required>
-                            </div>
-                            <div class="col-auto">
-                                <button type="submit" class="btn btn-primary btn-sm btn-round">Добавить кнопку</button>
-                            </div>
-                        </form>
                     </div>
-                    <hr>
-                    {% endif %}
+                    {% endfor %}
                     
-                    <div class="d-flex justify-content-between">
-                        <small class="text-muted">Тип: {{ step.type }} | Ключ: {{ step.key }}</small>
-                        <form action="/constructor/step/delete/{{ category['id'] }}/{{ step.id }}" method="post" onsubmit="return confirm('Удалить этот вопрос?');">
-                            <button type="submit" class="btn btn-outline-danger btn-sm">
-                                <i class="bi bi-trash me-1"></i> Удалить вопрос
-                            </button>
-                        </form>
+                    <div class="mt-4 pt-3 border-top">
+                        <button class="btn btn-sm btn-outline-primary w-100" data-bs-toggle="modal" data-bs-target="#newCustomBtnModal">
+                            <i class="bi bi-plus-lg me-1"></i> Своя кнопка
+                        </button>
                     </div>
                 </div>
             </div>
         </div>
-        {% endfor %}
-    </div>
 
-    {% if not steps %}
-    <div class="text-center py-5">
-        <div class="text-muted mb-3"><i class="bi bi-patch-question h1"></i></div>
-        <h5>В этой категории пока нет настроенных вопросов.</h5>
-        <p class="text-muted">Добавьте первый вопрос, используя форму выше.</p>
-    </div>
-    {% endif %}
+        <!-- Центральная колонка: Холст вопросов -->
+        <div class="col-lg-6">
+            <div class="card shadow-sm border-0 min-vh-100">
+                <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="bi bi-list-task me-2"></i> Очередь вопросов</h5>
+                    <span class="badge bg-light text-dark border">{{ steps|length }} шагов</span>
+                </div>
+                <div class="card-body bg-light" id="canvas">
+                    {% for step in steps %}
+                    <div class="card mb-3 border-0 shadow-sm step-item" data-id="{{ step.id }}" data-key="{{ step.key }}">
+                        <div class="card-header bg-white d-flex align-items-center py-2 border-0">
+                            <div class="drag-handle-step me-2" style="cursor: move; color: #dee2e6;">
+                                <i class="bi bi-grip-vertical h5 mb-0"></i>
+                            </div>
+                            <div class="flex-grow-1">
+                                <input type="text" class="form-control form-control-sm border-0 fw-bold p-0 step-question-input" value="{{ step.question }}" onchange="markDirty()">
+                            </div>
+                            <div class="dropdown">
+                                <button class="btn btn-link btn-sm text-muted" data-bs-toggle="dropdown">
+                                    <i class="bi bi-three-dots-vertical"></i>
+                                </button>
+                                <ul class="dropdown-menu dropdown-menu-end">
+                                    <li><a class="dropdown-item text-danger" href="#" onclick="deleteStep({{ step.id }}, this)"><i class="bi bi-trash me-2"></i> Удалить</a></li>
+                                </ul>
+                            </div>
+                        </div>
+                        <div class="card-body pt-0">
+                            <div class="row g-2 mb-3">
+                                <div class="col-auto">
+                                    <select class="form-select form-select-sm step-type-select" onchange="updateStepType(this)">
+                                        <option value="buttons" {% if step.type == 'buttons' %}selected{% endif %}>Кнопки</option>
+                                        <option value="text" {% if step.type == 'text' %}selected{% endif %}>Текст</option>
+                                        <option value="photo" {% if step.type == 'photo' %}selected{% endif %}>Фото</option>
+                                        <option value="model_select" {% if step.type == 'model_select' %}selected{% endif %}>Выбор модели</option>
+                                    </select>
+                                </div>
+                                <div class="col-auto">
+                                    <div class="form-check form-check-inline mt-1">
+                                        <input class="form-check-input step-optional-check" type="checkbox" id="opt-{{ step.id }}" {% if step.optional %}checked{% endif %} onchange="markDirty()">
+                                        <label class="form-check-label small" for="opt-{{ step.id }}">Можно пропустить</label>
+                                    </div>
+                                </div>
+                                <div class="col text-end">
+                                    <small class="text-muted">Ключ: <code>{{ step.key }}</code></small>
+                                </div>
+                            </div>
 
-    <div class="mt-5 text-center">
-        <a href="/constructor" class="btn btn-outline-secondary btn-round px-4">
-            <i class="bi bi-arrow-left me-2"></i> Назад к списку категорий
-        </a>
+                            <div class="step-buttons-container {% if step.type != 'buttons' %}d-none{% endif %}">
+                                <div class="d-flex flex-wrap gap-2 canvas-buttons-list p-2 border rounded-3 bg-white min-vh-5" style="min-height: 45px;">
+                                    {% for opt in step.options %}
+                                    <div class="btn btn-xs btn-light border d-flex align-items-center gap-2 canvas-button-item" 
+                                         data-id="{{ opt[0] }}" 
+                                         data-text="{{ opt[1] }}" 
+                                         data-value="{{ opt[2] }}"
+                                         data-prompt="{{ opt[4] or '' }}">
+                                        <span>{{ opt[1] }}</span>
+                                        <div class="btn-group">
+                                            {% if opt[4] %}
+                                            <i class="bi bi-chat-dots text-primary small" title="Свой вариант: {{ opt[4] }}"></i>
+                                            {% endif %}
+                                            <button type="button" class="btn btn-link btn-xs p-0 text-muted ms-1" onclick="editButton(this)"><i class="bi bi-gear"></i></button>
+                                            <button type="button" class="btn btn-link btn-xs p-0 text-danger ms-1" onclick="this.parentElement.parentElement.remove(); markDirty();"><i class="bi bi-x"></i></button>
+                                        </div>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                                <div class="text-center mt-1">
+                                    <small class="text-muted" style="font-size: 0.7rem;">Перетащите кнопки сюда</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+
+                    <!-- Пустое состояние -->
+                    <div id="empty-canvas" class="text-center py-5 border-2 border-dashed rounded-3 {% if steps %}d-none{% endif %}">
+                        <i class="bi bi-plus-circle h1 text-muted"></i>
+                        <p class="text-muted mt-2">Перетащите вопросы из правой колонки сюда</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Правая колонка: Библиотека вопросов -->
+        <div class="col-lg-3">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-header bg-white py-3">
+                    <h5 class="mb-0"><i class="bi bi-question-circle me-2"></i> Готовые вопросы</h5>
+                </div>
+                <div class="card-body">
+                    <div id="library-questions" class="list-group list-group-flush">
+                        {% for step in lib_steps %}
+                        <div class="list-group-item list-group-item-action border rounded mb-2 library-question-item" 
+                             data-key="{{ step[1] }}" 
+                             data-question="{{ step[2] }}" 
+                             data-type="{{ step[3] }}"
+                             style="cursor: grab;">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <div class="fw-bold small">{{ step[2] }}</div>
+                                    <code class="x-small">{{ step[1] }}</code>
+                                </div>
+                                <span class="badge bg-light text-muted small">{{ step[3] }}</span>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    
+                    <div class="mt-4 pt-3 border-top">
+                        <button class="btn btn-sm btn-outline-primary w-100" data-bs-toggle="modal" data-bs-target="#newCustomStepModal">
+                            <i class="bi bi-plus-lg me-1"></i> Свой вопрос
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Настройка кнопки -->
+<div class="modal fade" id="buttonSettingsModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Настройка кнопки</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="edit-btn-index">
+                <div class="mb-3">
+                    <label class="form-label">Текст на кнопке</label>
+                    <input type="text" id="edit-btn-text" class="form-control">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Значение (Value/ID)</label>
+                    <input type="text" id="edit-btn-value" class="form-control">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Текст вопроса для "Своего варианта"</label>
+                    <textarea id="edit-btn-prompt" class="form-control" rows="2" placeholder="Оставьте пустым, если это обычная кнопка"></textarea>
+                    <div class="form-text">Если заполнено, при нажатии на кнопку бот попросит пользователя ввести текст.</div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                <button type="button" class="btn btn-primary" onclick="applyButtonSettings()">Применить</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Новая кнопка -->
+<div class="modal fade" id="newCustomBtnModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form action="/constructor/library/button/add" method="post">
+                <div class="modal-header">
+                    <h5 class="modal-title">Создать новую кнопку в библиотеку</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Текст кнопки</label>
+                        <input type="text" name="text" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Значение (ID)</label>
+                        <input type="text" name="value" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Категория в библиотеке</label>
+                        <select name="category" class="form-select">
+                            {% for cat_name in lib_buttons.keys() %}
+                            <option value="{{ cat_name }}">{{ cat_name }}</option>
+                            {% endfor %}
+                            <option value="Разное">Новая категория (Разное)</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                    <button type="submit" class="btn btn-primary">Создать в библиотеке</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Свой вопрос -->
+<div class="modal fade" id="newCustomStepModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form action="/constructor/library/step/add" method="post">
+                <div class="modal-header">
+                    <h5 class="modal-title">Создать свой вопрос в библиотеку</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Ключ вопроса (ID для базы)</label>
+                        <input type="text" name="step_key" class="form-control" placeholder="например: age" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Текст вопроса в боте</label>
+                        <input type="text" name="question" class="form-control" placeholder="Введите ваш возраст:" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Тип ответа</label>
+                        <select name="input_type" class="form-select">
+                            <option value="buttons">Кнопки</option>
+                            <option value="text">Текст</option>
+                            <option value="photo">Фото</option>
+                            <option value="model_select">Выбор модели</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                    <button type="submit" class="btn btn-primary">Создать в библиотеке</button>
+                </div>
+            </form>
+        </div>
     </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
 <script>
+    let isDirty = false;
+    let currentEditingBtn = null;
+
     document.addEventListener('DOMContentLoaded', function() {
-        const el = document.getElementById('stepsAccordion');
-        const saveBtn = document.getElementById('saveOrderBtn');
-        
-        const sortable = Sortable.create(el, {
+        // Инициализация перетаскивания вопросов из библиотеки
+        new Sortable(document.getElementById('library-questions'), {
+            group: {
+                name: 'steps',
+                pull: 'clone',
+                put: false
+            },
+            sort: false,
+            animation: 150
+        });
+
+        // Инициализация холста для вопросов
+        const canvas = new Sortable(document.getElementById('canvas'), {
+            group: 'steps',
+            handle: '.drag-handle-step',
             animation: 150,
-            handle: '.drag-handle',
-            draggable: '.step-item',
-            onEnd: function() {
-                saveBtn.classList.remove('d-none');
-                updateBadges();
+            onAdd: function(evt) {
+                const item = evt.item;
+                const key = item.getAttribute('data-key');
+                const question = item.getAttribute('data-question');
+                const type = item.getAttribute('data-type');
+                
+                // Создаем новый HTML для шага на холсте
+                const stepHtml = createStepHtml(key, question, type);
+                item.outerHTML = stepHtml;
+                
+                initButtonSortable(document.querySelector(`[data-key="${key}"] .canvas-buttons-list`));
+                markDirty();
+                checkEmptyCanvas();
+            },
+            onUpdate: function() {
+                markDirty();
             }
+        });
+
+        // Инициализация библиотек кнопок
+        document.querySelectorAll('.library-buttons').forEach(el => {
+            new Sortable(el, {
+                group: {
+                    name: 'buttons',
+                    pull: 'clone',
+                    put: false
+                },
+                sort: false,
+                animation: 150
+            });
+        });
+
+        // Инициализация существующих списков кнопок на холсте
+        document.querySelectorAll('.canvas-buttons-list').forEach(el => {
+            initButtonSortable(el);
         });
     });
 
-    function updateBadges() {
-        const badges = document.querySelectorAll('.order-badge');
-        badges.forEach((badge, index) => {
-            badge.textContent = '#' + (index + 1);
+    function initButtonSortable(el) {
+        new Sortable(el, {
+            group: 'buttons',
+            animation: 150,
+            onAdd: function(evt) {
+                const item = evt.item;
+                const text = item.getAttribute('data-text');
+                const value = item.getAttribute('data-value');
+                const prompt = item.getAttribute('data-prompt');
+                
+                const btnHtml = createButtonHtml(text, value, prompt);
+                item.outerHTML = btnHtml;
+                markDirty();
+            },
+            onUpdate: function() {
+                markDirty();
+            }
         });
     }
 
-    async function saveOrder() {
-        const items = document.querySelectorAll('.step-item');
-        const stepIds = Array.from(items).map(item => parseInt(item.getAttribute('data-id')));
-        const saveBtn = document.getElementById('saveOrderBtn');
-        
-        try {
-            const response = await fetch('/constructor/steps/reorder/{{ category["id"] }}', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ step_ids: stepIds })
-            });
-            
-            if (response.ok) {
-                saveBtn.classList.add('d-none');
-                // Можно добавить уведомление об успехе
-                const toast = document.createElement('div');
-                toast.className = 'position-fixed bottom-0 end-0 p-3';
-                toast.style.zIndex = '11';
-                toast.innerHTML = `
-                    <div class="toast show align-items-center text-white bg-success border-0" role="alert" aria-live="assertive" aria-atomic="true">
-                        <div class="d-flex">
-                            <div class="toast-body">Порядок шагов успешно сохранен!</div>
-                            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+    function createStepHtml(key, question, type) {
+        const id = 'new-' + Date.now();
+        return `
+            <div class="card mb-3 border-0 shadow-sm step-item" data-id="null" data-key="${key}">
+                <div class="card-header bg-white d-flex align-items-center py-2 border-0">
+                    <div class="drag-handle-step me-2" style="cursor: move; color: #dee2e6;">
+                        <i class="bi bi-grip-vertical h5 mb-0"></i>
+                    </div>
+                    <div class="flex-grow-1">
+                        <input type="text" class="form-control form-control-sm border-0 fw-bold p-0 step-question-input" value="${question}" onchange="markDirty()">
+                    </div>
+                    <div class="dropdown">
+                        <button class="btn btn-link btn-sm text-muted" data-bs-toggle="dropdown">
+                            <i class="bi bi-three-dots-vertical"></i>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li><a class="dropdown-item text-danger" href="#" onclick="deleteStep(null, this)"><i class="bi bi-trash me-2"></i> Удалить</a></li>
+                        </ul>
+                    </div>
+                </div>
+                <div class="card-body pt-0">
+                    <div class="row g-2 mb-3">
+                        <div class="col-auto">
+                            <select class="form-select form-select-sm step-type-select" onchange="updateStepType(this)">
+                                <option value="buttons" ${type === 'buttons' ? 'selected' : ''}>Кнопки</option>
+                                <option value="text" ${type === 'text' ? 'selected' : ''}>Текст</option>
+                                <option value="photo" ${type === 'photo' ? 'selected' : ''}>Фото</option>
+                                <option value="model_select" ${type === 'model_select' ? 'selected' : ''}>Выбор модели</option>
+                            </select>
+                        </div>
+                        <div class="col-auto">
+                            <div class="form-check form-check-inline mt-1">
+                                <input class="form-check-input step-optional-check" type="checkbox" id="opt-${id}" onchange="markDirty()">
+                                <label class="form-check-label small" for="opt-${id}">Можно пропустить</label>
+                            </div>
+                        </div>
+                        <div class="col text-end">
+                            <small class="text-muted">Ключ: <code>${key}</code></small>
                         </div>
                     </div>
-                `;
-                document.body.appendChild(toast);
-                setTimeout(() => toast.remove(), 3000);
+                    <div class="step-buttons-container ${type !== 'buttons' ? 'd-none' : ''}">
+                        <div class="d-flex flex-wrap gap-2 canvas-buttons-list p-2 border rounded-3 bg-white min-vh-5" style="min-height: 45px;"></div>
+                        <div class="text-center mt-1">
+                            <small class="text-muted" style="font-size: 0.7rem;">Перетащите кнопки сюда</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    function createButtonHtml(text, value, prompt = '') {
+        return `
+            <div class="btn btn-xs btn-light border d-flex align-items-center gap-2 canvas-button-item" 
+                 data-id="null" 
+                 data-text="${text}" 
+                 data-value="${value}"
+                 data-prompt="${prompt}">
+                <span>${text}</span>
+                <div class="btn-group">
+                    ${prompt ? '<i class="bi bi-chat-dots text-primary small" title="Свой вариант"></i>' : ''}
+                    <button type="button" class="btn btn-link btn-xs p-0 text-muted ms-1" onclick="editButton(this)"><i class="bi bi-gear"></i></button>
+                    <button type="button" class="btn btn-link btn-xs p-0 text-danger ms-1" onclick="this.parentElement.parentElement.remove(); markDirty();"><i class="bi bi-x"></i></button>
+                </div>
+            </div>
+        `;
+    }
+
+    function markDirty() {
+        isDirty = true;
+        document.getElementById('saveAllBtn').disabled = false;
+    }
+
+    function updateStepType(select) {
+        const container = select.closest('.card-body').querySelector('.step-buttons-container');
+        if (select.value === 'buttons') {
+            container.classList.remove('d-none');
+        } else {
+            container.classList.add('d-none');
+        }
+        markDirty();
+    }
+
+    function checkEmptyCanvas() {
+        const canvas = document.getElementById('canvas');
+        const empty = document.getElementById('empty-canvas');
+        if (canvas.querySelectorAll('.step-item').length > 0) {
+            empty.classList.add('d-none');
+        } else {
+            empty.classList.remove('d-none');
+        }
+    }
+
+    function deleteStep(id, el) {
+        if (confirm('Удалить этот шаг?')) {
+            el.closest('.step-item').remove();
+            markDirty();
+            checkEmptyCanvas();
+        }
+    }
+
+    function editButton(btn) {
+        const item = btn.closest('.canvas-button-item');
+        currentEditingBtn = item;
+        document.getElementById('edit-btn-text').value = item.getAttribute('data-text');
+        document.getElementById('edit-btn-value').value = item.getAttribute('data-value');
+        document.getElementById('edit-btn-prompt').value = item.getAttribute('data-prompt');
+        
+        new bootstrap.Modal(document.getElementById('buttonSettingsModal')).show();
+    }
+
+    function applyButtonSettings() {
+        if (!currentEditingBtn) return;
+        
+        const text = document.getElementById('edit-btn-text').value;
+        const value = document.getElementById('edit-btn-value').value;
+        const prompt = document.getElementById('edit-btn-prompt').value;
+        
+        currentEditingBtn.setAttribute('data-text', text);
+        currentEditingBtn.setAttribute('data-value', value);
+        currentEditingBtn.setAttribute('data-prompt', prompt);
+        currentEditingBtn.querySelector('span').textContent = text;
+        
+        // Обновляем иконку prompt
+        const group = currentEditingBtn.querySelector('.btn-group');
+        let oldIcon = group.querySelector('.bi-chat-dots');
+        if (prompt) {
+            if (!oldIcon) {
+                oldIcon = document.createElement('i');
+                oldIcon.className = 'bi bi-chat-dots text-primary small';
+                group.insertBefore(oldIcon, group.firstChild);
+            }
+            oldIcon.title = 'Свой вариант: ' + prompt;
+        } else if (oldIcon) {
+            oldIcon.remove();
+        }
+        
+        markDirty();
+        bootstrap.Modal.getInstance(document.getElementById('buttonSettingsModal')).hide();
+    }
+
+    function createCustomButton() {
+        const text = document.getElementById('new-btn-text').value;
+        const value = document.getElementById('new-btn-value').value;
+        if (!text || !value) return;
+
+        // Добавляем в первую попавшуюся библиотеку для простоты
+        const lib = document.querySelector('.library-buttons');
+        if (lib) {
+            const div = document.createElement('div');
+            div.className = 'btn btn-sm btn-outline-secondary library-item';
+            div.setAttribute('data-text', text);
+            div.setAttribute('data-value', value);
+            div.setAttribute('data-prompt', '');
+            div.textContent = text;
+            lib.appendChild(div);
+            showToast('Кнопка создана в библиотеке', 'info');
+        }
+        
+        bootstrap.Modal.getInstance(document.getElementById('newCustomBtnModal')).hide();
+        document.getElementById('new-btn-text').value = '';
+        document.getElementById('new-btn-value').value = '';
+    }
+
+    function createCustomStep() {
+        const key = document.getElementById('new-step-key').value;
+        const question = document.getElementById('new-step-question').value;
+        const type = document.getElementById('new-step-type').value;
+        
+        if (!key || !question) return;
+
+        const stepHtml = createStepHtml(key, question, type);
+        const canvas = document.getElementById('canvas');
+        const empty = document.getElementById('empty-canvas');
+        
+        const temp = document.createElement('div');
+        temp.innerHTML = stepHtml;
+        const newStep = temp.firstElementChild;
+        canvas.appendChild(newStep);
+        
+        initButtonSortable(newStep.querySelector('.canvas-buttons-list'));
+        
+        empty.classList.add('d-none');
+        markDirty();
+        
+        bootstrap.Modal.getInstance(document.getElementById('newCustomStepModal')).hide();
+        document.getElementById('new-step-key').value = '';
+        document.getElementById('new-step-question').value = '';
+    }
+
+    async function saveAllChanges() {
+        const stepsData = [];
+        const stepItems = document.querySelectorAll('.step-item');
+        
+        stepItems.forEach((item, index) => {
+            const stepId = item.getAttribute('data-id');
+            const buttonsList = [];
+            item.querySelectorAll('.canvas-button-item').forEach((btn, bIndex) => {
+                buttonsList.push({
+                    id: btn.getAttribute('data-id'),
+                    text: btn.getAttribute('data-text'),
+                    value: btn.getAttribute('data-value'),
+                    prompt: btn.getAttribute('data-prompt'),
+                    order: bIndex + 1
+                });
+            });
+
+            stepsData.push({
+                id: stepId === 'null' ? null : parseInt(stepId),
+                key: item.getAttribute('data-key'),
+                question: item.querySelector('.step-question-input').value,
+                type: item.querySelector('.step-type-select').value,
+                optional: item.querySelector('.step-optional-check').checked ? 1 : 0,
+                order: index + 1,
+                buttons: buttonsList
+            });
+        });
+
+        try {
+            const response = await fetch('/constructor/category/{{ category["id"] }}/save_all', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ steps: stepsData })
+            });
+
+            if (response.ok) {
+                isDirty = false;
+                document.getElementById('saveAllBtn').disabled = true;
+                showToast('Все изменения успешно сохранены!', 'success');
+                setTimeout(() => location.reload(), 1000);
             } else {
-                alert('Ошибка при сохранении порядка');
+                showToast('Ошибка при сохранении!', 'danger');
             }
         } catch (error) {
-            console.error('Error:', error);
-            alert('Ошибка при сохранении порядка');
+            console.error(error);
+            showToast('Критическая ошибка сохранения!', 'danger');
         }
+    }
+
+    function showToast(message, type = 'success') {
+        const toast = document.createElement('div');
+        toast.className = 'position-fixed bottom-0 end-0 p-3';
+        toast.style.zIndex = '1060';
+        toast.innerHTML = `
+            <div class="toast show align-items-center text-white bg-${type} border-0" role="alert">
+                <div class="d-flex">
+                    <div class="toast-body">${message}</div>
+                    <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 3000);
     }
 </script>
 
 <style>
-    .breadcrumb-item + .breadcrumb-item::before { content: "›"; }
-    .accordion-button:not(.collapsed) { background-color: #f8f9fa; color: inherit; box-shadow: none; }
-    .accordion-button:focus { box-shadow: none; border-color: rgba(0,0,0,.125); }
+    .btn-xs { padding: 0.15rem 0.4rem; font-size: 0.75rem; border-radius: 4px; }
+    .x-small { font-size: 0.65rem; }
+    .min-vh-5 { min-height: 5vh; }
     .btn-round { border-radius: 30px; }
-    .step-item { transition: transform 0.2s; }
-    .sortable-ghost { opacity: 0.4; background-color: #e9ecef !important; }
-    .drag-handle:hover { color: #6c757d !important; }
+    .sortable-ghost { opacity: 0.3; background: #e9ecef !important; border: 2px dashed #6c757d !important; }
+    .step-item { transition: box-shadow 0.2s; }
+    .step-item:hover { box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.1) !important; }
+    .library-item { cursor: grab; user-select: none; }
+    .library-item:active { cursor: grabbing; }
 </style>
 {% endblock %}
-

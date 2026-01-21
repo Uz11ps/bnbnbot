@@ -933,16 +933,15 @@ def dynamic_keyboard(options: list[tuple], is_optional: bool = False, lang="ru")
     """Универсальная клавиатура для динамических шагов"""
     import logging
     logger = logging.getLogger(__name__)
-    logger.info(f"Creating dynamic keyboard with {len(options)} options, is_optional={is_optional}")
     
     rows = []
-    # options: list of (id, text, value, order)
+    # options: list of (id, text, value, order, custom_prompt)
     # Группируем по 2 кнопки в ряд
     for i in range(0, len(options), 2):
         row = []
         for opt in options[i:i+2]:
-            logger.info(f"Adding button: text='{opt[1]}', value='{opt[2]}'")
-            row.append(InlineKeyboardButton(text=opt[1], callback_data=f"dyn_opt:{opt[2]}"))
+            # Используем ID опции для однозначной идентификации в колбэке
+            row.append(InlineKeyboardButton(text=opt[1], callback_data=f"dyn_opt:{opt[0]}"))
         rows.append(row)
     
     if is_optional:

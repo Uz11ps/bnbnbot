@@ -236,7 +236,35 @@ CREATE TABLE IF NOT EXISTS step_options (
     option_text TEXT NOT NULL,
     option_value TEXT NOT NULL,
     order_index INTEGER NOT NULL DEFAULT 0,
+    custom_prompt TEXT,              -- текст вопроса если выбрана эта кнопка ("свой вариант")
     FOREIGN KEY(step_id) REFERENCES steps(id)
+);
+"""
+
+CREATE_LIBRARY_STEPS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS library_steps (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    step_key TEXT NOT NULL,
+    question_text TEXT NOT NULL,
+    input_type TEXT NOT NULL DEFAULT 'buttons'
+);
+"""
+
+CREATE_BUTTON_CATEGORIES_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS button_categories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE
+);
+"""
+
+CREATE_LIBRARY_OPTIONS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS library_options (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    category_id INTEGER,
+    option_text TEXT NOT NULL,
+    option_value TEXT NOT NULL,
+    custom_prompt TEXT,
+    FOREIGN KEY(category_id) REFERENCES button_categories(id)
 );
 """
 
@@ -268,6 +296,9 @@ class Database:
             await db.execute(CREATE_CATEGORIES_TABLE_SQL)
             await db.execute(CREATE_STEPS_TABLE_SQL)
             await db.execute(CREATE_STEP_OPTIONS_TABLE_SQL)
+            await db.execute(CREATE_LIBRARY_STEPS_TABLE_SQL)
+            await db.execute(CREATE_BUTTON_CATEGORIES_TABLE_SQL)
+            await db.execute(CREATE_LIBRARY_OPTIONS_TABLE_SQL)
             await db.commit()
         
         # Миграция для описаний планов
@@ -280,11 +311,19 @@ class Database:
                 await db.execute("ALTER TABLE subscription_plans ADD COLUMN description_vi TEXT")
                 await db.commit()
 
+            # Миграция для step_options (custom_prompt)
+            async with db.execute("PRAGMA table_info(step_options)") as cur:
+                cols = [row[1] for row in await cur.fetchall()]
+            if "custom_prompt" not in cols:
+                await db.execute("ALTER TABLE step_options ADD COLUMN custom_prompt TEXT")
+                await db.commit()
+
         await self._seed_prompts()
         await self._seed_templates()
         await self._seed_subscription_plans()
         await self._seed_app_settings() # Добавляем сид настроек
         await self._seed_categories() # Добавляем сид категорий и шагов
+        await self._seed_library() # Добавляем сид библиотек
         
         # Добавляем токен для nano-banano модели для "Свой вариант" если его еще нет
         try:
@@ -1428,18 +1467,104 @@ class Database:
             async with db.execute("SELECT last_insert_rowid()") as cur:
                 return (await cur.fetchone())[0]
 
-    async def add_step_option(self, step_id: int, text: str, value: str, order_index: int = 0) -> None:
+    async def add_step_option(self, step_id: int, text: str, value: str, order_index: int = 0, custom_prompt: str = None) -> None:
         async with aiosqlite.connect(self._db_path) as db:
             # Проверяем не существует ли уже такая опция
             async with db.execute("SELECT id FROM step_options WHERE step_id=? AND option_value=?", (step_id, value)) as cur:
                 row = await cur.fetchone()
                 if row:
+                    # Если существует - обновляем custom_prompt
+                    await db.execute("UPDATE step_options SET custom_prompt=? WHERE id=?", (custom_prompt, row[0]))
+                    await db.commit()
                     return
                     
             await db.execute(
-                "INSERT INTO step_options (step_id, option_text, option_value, order_index) VALUES (?, ?, ?, ?)",
-                (step_id, text, value, order_index)
+                "INSERT INTO step_options (step_id, option_text, option_value, order_index, custom_prompt) VALUES (?, ?, ?, ?, ?)",
+                (step_id, text, value, order_index, custom_prompt)
             )
+            await db.commit()
+
+    async def delete_category(self, cat_id: int) -> None:
+        async with aiosqlite.connect(self._db_path) as db:
+            # Удаляем все опции шагов этой категории
+            await db.execute("DELETE FROM step_options WHERE step_id IN (SELECT id FROM steps WHERE category_id=?)", (cat_id,))
+            # Удаляем шаги
+            await db.execute("DELETE FROM steps WHERE category_id=?", (cat_id,))
+            # Удаляем категорию
+            await db.execute("DELETE FROM categories WHERE id=?", (cat_id,))
+            await db.commit()
+
+    async def update_category(self, cat_id: int, name_ru: str, is_active: int, order_index: int) -> None:
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute(
+                "UPDATE categories SET name_ru=?, is_active=?, order_index=? WHERE id=?",
+                (name_ru, is_active, order_index, cat_id)
+            )
+            await db.commit()
+
+    # --- Library Management ---
+    async def list_library_steps(self) -> list[tuple]:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT id, step_key, question_text, input_type FROM library_steps ORDER BY id") as cur:
+                return await cur.fetchall()
+
+    async def add_library_step(self, step_key: str, question_text: str, input_type: str = 'buttons') -> int:
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute(
+                "INSERT INTO library_steps (step_key, question_text, input_type) VALUES (?, ?, ?)",
+                (step_key, question_text, input_type)
+            )
+            await db.commit()
+            async with db.execute("SELECT last_insert_rowid()") as cur:
+                return (await cur.fetchone())[0]
+
+    async def delete_library_step(self, step_id: int) -> None:
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute("DELETE FROM library_steps WHERE id=?", (step_id,))
+            await db.commit()
+
+    async def list_button_categories(self) -> list[tuple]:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT id, name FROM button_categories ORDER BY id") as cur:
+                return await cur.fetchall()
+
+    async def add_button_category(self, name: str) -> int:
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute("INSERT OR IGNORE INTO button_categories (name) VALUES (?)", (name,))
+            await db.commit()
+            async with db.execute("SELECT id FROM button_categories WHERE name=?", (name,)) as cur:
+                return (await cur.fetchone())[0]
+
+    async def delete_button_category(self, cat_id: int) -> None:
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute("DELETE FROM library_options WHERE category_id=?", (cat_id,))
+            await db.execute("DELETE FROM button_categories WHERE id=?", (cat_id,))
+            await db.commit()
+
+    async def list_library_options(self, category_id: int = None) -> list[tuple]:
+        async with aiosqlite.connect(self._db_path) as db:
+            if category_id:
+                sql = "SELECT id, category_id, option_text, option_value, custom_prompt FROM library_options WHERE category_id=? ORDER BY id"
+                params = (category_id,)
+            else:
+                sql = "SELECT id, category_id, option_text, option_value, custom_prompt FROM library_options ORDER BY id"
+                params = ()
+            async with db.execute(sql, params) as cur:
+                return await cur.fetchall()
+
+    async def add_library_option(self, category_id: int, text: str, value: str, custom_prompt: str = None) -> int:
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute(
+                "INSERT INTO library_options (category_id, option_text, option_value, custom_prompt) VALUES (?, ?, ?, ?)",
+                (category_id, text, value, custom_prompt)
+            )
+            await db.commit()
+            async with db.execute("SELECT last_insert_rowid()") as cur:
+                return (await cur.fetchone())[0]
+
+    async def delete_library_option(self, opt_id: int) -> None:
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute("DELETE FROM library_options WHERE id=?", (opt_id,))
             await db.commit()
 
     async def delete_step(self, step_id: int) -> None:
@@ -1454,6 +1579,91 @@ class Database:
                 "UPDATE steps SET question_text=?, input_type=?, is_optional=? WHERE id=?",
                 (question_text, input_type, is_optional, step_id)
             )
+            await db.commit()
+
+    async def _seed_library(self) -> None:
+        """Предзаполнение библиотек вопросов и кнопок"""
+        async with aiosqlite.connect(self._db_path) as db:
+            # 1. Библиотека вопросов
+            async with db.execute("SELECT COUNT(*) FROM library_steps") as cur:
+                if (await cur.fetchone())[0] == 0:
+                    steps = [
+                        ("gender", "👤 Выберите пол модели:", "buttons"),
+                        ("age", "🎂 Введите возраст модели числом:", "text"),
+                        ("size", "📏 Введите размер одежды или телосложение числом:", "text"),
+                        ("height", "📏 Введите рост модели числом (например: 170):", "text"),
+                        ("pants_style", "👖 Выберите тип кроя штанов:", "buttons"),
+                        ("sleeve", "🧥 Выберите тип рукавов:", "buttons"),
+                        ("length", "📏 Выберите длину изделия:", "buttons"),
+                        ("pose", "💃 Выберите тип позы:", "buttons"),
+                        ("dist", "👁️ Выберите ракурс фотографии:", "buttons"),
+                        ("view", "📸 Выберите вид фотографии:", "buttons"),
+                        ("season", "🍂 Выберите сезон:", "buttons"),
+                        ("photo", "📸 Пришлите фото товара:", "photo"),
+                        ("model_select", "💃 Выберите модель:", "model_select"),
+                    ]
+                    await db.executemany(
+                        "INSERT INTO library_steps (step_key, question_text, input_type) VALUES (?, ?, ?)",
+                        steps
+                    )
+
+            # 2. Категории кнопок
+            cats = ["Пол", "Рукава", "Длина", "Ракурс", "Вид", "Сезон", "Поза", "Системные"]
+            for c in cats:
+                await db.execute("INSERT OR IGNORE INTO button_categories (name) VALUES (?)", (c,))
+
+            # 3. Библиотека кнопок
+            async with db.execute("SELECT COUNT(*) FROM library_options") as cur:
+                if (await cur.fetchone())[0] == 0:
+                    # Получаем ID категорий
+                    cat_ids = {}
+                    async with db.execute("SELECT id, name FROM button_categories") as cur_c:
+                        async for row in cur_c:
+                            cat_ids[row[1]] = row[0]
+
+                    options = [
+                        # Пол
+                        (cat_ids["Пол"], "Мужской", "male", None),
+                        (cat_ids["Пол"], "Женский", "female", None),
+                        (cat_ids["Пол"], "Мальчик", "boy", None),
+                        (cat_ids["Пол"], "Девочка", "girl", None),
+                        (cat_ids["Пол"], "Унисекс", "unisex", None),
+                        # Рукава
+                        (cat_ids["Рукава"], "Короткий", "short", None),
+                        (cat_ids["Рукава"], "Длинный", "long", None),
+                        (cat_ids["Рукава"], "Без рукавов", "none", None),
+                        # Длина
+                        (cat_ids["Длина"], "Короткий топ", "short_top", None),
+                        (cat_ids["Длина"], "Обычный топ", "regular_top", None),
+                        (cat_ids["Длина"], "До талии", "to_waist", None),
+                        (cat_ids["Длина"], "До колен", "to_knees", None),
+                        (cat_ids["Длина"], "Миди", "midi", None),
+                        (cat_ids["Длина"], "В пол", "to_floor", None),
+                        # Ракурс
+                        (cat_ids["Ракурс"], "Дальний", "far", None),
+                        (cat_ids["Ракурс"], "Средний", "medium", None),
+                        (cat_ids["Ракурс"], "Близкий", "close", None),
+                        # Вид
+                        (cat_ids["Вид"], "Спереди", "front", None),
+                        (cat_ids["Вид"], "Сзади", "back", None),
+                        # Сезон
+                        (cat_ids["Сезон"], "Лето", "summer", None),
+                        (cat_ids["Сезон"], "Зима", "winter", None),
+                        (cat_ids["Сезон"], "Осень", "autumn", None),
+                        (cat_ids["Сезон"], "Весна", "spring", None),
+                        # Поза
+                        (cat_ids["Поза"], "Обычная", "normal", None),
+                        (cat_ids["Поза"], "Нестандартная", "unusual", None),
+                        (cat_ids["Поза"], "Вульгарная", "vulgar", None),
+                        # Системные
+                        (cat_ids["Системные"], "Свой вариант", "custom", "Введите ваш вариант текста:"),
+                        (cat_ids["Системные"], "Пропустить", "skip", None),
+                        (cat_ids["Системные"], "Назад", "back", None),
+                    ]
+                    await db.executemany(
+                        "INSERT INTO library_options (category_id, option_text, option_value, custom_prompt) VALUES (?, ?, ?, ?)",
+                        options
+                    )
             await db.commit()
 
     async def _seed_categories(self) -> None:

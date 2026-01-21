@@ -54,6 +54,17 @@ async def run_migrations(db: aiosqlite.Connection):
         except Exception as e:
             print(f"Migration error (users.trial_used): {e}")
 
+    # Миграция для step_options (custom_prompt)
+    async with db.execute("PRAGMA table_info(step_options)") as cur:
+        cols = [row[1] for row in await cur.fetchall()]
+    if cols and "custom_prompt" not in cols:
+        try:
+            await db.execute("ALTER TABLE step_options ADD COLUMN custom_prompt TEXT")
+            await db.commit()
+            print("Migration: Added custom_prompt to step_options")
+        except Exception as e:
+            print(f"Migration error (step_options.custom_prompt): {e}")
+
     async with db.execute("PRAGMA table_info(subscription_plans)") as cur:
         p_cols = [row[1] for row in await cur.fetchall()]
     
@@ -871,6 +882,24 @@ async def constructor_page(request: Request, db: aiosqlite.Connection = Depends(
         categories = await cur.fetchall()
     return templates.TemplateResponse("constructor.html", {"request": request, "categories": categories})
 
+@app.post("/constructor/category/add")
+async def admin_add_category(key: str = Form(...), name: str = Form(...), order: int = Form(0), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    await db.execute(
+        "INSERT OR IGNORE INTO categories (key, name_ru, is_active, order_index) VALUES (?, ?, 1, ?)",
+        (key, name, order)
+    )
+    await db.commit()
+    return RedirectResponse("/constructor", status_code=303)
+
+@app.post("/constructor/category/delete/{cat_id}")
+async def admin_delete_category(cat_id: int, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    # Удаляем все связанные данные
+    await db.execute("DELETE FROM step_options WHERE step_id IN (SELECT id FROM steps WHERE category_id=?)", (cat_id,))
+    await db.execute("DELETE FROM steps WHERE category_id=?", (cat_id,))
+    await db.execute("DELETE FROM categories WHERE id=?", (cat_id,))
+    await db.commit()
+    return RedirectResponse("/constructor", status_code=303)
+
 @app.get("/constructor/category/{cat_id}", response_class=HTMLResponse)
 async def category_steps_page(request: Request, cat_id: int, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
     async with db.execute("SELECT id, key, name_ru, is_active, order_index FROM categories WHERE id=?", (cat_id,)) as cur:
@@ -887,7 +916,7 @@ async def category_steps_page(request: Request, cat_id: int, db: aiosqlite.Conne
     steps_with_options = []
     for step in steps:
         async with db.execute(
-            "SELECT id, option_text, option_value, order_index FROM step_options WHERE step_id=? ORDER BY order_index, id",
+            "SELECT id, option_text, option_value, order_index, custom_prompt FROM step_options WHERE step_id=? ORDER BY order_index, id",
             (step['id'],)
         ) as cur_opt:
             options = await cur_opt.fetchall()
@@ -901,11 +930,25 @@ async def category_steps_page(request: Request, cat_id: int, db: aiosqlite.Conne
             "order": step['order_index'],
             "options": options
         })
+
+    # Получаем библиотеки для конструктора
+    async with db.execute("SELECT id, step_key, question_text, input_type FROM library_steps ORDER BY id") as cur:
+        lib_steps = await cur.fetchall()
+
+    async with db.execute("SELECT id, name FROM button_categories ORDER BY id") as cur:
+        button_cats = await cur.fetchall()
+
+    lib_buttons = {}
+    for bcat in button_cats:
+        async with db.execute("SELECT id, option_text, option_value, custom_prompt FROM library_options WHERE category_id=? ORDER BY id", (bcat['id'],)) as cur:
+            lib_buttons[bcat['name']] = await cur.fetchall()
     
     return templates.TemplateResponse("category_edit.html", {
         "request": request, 
         "category": category, 
-        "steps": steps_with_options
+        "steps": steps_with_options,
+        "lib_steps": lib_steps,
+        "lib_buttons": lib_buttons
     })
 
 @app.post("/constructor/step/add/{cat_id}")
@@ -955,3 +998,36 @@ async def admin_reorder_steps(cat_id: int, request: Request, db: aiosqlite.Conne
     
     await db.commit()
     return JSONResponse({"status": "ok"})
+
+@app.post("/constructor/category/{cat_id}/save_all")
+async def admin_save_all_steps(cat_id: int, request: Request, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    # ... (existing implementation)
+    pass
+
+@app.post("/constructor/library/step/add")
+async def admin_add_library_step(step_key: str = Form(...), question: str = Form(...), input_type: str = Form(...), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    await db.execute(
+        "INSERT INTO library_steps (step_key, question_text, input_type) VALUES (?, ?, ?)",
+        (step_key, question, input_type)
+    )
+    await db.commit()
+    return RedirectResponse(request.headers.get("referer", "/constructor"), status_code=303)
+
+@app.post("/constructor/library/button/add")
+async def admin_add_library_button(text: str = Form(...), value: str = Form(...), category: str = Form("Системные"), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    # Находим или создаем категорию кнопок
+    async with db.execute("SELECT id FROM button_categories WHERE name=?", (category,)) as cur:
+        row = await cur.fetchone()
+        if row:
+            cat_id = row[0]
+        else:
+            await db.execute("INSERT INTO button_categories (name) VALUES (?)", (category,))
+            async with db.execute("SELECT last_insert_rowid()") as cur_new:
+                cat_id = (await cur_new.fetchone())[0]
+                
+    await db.execute(
+        "INSERT INTO library_options (category_id, option_text, option_value) VALUES (?, ?, ?)",
+        (cat_id, text, value)
+    )
+    await db.commit()
+    return RedirectResponse(request.headers.get("referer", "/constructor"), status_code=303)

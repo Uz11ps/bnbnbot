@@ -355,61 +355,35 @@ async def _check_subscription(user_id: int, bot: Bot, db: Database) -> bool:
 async def _show_confirmation(message_or_callback: Message | CallbackQuery, state: FSMContext, db: Database) -> None:
     """Показывает сводку параметров и кнопку создания фото"""
     data = await state.get_data()
-    category = data.get("category")
+    category_key = data.get("category")
     lang = await db.get_user_language(message_or_callback.from_user.id)
     
+    # Получаем название категории из базы
+    category = await db.get_category_by_key(category_key)
+    cat_name = category[2] if category else category_key
+    
     parts = ["📋 Проверьте выбранные параметры:\n\n"]
-    
-    # 1. Название категории
-    cat_names = {
-        "presets": "👗 Пресеты (Готовые)",
-        "female": "👱‍♀️ Женская одежда",
-        "male": "👨 Мужская одежда",
-        "child": "🧒 Детская одежда",
-        "random": "🎲 Рандом (Одежда)",
-        "random_other": "📦 Рандом (Прочее)",
-        "own": "💃 Свой вариант МОДЕЛИ",
-        "own_variant": "🖼️ Свой вариант ФОНА",
-        "infographic_clothing": "👕 Инфографика (Одежда)",
-        "infographic_other": "📦 Инфографика (Прочее)",
-        "storefront": "📸 Витринное фото",
-        "whitebg": "⚪ На белом фоне"
-    }
-    parts.append(f"📦 **Раздел**: {cat_names.get(category, category)}\n")
+    parts.append(f"📦 **Раздел**: {cat_name}\n")
 
-    # 2. Параметры (динамически из data)
-    param_names = {
-        "gender": "👤 Пол",
-        "rand_gender": "👤 Пол",
-        "info_gender": "👤 Пол",
-        "child_gender": "👤 Пол",
-        "age": "🎂 Возраст",
-        "size": "📏 Размер/Телосложение",
-        "height": "📏 Рост",
-        "pants_style": "👖 Крой штанов",
-        "sleeve": "🧥 Рукав",
-        "length": "👗 Длина",
-        "pose": "💃 Поза",
-        "dist": "👁️ Ракурс",
-        "view": "📸 Вид",
-        "season": "🍂 Сезон",
-        "holiday": "🎉 Праздник",
-        "aspect": "📐 Формат"
-    }
+    # Получаем все шаги этой категории, чтобы знать их названия
+    logic_cat = category_key
+    if data.get("is_preset") and category_key in ("female", "male", "child"):
+        logic_cat = "presets"
     
-    for k, v in data.items():
-        if k in param_names and v:
-            name = param_names[k]
-            # Маппинг значений для красоты
-            val = v
-            if k == "gender" or k.endswith("_gender"):
-                g_map = {"male":"Мужской","female":"Женский","boy":"Мальчик","girl":"Девочка","unisex":"Унисекс"}
-                val = g_map.get(v, v)
-            elif k == "view":
-                v_map = {"front":"Спереди","back":"Сзади"}
-                val = v_map.get(v, v)
-            
-            parts.append(f"🔹 **{name}**: {val}\n")
+    cat_info = await db.get_category_by_key(logic_cat)
+    if cat_info:
+        steps = await db.list_steps(cat_info[0])
+        for step in steps:
+            s_id, s_key, s_question, s_type, s_optional, s_order = step
+            val = data.get(s_key)
+            if val:
+                # Если у нас есть сохраненная метка (label) — используем ее
+                label = data.get(f"{s_key}_label", val)
+                
+                # Убираем эмодзи из вопроса для метки, если нужно, 
+                # или просто берем часть текста до двоеточия
+                clean_question = s_question.split(':')[0].strip()
+                parts.append(f"🔹 **{clean_question}**: {label}\n")
 
     if data.get("normal_gen_mode"):
         parts.append(f"📝 **Промпт**: {data.get('prompt', '—')}\n")
@@ -424,6 +398,62 @@ async def _show_confirmation(message_or_callback: Message | CallbackQuery, state
         await message_or_callback.answer(text, reply_markup=kb)
     else:
         await _replace_with_text(message_or_callback, text, reply_markup=kb)
+
+async def _show_model_selection(message_or_callback: Message | CallbackQuery, state: FSMContext, db: Database) -> None:
+    """Хелпер для отображения выбора модели (пресета)"""
+    data = await state.get_data()
+    # Определяем категорию и тип одежды для выбора моделей
+    # Если они не заданы в data, пробуем использовать текущие
+    category = data.get("display_category") or data.get("category", "female")
+    cloth = data.get("selected_cloth") or data.get("cloth", "all")
+    
+    total = await db.count_models(category, cloth)
+    if total <= 0:
+        # Если нет моделей - пробуем с 'all'
+        cloth = "all"
+        total = await db.count_models(category, cloth)
+        
+    if total <= 0:
+        # Если все еще нет - пробуем 'female'
+        category = "female"
+        total = await db.count_models(category, cloth)
+
+    if total <= 0:
+        # Если совсем нет - ошибка или пропуск
+        if isinstance(message_or_callback, Message):
+            await message_or_callback.answer("Извините, в этой категории пока нет доступных моделей.")
+        else:
+            await _replace_with_text(message_or_callback, "Извините, в этой категории пока нет доступных моделей.")
+        
+        # Пропускаем шаг
+        current_idx = data.get("current_step_index", 0)
+        await state.update_data(current_step_index=current_idx + 1)
+        await _show_next_step(message_or_callback, state, db)
+        return
+
+    index = data.get("model_index", 0)
+    if index >= total: index = 0
+    
+    model = await db.get_model_by_index(category, cloth, index)
+    lang = await db.get_user_language(message_or_callback.from_user.id)
+    
+    # helper functions
+    from bot.handlers.start import _model_header
+    text = _model_header(index, total)
+    
+    from bot.keyboards import model_select_keyboard
+    kb = model_select_keyboard(category, cloth, index, total, lang, logic_category=data.get("category"))
+    
+    if model and model[3]: # photo_file_id
+        if isinstance(message_or_callback, CallbackQuery):
+            await _answer_model_photo(message_or_callback, model[3], text, kb)
+        else:
+            await message_or_callback.answer_photo(photo=model[3], caption=text, reply_markup=kb)
+    else:
+        if isinstance(message_or_callback, Message):
+            await message_or_callback.answer(text, reply_markup=kb)
+        else:
+            await _replace_with_text(message_or_callback, text, reply_markup=kb)
 
 async def _show_next_step(message_or_callback: Message | CallbackQuery, state: FSMContext, db: Database) -> None:
     data = await state.get_data()
@@ -478,25 +508,9 @@ async def _show_next_step(message_or_callback: Message | CallbackQuery, state: F
 
     if current_step_index >= len(steps):
         # Все шаги пройдены — переходим к финалу
-        # Но сначала проверим, есть ли фото и формат (обязательные для генерации)
-        photo_id = data.get("photo") or data.get("user_photo_id")
+        # Но сначала проверим формат (обязателен для всех генераций)
         aspect = data.get("aspect")
-        
-        if photo_id and aspect:
-            await _show_confirmation(message_or_callback, state, db)
-            return
-
-        # Для всех категорий проверяем сначала наличие фото
-        if not photo_id:
-            await state.set_state(CreateForm.waiting_view)
-            lang = await db.get_user_language(message_or_callback.from_user.id)
-            text = get_string("upload_product", lang)
-            if isinstance(message_or_callback, Message):
-                await message_or_callback.answer(text, reply_markup=back_step_keyboard(lang))
-            else:
-                await _replace_with_text(message_or_callback, text, reply_markup=back_step_keyboard(lang))
-        elif not aspect:
-            # Если нет формата — просим его
+        if not aspect:
             await state.set_state(CreateForm.waiting_aspect)
             lang = await db.get_user_language(message_or_callback.from_user.id)
             from bot.keyboards import aspect_ratio_keyboard
@@ -505,24 +519,23 @@ async def _show_next_step(message_or_callback: Message | CallbackQuery, state: F
                 await message_or_callback.answer(text, reply_markup=aspect_ratio_keyboard(lang))
             else:
                 await _replace_with_text(message_or_callback, text, reply_markup=aspect_ratio_keyboard(lang))
-        else:
-            # Если всё есть (но мы тут оказаться не должны из-за проверки выше) — подтверждение
-            await _show_confirmation(message_or_callback, state, db)
+            return
+
+        await _show_confirmation(message_or_callback, state, db)
         return
 
+    # Показываем текущий шаг
     step = steps[current_step_index]
-    step_id, step_key, question, input_type, is_optional, _order = step
+    step_id, step_key, question, input_type, is_optional, order = step
+    lang = await db.get_user_language(message_or_callback.from_user.id)
     
     await state.update_data(current_step_id=step_id, current_step_key=step_key)
     await state.set_state(CreateForm.waiting_dynamic_step)
     
-    lang = await db.get_user_language(message_or_callback.from_user.id)
-    
     if input_type == "buttons":
         options = await db.list_step_options(step_id)
-        logger.info(f"Showing step {step_key} (id={step_id}) with {len(options)} options")
         from bot.keyboards import dynamic_keyboard
-        kb = dynamic_keyboard(options, is_optional=bool(is_optional), lang=lang)
+        kb = dynamic_keyboard(options, bool(is_optional), lang)
         
         # Специальная обработка для длины изделия (добавляем фото-гайд)
         if step_key == "length":
@@ -541,19 +554,36 @@ async def _show_next_step(message_or_callback: Message | CallbackQuery, state: F
             await message_or_callback.answer(question, reply_markup=kb)
         else:
             await _replace_with_text(message_or_callback, question, reply_markup=kb)
+            
     elif input_type == "photo":
         kb = back_step_keyboard(lang)
+        if is_optional:
+            from bot.keyboards import skip_step_keyboard
+            kb = skip_step_keyboard(step_key, lang)
+            
         if isinstance(message_or_callback, Message):
             await message_or_callback.answer(question, reply_markup=kb)
         else:
             await _replace_with_text(message_or_callback, question, reply_markup=kb)
+            
+    elif input_type == "model_select":
+        # Логика выбора модели
+        # Мы предполагаем, что _show_model_selection уже существует в start.py
+        # Если нет, нужно убедиться что она вызывается правильно
+        try:
+            # Пытаемся вызвать внутреннюю функцию выбора модели
+            await _show_model_selection(message_or_callback, state, db)
+        except Exception as e:
+            logger.error(f"Error in model_select step: {e}")
+            # Фолбэк: просто пропускаем этот шаг
+            await state.update_data(current_step_index=current_step_index + 1)
+            await _show_next_step(message_or_callback, state, db)
+        
     else: # text
-        kb = None
+        kb = back_step_keyboard(lang)
         if is_optional:
             from bot.keyboards import skip_step_keyboard
             kb = skip_step_keyboard(step_key, lang)
-        else:
-            kb = back_step_keyboard(lang)
             
         if isinstance(message_or_callback, Message):
             await message_or_callback.answer(question, reply_markup=kb)
@@ -614,9 +644,37 @@ async def on_dynamic_option(callback: CallbackQuery, state: FSMContext, db: Data
     val = callback.data.split(":", 1)[1]
     data = await state.get_data()
     step_key = data.get("current_step_key")
+    lang = await db.get_user_language(callback.from_user.id)
     
-    if val != "skip":
-        await state.update_data({step_key: val})
+    if val == "skip":
+        # Пропускаем шаг
+        pass
+    else:
+        # val - это ID опции (или skip)
+        try:
+            opt_id = int(val)
+            # Нам нужно получить value и custom_prompt из step_options
+            import aiosqlite
+            async with aiosqlite.connect(db._db_path) as conn:
+                async with conn.execute("SELECT option_text, option_value, custom_prompt FROM step_options WHERE id=?", (opt_id,)) as cur:
+                    row = await cur.fetchone()
+                    if row:
+                        opt_text, opt_val, custom_prompt = row
+                        
+                        if custom_prompt:
+                            # Если есть кастомный промпт — запрашиваем ввод текста
+                            await state.update_data(waiting_custom_for=step_key)
+                            await _replace_with_text(callback, custom_prompt, reply_markup=back_step_keyboard(lang))
+                            await _safe_answer(callback)
+                            return
+                        
+                        # Иначе просто сохраняем значение
+                        await state.update_data({step_key: opt_val})
+                        # Также сохраняем человекочитаемое название для сводки
+                        await state.update_data({f"{step_key}_label": opt_text})
+        except ValueError:
+            # На случай если пришло не число (старый формат или ошибка)
+            await state.update_data({step_key: val})
     
     # Получаем актуальные данные после обновления значения шага
     new_data = await state.get_data()
@@ -630,13 +688,21 @@ async def on_dynamic_option(callback: CallbackQuery, state: FSMContext, db: Data
 @router.message(CreateForm.waiting_dynamic_step)
 async def on_dynamic_input(message: Message, state: FSMContext, db: Database) -> None:
     data = await state.get_data()
-    step_key = data.get("current_step_key")
     
-    # Если ожидается фото
-    if message.photo:
-        await state.update_data({step_key: message.photo[-1].file_id})
-    else:
+    # Если мы ждали ввода для "своего варианта"
+    if data.get("waiting_custom_for"):
+        step_key = data.get("waiting_custom_for")
         await state.update_data({step_key: message.text})
+        await state.update_data({f"{step_key}_label": message.text})
+        await state.update_data(waiting_custom_for=None)
+    else:
+        step_key = data.get("current_step_key")
+        # Если ожидается фото
+        if message.photo:
+            await state.update_data({step_key: message.photo[-1].file_id})
+        else:
+            await state.update_data({step_key: message.text})
+            await state.update_data({f"{step_key}_label": message.text})
     
     # Получаем актуальные данные
     new_data = await state.get_data()

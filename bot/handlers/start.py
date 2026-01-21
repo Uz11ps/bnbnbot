@@ -1986,6 +1986,8 @@ async def on_model_pick(callback: CallbackQuery, db: Database, state: FSMContext
         model_id=model_id, 
         prompt_id=prompt_id
     )
+    # Отмечаем шаг выбора модели как выполненный, чтобы не зациклиться
+    await state.update_data(model_select=model_id, model_select_label=name)
     
     lang = await db.get_user_language(callback.from_user.id)
     data = await state.get_data()

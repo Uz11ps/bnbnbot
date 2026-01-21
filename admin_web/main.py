@@ -1069,8 +1069,86 @@ async def admin_reorder_steps(cat_id: int, request: Request, db: aiosqlite.Conne
 
 @app.post("/constructor/category/{cat_id}/save_all")
 async def admin_save_all_steps(cat_id: int, request: Request, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
-    # ... (existing implementation)
-    pass
+    data = await request.json()
+    steps_data = data.get("steps", [])
+    
+    # Получаем текущие ID шагов этой категории
+    async with db.execute("SELECT id FROM steps WHERE category_id=?", (cat_id,)) as cur:
+        existing_step_ids = [row[0] for row in await cur.fetchall()]
+    
+    received_step_ids = []
+    
+    for s_data in steps_data:
+        step_id = s_data.get("id")
+        step_key = s_data.get("key")
+        question = s_data.get("question")
+        input_type = s_data.get("type")
+        is_optional = s_data.get("optional")
+        order_index = s_data.get("order")
+        buttons = s_data.get("buttons", [])
+        
+        if step_id and step_id in existing_step_ids:
+            # Обновляем существующий шаг
+            await db.execute(
+                "UPDATE steps SET question_text=?, input_type=?, is_optional=?, order_index=?, step_key=? WHERE id=?",
+                (question, input_type, is_optional, order_index, step_key, step_id)
+            )
+            received_step_ids.append(step_id)
+        else:
+            # Создаем новый шаг
+            await db.execute(
+                "INSERT INTO steps (category_id, step_key, question_text, input_type, is_optional, order_index) VALUES (?, ?, ?, ?, ?, ?)",
+                (cat_id, step_key, question, input_type, is_optional, order_index)
+            )
+            async with db.execute("SELECT last_insert_rowid()") as cur:
+                step_id = (await cur.fetchone())[0]
+            received_step_ids.append(step_id)
+            
+        # Работа с кнопками (опциями) этого шага
+        async with db.execute("SELECT id FROM step_options WHERE step_id=?", (step_id,)) as cur:
+            existing_opt_ids = [row[0] for row in await cur.fetchall()]
+            
+        received_opt_ids = []
+        for b_data in buttons:
+            opt_id = b_data.get("id")
+            opt_text = b_data.get("text")
+            opt_value = b_data.get("value")
+            opt_prompt = b_data.get("prompt")
+            opt_order = b_data.get("order")
+            
+            # Если opt_id - строка 'null', приводим к None
+            if opt_id == 'null':
+                opt_id = None
+            else:
+                opt_id = int(opt_id) if opt_id else None
+            
+            if opt_id and opt_id in existing_opt_ids:
+                await db.execute(
+                    "UPDATE step_options SET option_text=?, option_value=?, order_index=?, custom_prompt=? WHERE id=?",
+                    (opt_text, opt_value, opt_order, opt_prompt, opt_id)
+                )
+                received_opt_ids.append(opt_id)
+            else:
+                await db.execute(
+                    "INSERT INTO step_options (step_id, option_text, option_value, order_index, custom_prompt) VALUES (?, ?, ?, ?, ?)",
+                    (step_id, opt_text, opt_value, opt_order, opt_prompt)
+                )
+                async with db.execute("SELECT last_insert_rowid()") as cur:
+                    received_opt_ids.append((await cur.fetchone())[0])
+                    
+        # Удаляем опции, которые не пришли
+        for old_opt_id in existing_opt_ids:
+            if old_opt_id not in received_opt_ids:
+                await db.execute("DELETE FROM step_options WHERE id=?", (old_opt_id,))
+                
+    # Удаляем шаги, которые не пришли
+    for old_step_id in existing_step_ids:
+        if old_step_id not in received_step_ids:
+            await db.execute("DELETE FROM step_options WHERE step_id=?", (old_step_id,))
+            await db.execute("DELETE FROM steps WHERE id=?", (old_step_id,))
+            
+    await db.commit()
+    return JSONResponse({"status": "ok"})
 
 @app.post("/constructor/library/step/add")
 async def admin_add_library_step(step_key: str = Form(...), question: str = Form(...), input_type: str = Form(...), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):

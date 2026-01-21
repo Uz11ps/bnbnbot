@@ -28,6 +28,16 @@
                     <h5 class="mb-0"><i class="bi bi-grid-3x3-gap me-2"></i> Библиотека кнопок</h5>
                 </div>
                 <div class="card-body overflow-auto" style="max-height: 80vh;">
+                    {% if prompt_placeholders %}
+                    <div class="mb-4">
+                        <h6 class="text-uppercase text-muted small fw-bold mb-3 border-bottom pb-1">Аббревиатуры для промпта</h6>
+                        <div class="d-flex flex-wrap gap-2">
+                            {% for token in prompt_placeholders %}
+                            <span class="badge bg-light text-dark border small">{{ token }}</span>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
                     {% for cat_name, buttons in lib_buttons.items() %}
                     <div class="mb-4">
                         <h6 class="text-uppercase text-muted small fw-bold mb-3 border-bottom pb-1">{{ cat_name }}</h6>

@@ -14,6 +14,7 @@ from aiogram import Bot
 from bot.config import load_settings
 from bot.strings import get_string
 from datetime import datetime, timedelta
+import re
 from contextlib import asynccontextmanager
 
 # --- Настройки путей ---
@@ -151,6 +152,38 @@ async def run_migrations(db: aiosqlite.Connection):
                 print(f"Migration: Added {col_name} to subscription_plans")
             except Exception as e:
                 print(f"Migration error (subscription_plans.{col_name}): {e}")
+
+
+def _normalize_placeholder_label(text: str, fallback: str) -> str:
+    if not text:
+        return fallback
+    # Убираем эмодзи и пунктуацию, оставляем буквы/цифры/пробелы
+    clean = re.sub(r"[^0-9A-Za-zА-Яа-яЁё ]+", "", text).strip()
+    # Убираем типовые префиксы
+    for prefix in ("Выберите ", "Введите ", "Пришлите ", "Загрузите "):
+        if clean.lower().startswith(prefix.lower()):
+            clean = clean[len(prefix):].strip()
+            break
+    return clean or fallback
+
+
+async def _get_prompt_placeholders(db: aiosqlite.Connection) -> list[str]:
+    placeholders: list[str] = []
+    async with db.execute(
+        "SELECT DISTINCT step_key, question_text FROM steps ORDER BY step_key"
+    ) as cur:
+        rows = await cur.fetchall()
+    for step_key, question_text in rows:
+        label = _normalize_placeholder_label(question_text, step_key)
+        placeholders.append(f"{{{label}}}")
+    # Убираем дубликаты, сохраняя порядок
+    seen = set()
+    unique = []
+    for p in placeholders:
+        if p not in seen:
+            seen.add(p)
+            unique.append(p)
+    return unique
 
 async def cleanup_old_history():
     """Фоновая задача для очистки истории старше 7 дней"""
@@ -515,10 +548,12 @@ async def list_prompts(request: Request, db: aiosqlite.Connection = Depends(get_
         if cat not in categorized_models:
             categorized_models[cat] = []
         categorized_models[cat].append(m)
+    prompt_placeholders = await _get_prompt_placeholders(db)
     return templates.TemplateResponse("prompts.html", {
         "request": request, 
         "categorized_models": categorized_models, 
-        "categories": CATEGORIES
+        "categories": CATEGORIES,
+        "prompt_placeholders": prompt_placeholders
     })
 
 @app.post("/prompts/edit_model")
@@ -1016,13 +1051,16 @@ async def category_steps_page(request: Request, cat_id: int, db: aiosqlite.Conne
     for bcat in button_cats:
         async with db.execute("SELECT id, option_text, option_value, custom_prompt FROM library_options WHERE category_id=? ORDER BY id", (bcat['id'],)) as cur:
             lib_buttons[bcat['name']] = await cur.fetchall()
+
+    prompt_placeholders = await _get_prompt_placeholders(db)
     
     return templates.TemplateResponse("category_edit.html", {
         "request": request, 
         "category": category, 
         "steps": steps_with_options,
         "lib_steps": lib_steps,
-        "lib_buttons": lib_buttons
+        "lib_buttons": lib_buttons,
+        "prompt_placeholders": prompt_placeholders
     })
 
 @app.post("/constructor/step/add/{cat_id}")

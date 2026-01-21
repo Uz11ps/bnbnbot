@@ -1668,12 +1668,6 @@ class Database:
 
     async def _seed_categories(self) -> None:
         """Предзаполнение категорий и шагов текущей логикой"""
-        # ОЧИСТКА: Удаляем старые шаги 'photo' и 'aspect', так как они теперь обрабатываются в коде
-        async with aiosqlite.connect(self._db_path) as db:
-            await db.execute("DELETE FROM step_options WHERE step_id IN (SELECT id FROM steps WHERE step_key IN ('photo', 'aspect'))")
-            await db.execute("DELETE FROM steps WHERE step_key IN ('photo', 'aspect')")
-            await db.commit()
-
         # --- ОБЩИЕ ОПЦИИ ДЛЯ ПОВТОРНОГО ИСПОЛЬЗОВАНИЯ ---
         length_options = [
             ("Короткий топ", "short_top"),
@@ -1760,6 +1754,12 @@ class Database:
         await self.add_step_option(s10, "Осень", "autumn", 3)
         await self.add_step_option(s10, "Весна", "spring", 4)
 
+        # Шаг 13: Выбор модели
+        await self.add_step(cat_id, "model_select", "💃 Выберите модель (пресет):", "model_select", order_index=13)
+        
+        # Шаг 14: Фото товара
+        await self.add_step(cat_id, "photo", "📸 Пришлите фото товара:", "photo", order_index=14)
+
         # 2. Одежда и обувь РАНДОМ
         cat_id = await self.add_category("random", "🎲 Одежда и обувь РАНДОМ", order_index=2)
         s_locg = await self.add_step(cat_id, "rand_loc_group", "📍 Выберите тип локации:", "buttons", order_index=1)
@@ -1811,6 +1811,9 @@ class Database:
         await self.add_step_option(s_hold_r, "Новый год", "new_year", 1)
         await self.add_step_option(s_hold_r, "День рождения", "birthday", 2)
 
+        # Шаг 14: Фото товара
+        await self.add_step(cat_id, "photo", "📸 Пришлите фото товара:", "photo", order_index=14)
+
         # 3. Рандом прочие категории
         cat_id = await self.add_category("random_other", "📦 Рандом · Прочие категории", order_index=3)
         s_hp = await self.add_step(cat_id, "has_person", "👤 Присутствует ли человек на фото?", "buttons", order_index=1)
@@ -1850,6 +1853,9 @@ class Database:
         await self.add_step_option(s_styl_ro, "Арт", "art", 4)
         await self.add_step_option(s_styl_ro, "Дизайнерский", "design", 5)
         await self.add_step_option(s_styl_ro, "Праздничный", "festive", 6)
+
+        # Шаг 12: Фото товара
+        await self.add_step(cat_id, "photo", "📸 Пришлите фото товара:", "photo", order_index=12)
 
         # 4. Инфографика одежда
         cat_id = await self.add_category("infographic_clothing", "👕 Инфогр: Одежда и обувь", order_index=4)
@@ -1906,6 +1912,9 @@ class Database:
         for i, (t, v) in enumerate(length_options, 1):
             await self.add_step_option(s_len_ic, t, v, i)
 
+        # Шаг 19: Фото товара
+        await self.add_step(cat_id, "photo", "📸 Пришлите фото товара:", "photo", order_index=19)
+
         # 5. Инфографика прочее
         cat_id = await self.add_category("infographic_other", "📦 Инфогр: Остальные товары", order_index=5)
         s_hp2 = await self.add_step(cat_id, "has_person", "👤 Присутствует ли человек на фото?", "buttons", order_index=1)
@@ -1949,6 +1958,9 @@ class Database:
         await self.add_step_option(s_hold_io, "Новый год", "new_year", 1)
         await self.add_step_option(s_hold_io, "День рождения", "birthday", 2)
 
+        # Шаг 14: Фото товара
+        await self.add_step(cat_id, "photo", "📸 Пришлите фото товара:", "photo", order_index=14)
+
         # 6. Витринное фото
         cat_id = await self.add_category("storefront", "📸 Витринное фото", order_index=6)
         s_ang_sf = await self.add_step(cat_id, "angle", "📐 Угол камеры:", "buttons", order_index=1)
@@ -1964,11 +1976,18 @@ class Database:
         for i, (t, v) in enumerate(length_options, 1):
             await self.add_step_option(s_len_sf, t, v, i)
 
+        # Шаг 4: Фото товара
+        await self.add_step(cat_id, "photo", "📸 Пришлите фото товара:", "photo", order_index=4)
+
         # 7. На белом фоне
         cat_id = await self.add_category("whitebg", "⬜ На белом фоне", order_index=7)
+        # Шаг 1: Фото товара
+        await self.add_step(cat_id, "photo", "📸 Пришлите фото товара:", "photo", order_index=1)
 
         # 8. Свой вариант модели
         cat_id = await self.add_category("own", "💃 Свой вариант модели", order_index=8)
+        # Шаг 1: Фото товара
+        await self.add_step(cat_id, "photo", "📸 Пришлите фото товара:", "photo", order_index=1)
         s_len_om = await self.add_step(cat_id, "length", "📏 Выберите длину изделия. Внимание! если ваш продукт Костюм 2-к, 3-к то длину можно не указывать.", "buttons", order_index=1)
         for i, (t, v) in enumerate(length_options, 1):
             await self.add_step_option(s_len_om, t, v, i)

@@ -65,6 +65,74 @@ async def run_migrations(db: aiosqlite.Connection):
         except Exception as e:
             print(f"Migration error (step_options.custom_prompt): {e}")
 
+    # Гарантируем системные кнопки в библиотеке и наличие шага выбора модели
+    try:
+        # Системная категория кнопок
+        async with db.execute("SELECT id FROM button_categories WHERE name=?", ("Системные",)) as cur:
+            row = await cur.fetchone()
+        if row:
+            sys_cat_id = row[0]
+        else:
+            await db.execute("INSERT INTO button_categories (name) VALUES (?)", ("Системные",))
+            await db.commit()
+            async with db.execute("SELECT id FROM button_categories WHERE name=?", ("Системные",)) as cur:
+                sys_cat_id = (await cur.fetchone())[0]
+
+        system_buttons = [
+            ("Свой вариант", "custom", "Введите ваш вариант текста:"),
+            ("Пропустить", "skip", None),
+            ("Назад", "back", None),
+        ]
+        for text, value, prompt in system_buttons:
+            async with db.execute(
+                "SELECT id FROM library_options WHERE category_id=? AND option_value=?",
+                (sys_cat_id, value)
+            ) as cur:
+                if not await cur.fetchone():
+                    await db.execute(
+                        "INSERT INTO library_options (category_id, option_text, option_value, custom_prompt) VALUES (?, ?, ?, ?)",
+                        (sys_cat_id, text, value, prompt)
+                    )
+        await db.commit()
+    except Exception as e:
+        print(f"Migration error (library system buttons): {e}")
+
+    try:
+        # Библиотека вопросов: выбор модели
+        async with db.execute("SELECT id FROM library_steps WHERE step_key=?", ("model_select",)) as cur:
+            if not await cur.fetchone():
+                await db.execute(
+                    "INSERT INTO library_steps (step_key, question_text, input_type) VALUES (?, ?, ?)",
+                    ("model_select", "💃 Выберите модель:", "model_select")
+                )
+                await db.commit()
+    except Exception as e:
+        print(f"Migration error (library_steps.model_select): {e}")
+
+    try:
+        # Категория пресетов: добавить шаг выбора модели, если его нет
+        async with db.execute("SELECT id FROM categories WHERE key=?", ("presets",)) as cur:
+            cat_row = await cur.fetchone()
+        if cat_row:
+            presets_id = cat_row[0]
+            async with db.execute(
+                "SELECT id FROM steps WHERE category_id=? AND step_key=?",
+                (presets_id, "model_select")
+            ) as cur:
+                exists = await cur.fetchone()
+            if not exists:
+                await db.execute(
+                    "UPDATE steps SET order_index = order_index + 1 WHERE category_id=? AND order_index >= 13",
+                    (presets_id,)
+                )
+                await db.execute(
+                    "INSERT INTO steps (category_id, step_key, question_text, input_type, is_optional, order_index) VALUES (?, ?, ?, ?, 0, 13)",
+                    (presets_id, "model_select", "💃 Выберите модель (пресет):", "model_select")
+                )
+                await db.commit()
+    except Exception as e:
+        print(f"Migration error (presets.model_select): {e}")
+
     async with db.execute("PRAGMA table_info(subscription_plans)") as cur:
         p_cols = [row[1] for row in await cur.fetchall()]
     

@@ -891,16 +891,15 @@ async def on_create_category_universal(callback: CallbackQuery, db: Database, st
     elif cat_key.startswith("infographic"): await state.update_data(infographic_mode=True)
     elif cat_key == "storefront": await state.update_data(storefront_mode=True)
     
-    # Пытаемся запустить динамический флоу (кроме пресетов и инфографики, у них свои меню)
-    if cat_key not in ("presets", "infographics") and not cat_key.startswith("infographic"):
-        category_db = await db.get_category_by_key(cat_key)
-        if category_db:
-            steps = await db.list_steps(category_db[0])
-            if steps:
-                await state.update_data(current_step_index=0)
-                await _show_next_step(callback, state, db)
-                await _safe_answer(callback)
-                return
+    # Пытаемся запустить динамический флоу
+    category_db = await db.get_category_by_key(cat_key)
+    if category_db:
+        steps = await db.list_steps(category_db[0])
+        if steps:
+            await state.update_data(current_step_index=0)
+            await _show_next_step(callback, state, db)
+            await _safe_answer(callback)
+            return
 
     # Если динамических шагов нет — используем старую логику (фолбэк)
     if cat_key == "female": await on_female_category(callback, db, state)

@@ -2575,6 +2575,18 @@ async def on_back_step(callback: CallbackQuery, state: FSMContext, db: Database)
     # --- Поддержка динамических шагов ---
     current_index = data.get("current_step_index")
     if current_index is not None:
+        # Если мы на вводе "Своего варианта" — возвращаемся к исходному вопросу
+        waiting_custom_for = data.get("waiting_custom_for")
+        if waiting_custom_for:
+            cat_db = await db.get_category_by_key(category)
+            if cat_db:
+                steps = await db.list_steps(cat_db[0])
+                for idx, step in enumerate(steps):
+                    if step[1] == waiting_custom_for:
+                        await state.update_data(waiting_custom_for=None, current_step_index=idx)
+                        await _show_next_step(callback, state, db)
+                        await _safe_answer(callback)
+                        return
         if current_index > 0:
             # Возвращаемся к предыдущему динамическому шагу, пропуская уже заполненные/пропущенные
             new_index = current_index - 1

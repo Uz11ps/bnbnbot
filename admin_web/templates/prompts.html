@@ -51,20 +51,13 @@
 
     <ul class="nav nav-tabs mb-3" id="catTabs" role="tablist">
         {% set cat_names = {
-            'presets': '👗 Пресеты (Готовые)',
             'female': 'Женская',
             'male': 'Мужская',
-            'child': 'Детская',
-            'storefront': 'Витрина',
-            'whitebg': 'Белый фон',
-            'random': 'Одежда РАНДОМ',
-            'random_other': 'Рандом прочее',
-            'own': 'Свой вариант (одежда)',
-            'own_variant': 'Свой вариант (фон)',
-            'infographic_clothing': 'Инфографика (одежда)',
-            'infographic_other': 'Инфографика (прочее)'
+            'boy': 'Мальчик',
+            'girl': 'Девочка',
+            'unisex': 'Унисекс'
         } %}
-        {% for cat in categories %}
+        {% for cat in categories if cat in cat_names %}
         <li class="nav-item">
             <button class="nav-link {% if loop.first %}active{% endif %}" id="{{ cat }}-tab" data-bs-toggle="tab" data-bs-target="#{{ cat }}-pane" type="button">
                 {{ cat_names.get(cat, cat | capitalize) }}
@@ -74,7 +67,7 @@
     </ul>
 
     <div class="tab-content">
-        {% for cat in categories %}
+        {% for cat in categories if cat in cat_names %}
         <div class="tab-pane fade {% if loop.first %}show active{% endif %}" id="{{ cat }}-pane">
             
             <div class="card p-3 mb-4 bg-light border-dashed">

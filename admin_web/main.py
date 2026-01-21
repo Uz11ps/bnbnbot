@@ -167,21 +167,26 @@ def _normalize_placeholder_label(text: str, fallback: str) -> str:
     return clean or fallback
 
 
-async def _get_prompt_placeholders(db: aiosqlite.Connection) -> list[str]:
-    placeholders: list[str] = []
+async def _get_prompt_placeholders(db: aiosqlite.Connection) -> list[dict]:
+    placeholders: list[dict] = []
     async with db.execute(
-        "SELECT DISTINCT step_key, question_text FROM steps ORDER BY step_key"
+        "SELECT id, step_key, question_text FROM steps ORDER BY step_key"
     ) as cur:
         rows = await cur.fetchall()
-    for step_key, question_text in rows:
+    for step_id, step_key, question_text in rows:
         label = _normalize_placeholder_label(question_text, step_key)
-        placeholders.append(f"{{{label}}}")
+        placeholders.append({
+            "id": step_id,
+            "label": label,
+            "token": f"{{{label}}}"
+        })
     # Убираем дубликаты, сохраняя порядок
     seen = set()
     unique = []
     for p in placeholders:
-        if p not in seen:
-            seen.add(p)
+        key = p["token"]
+        if key not in seen:
+            seen.add(key)
             unique.append(p)
     return unique
 

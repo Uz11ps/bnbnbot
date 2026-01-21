@@ -32,10 +32,25 @@
                         Используйте эти шаблоны в промптах, чтобы подставлять ответы пользователя.
                     </p>
                     {% if prompt_placeholders %}
-                    <div class="d-flex flex-wrap gap-2">
-                        {% for token in prompt_placeholders %}
-                        <span class="badge bg-light text-dark border small">{{ token }}</span>
-                        {% endfor %}
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle mb-0">
+                            <thead>
+                                <tr class="text-muted small">
+                                    <th>ID</th>
+                                    <th>Название</th>
+                                    <th>Шаблон</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for item in prompt_placeholders %}
+                                <tr>
+                                    <td><span class="text-muted small">#{{ item.id }}</span></td>
+                                    <td class="small">{{ item.label }}</td>
+                                    <td><code>{{ item.token }}</code></td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
                     </div>
                     {% else %}
                     <div class="text-muted small">Пока нет доступных аббревиатур.</div>

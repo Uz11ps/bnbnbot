@@ -105,6 +105,43 @@ async def run_migrations(db: aiosqlite.Connection):
         print(f"Migration error (library system buttons): {e}")
 
     try:
+        # Категория праздников и кнопки
+        async with db.execute("SELECT id FROM button_categories WHERE name=?", ("Праздники",)) as cur:
+            row = await cur.fetchone()
+        if row:
+            holiday_cat_id = row[0]
+        else:
+            await db.execute("INSERT INTO button_categories (name) VALUES (?)", ("Праздники",))
+            await db.commit()
+            async with db.execute("SELECT id FROM button_categories WHERE name=?", ("Праздники",)) as cur:
+                holiday_cat_id = (await cur.fetchone())[0]
+
+        holiday_buttons = [
+            ("Новый год", "new_year", None),
+            ("Рождество", "christmas", None),
+            ("День рождения", "birthday", None),
+            ("8 марта", "mar8", None),
+            ("14 февраля", "feb14", None),
+            ("23 февраля", "feb23", None),
+            ("Свадьба", "wedding", None),
+            ("Выпускной", "graduation", None),
+            ("Хэллоуин", "halloween", None),
+        ]
+        for text, value, prompt in holiday_buttons:
+            async with db.execute(
+                "SELECT id FROM library_options WHERE category_id=? AND option_value=?",
+                (holiday_cat_id, value)
+            ) as cur:
+                if not await cur.fetchone():
+                    await db.execute(
+                        "INSERT INTO library_options (category_id, option_text, option_value, custom_prompt) VALUES (?, ?, ?, ?)",
+                        (holiday_cat_id, text, value, prompt)
+                    )
+        await db.commit()
+    except Exception as e:
+        print(f"Migration error (library holidays): {e}")
+
+    try:
         # Библиотека вопросов: выбор модели
         async with db.execute("SELECT id FROM library_steps WHERE step_key=?", ("model_select",)) as cur:
             if not await cur.fetchone():

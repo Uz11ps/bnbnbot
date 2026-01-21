@@ -18,9 +18,15 @@ from contextlib import asynccontextmanager
 
 # --- Настройки путей ---
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-# В Docker контейнере база должна быть в /app/data/bot.db
-# Но для совместимости с локальным запуском используем путь относительно корня
-DB_PATH = os.path.join(BASE_DIR, "data", "bot.db")
+# Используем тот же DATABASE_URL, что и бот, чтобы админка и бот читали одну БД
+db_url = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./data/bot.db").strip()
+if "sqlite+aiosqlite:///" in db_url:
+    db_path = db_url.replace("sqlite+aiosqlite:///", "")
+else:
+    db_path = "data/bot.db"
+if not os.path.isabs(db_path) and not db_path.startswith("/app"):
+    db_path = os.path.join(BASE_DIR, db_path)
+DB_PATH = db_path
 # Создаем папку если ее нет (на случай если volume не примонтирован)
 os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 

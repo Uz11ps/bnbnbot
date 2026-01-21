@@ -899,7 +899,10 @@ async def on_create_category_universal(callback: CallbackQuery, db: Database, st
     if category_db:
         steps = await db.list_steps(category_db[0])
         if steps:
-            await state.update_data(current_step_index=0)
+            # Сбрасываем ответы шагов, чтобы новый запуск не пропускал первый шаг
+            reset_payload = {s[1]: None for s in steps}
+            reset_payload["current_step_index"] = 0
+            await state.update_data(**reset_payload)
             await _show_next_step(callback, state, db)
             await _safe_answer(callback)
             return

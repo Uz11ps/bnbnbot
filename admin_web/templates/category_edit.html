@@ -62,8 +62,11 @@
         <!-- Левая колонка: Библиотека кнопок -->
         <div class="col-lg-3">
             <div class="card shadow-sm border-0 h-100">
-                <div class="card-header bg-white py-3">
+                <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
                     <h5 class="mb-0"><i class="bi bi-grid-3x3-gap me-2"></i> Библиотека кнопок</h5>
+                    <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#newButtonCategoryModal">
+                        <i class="bi bi-folder-plus me-1"></i> Категория
+                    </button>
                 </div>
                 <div class="card-body overflow-auto" style="max-height: 80vh;">
                     {% for cat_name, buttons in lib_buttons.items() %}
@@ -71,7 +74,7 @@
                         <h6 class="text-uppercase text-muted small fw-bold mb-3 border-bottom pb-1">{{ cat_name }}</h6>
                         <div class="d-flex flex-wrap gap-2 library-buttons" id="lib-btns-{{ loop.index }}">
                             {% for btn in buttons %}
-                            <div class="btn btn-sm btn-outline-secondary library-item" 
+                            <div class="btn btn-sm btn-outline-secondary library-item position-relative" 
                                  data-text="{{ btn['option_text'] }}" 
                                  data-value="{{ btn['option_value'] }}"
                                  data-prompt="{{ btn['custom_prompt'] or '' }}">
@@ -79,6 +82,11 @@
                                 {% if btn['option_value'] == 'skip' %}<span class="badge bg-warning text-dark x-small">SKIP</span>{% endif %}
                                 {% if btn['option_value'] == 'back' %}<span class="badge bg-info x-small">BACK</span>{% endif %}
                                 {% if btn['option_value'] == 'custom' %}<span class="badge bg-primary x-small">CUSTOM</span>{% endif %}
+                                <form action="/constructor/library/button/delete/{{ btn['id'] }}" method="post" class="position-absolute top-0 end-0">
+                                    <button type="submit" class="btn btn-link p-0 text-danger" title="Удалить" onclick="return confirm('Удалить эту кнопку из библиотеки?')">
+                                        <i class="bi bi-x-circle-fill"></i>
+                                    </button>
+                                </form>
                             </div>
                             {% endfor %}
                         </div>
@@ -215,6 +223,30 @@
                     </div>
                 </div>
             </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Новая категория кнопок -->
+<div class="modal fade" id="newButtonCategoryModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form action="/constructor/library/category/add" method="post">
+                <div class="modal-header">
+                    <h5 class="modal-title">Создать категорию кнопок</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Название категории</label>
+                        <input type="text" name="name" class="form-control" placeholder="Например: Характер" required>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                    <button type="submit" class="btn btn-primary">Создать</button>
+                </div>
+            </form>
         </div>
     </div>
 </div>

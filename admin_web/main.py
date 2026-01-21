@@ -1579,3 +1579,15 @@ async def admin_add_library_button(request: Request, text: str = Form(...), valu
     )
     await db.commit()
     return RedirectResponse(request.headers.get("referer", "/constructor"), status_code=303)
+
+@app.post("/constructor/library/button/delete/{btn_id}")
+async def admin_delete_library_button(request: Request, btn_id: int, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    await db.execute("DELETE FROM library_options WHERE id=?", (btn_id,))
+    await db.commit()
+    return RedirectResponse(request.headers.get("referer", "/constructor"), status_code=303)
+
+@app.post("/constructor/library/category/add")
+async def admin_add_library_category(request: Request, name: str = Form(...), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    await db.execute("INSERT OR IGNORE INTO button_categories (name) VALUES (?)", (name,))
+    await db.commit()
+    return RedirectResponse(request.headers.get("referer", "/constructor"), status_code=303)

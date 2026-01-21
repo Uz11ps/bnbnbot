@@ -184,11 +184,11 @@
 
         <!-- Правая колонка: Библиотека вопросов -->
         <div class="col-lg-2">
-            <div class="card shadow-sm border-0 h-100">
+            <div class="card shadow-sm border-0 d-flex flex-column" style="height: calc(100vh - 180px);">
                 <div class="card-header bg-white py-3">
                     <h5 class="mb-0"><i class="bi bi-question-circle me-2"></i> Готовые вопросы</h5>
                 </div>
-                <div class="card-body">
+                <div class="card-body overflow-auto flex-grow-1">
                     <div id="library-questions" class="list-group list-group-flush">
                         {% for step in lib_steps %}
                         <div class="list-group-item list-group-item-action border rounded mb-2 library-question-item" 

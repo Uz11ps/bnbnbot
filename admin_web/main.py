@@ -365,10 +365,15 @@ async def run_migrations(db: aiosqlite.Connection):
 
         format_buttons = [
             ("1:1", "1:1", None),
-            ("4:5", "4:5", None),
-            ("3:4", "3:4", None),
             ("9:16", "9:16", None),
             ("16:9", "16:9", None),
+            ("3:4", "3:4", None),
+            ("4:3", "4:3", None),
+            ("3:2", "3:2", None),
+            ("2:3", "2:3", None),
+            ("5:4", "5:4", None),
+            ("4:5", "4:5", None),
+            ("21:9", "21:9", None),
         ]
         for text, value, prompt in format_buttons:
             async with db.execute(

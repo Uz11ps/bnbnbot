@@ -173,6 +173,66 @@ async def run_migrations(db: aiosqlite.Connection):
         print(f"Migration error (library dimensions): {e}")
 
     try:
+        # Категория преимуществ и кнопки
+        async with db.execute("SELECT id FROM button_categories WHERE name=?", ("Преимущества",)) as cur:
+            row = await cur.fetchone()
+        if row:
+            adv_cat_id = row[0]
+        else:
+            await db.execute("INSERT INTO button_categories (name) VALUES (?)", ("Преимущества",))
+            await db.commit()
+            async with db.execute("SELECT id FROM button_categories WHERE name=?", ("Преимущества",)) as cur:
+                adv_cat_id = (await cur.fetchone())[0]
+
+        adv_buttons = [
+            ("Топ 1 преимущества товара", "adv_1", None),
+            ("Топ 2 преимущества товара", "adv_2", None),
+            ("Топ 3 преимущества товара", "adv_3", None),
+        ]
+        for text, value, prompt in adv_buttons:
+            async with db.execute(
+                "SELECT id FROM library_options WHERE category_id=? AND option_value=?",
+                (adv_cat_id, value)
+            ) as cur:
+                if not await cur.fetchone():
+                    await db.execute(
+                        "INSERT INTO library_options (category_id, option_text, option_value, custom_prompt) VALUES (?, ?, ?, ?)",
+                        (adv_cat_id, text, value, prompt)
+                    )
+        await db.commit()
+    except Exception as e:
+        print(f"Migration error (library advantages): {e}")
+
+    try:
+        # Категория дополнительно и кнопка
+        async with db.execute("SELECT id FROM button_categories WHERE name=?", ("Дополнительно",)) as cur:
+            row = await cur.fetchone()
+        if row:
+            extra_cat_id = row[0]
+        else:
+            await db.execute("INSERT INTO button_categories (name) VALUES (?)", ("Дополнительно",))
+            await db.commit()
+            async with db.execute("SELECT id FROM button_categories WHERE name=?", ("Дополнительно",)) as cur:
+                extra_cat_id = (await cur.fetchone())[0]
+
+        extra_buttons = [
+            ("Дополнительная информация о продукте", "extra_info", None),
+        ]
+        for text, value, prompt in extra_buttons:
+            async with db.execute(
+                "SELECT id FROM library_options WHERE category_id=? AND option_value=?",
+                (extra_cat_id, value)
+            ) as cur:
+                if not await cur.fetchone():
+                    await db.execute(
+                        "INSERT INTO library_options (category_id, option_text, option_value, custom_prompt) VALUES (?, ?, ?, ?)",
+                        (extra_cat_id, text, value, prompt)
+                    )
+        await db.commit()
+    except Exception as e:
+        print(f"Migration error (library extra): {e}")
+
+    try:
         # Библиотека вопросов: выбор модели
         async with db.execute("SELECT id FROM library_steps WHERE step_key=?", ("model_select",)) as cur:
             if not await cur.fetchone():

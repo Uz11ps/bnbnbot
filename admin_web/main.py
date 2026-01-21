@@ -414,6 +414,18 @@ async def run_migrations(db: aiosqlite.Connection):
         print(f"Migration error (library_steps.info_load): {e}")
 
     try:
+        # Библиотека вопросов: формат фото
+        async with db.execute("SELECT id FROM library_steps WHERE step_key=?", ("aspect",)) as cur:
+            if not await cur.fetchone():
+                await db.execute(
+                    "INSERT INTO library_steps (step_key, question_text, input_type) VALUES (?, ?, ?)",
+                    ("aspect", "🖼 Выберите формат фото:", "buttons")
+                )
+                await db.commit()
+    except Exception as e:
+        print(f"Migration error (library_steps.aspect): {e}")
+
+    try:
         # Категория пресетов: добавить шаг выбора модели, если его нет
         async with db.execute("SELECT id FROM categories WHERE key=?", ("presets",)) as cur:
             cat_row = await cur.fetchone()
@@ -1360,7 +1372,35 @@ async def category_steps_page(request: Request, cat_id: int, db: aiosqlite.Conne
 
     # Получаем библиотеки для конструктора
     async with db.execute("SELECT id, step_key, question_text, input_type FROM library_steps ORDER BY id") as cur:
-        lib_steps = await cur.fetchall()
+        lib_steps_raw = await cur.fetchall()
+
+    # Дефолтные кнопки для формата
+    default_format_buttons = []
+    async with db.execute("SELECT id FROM button_categories WHERE name=?", ("Формат",)) as cur:
+        fmt_row = await cur.fetchone()
+    if fmt_row:
+        async with db.execute(
+            "SELECT option_text, option_value, custom_prompt FROM library_options WHERE category_id=? ORDER BY id",
+            (fmt_row[0],)
+        ) as cur:
+            opts = await cur.fetchall()
+        default_format_buttons = [
+            {"text": o[0], "value": o[1], "prompt": o[2] or ""}
+            for o in opts
+        ]
+
+    lib_steps = []
+    for step in lib_steps_raw:
+        default_buttons = "[]"
+        if step[1] == "aspect" and default_format_buttons:
+            default_buttons = json.dumps(default_format_buttons, ensure_ascii=False)
+        lib_steps.append({
+            "id": step[0],
+            "step_key": step[1],
+            "question_text": step[2],
+            "input_type": step[3],
+            "default_buttons": default_buttons
+        })
 
     async with db.execute("SELECT id, name FROM button_categories ORDER BY id") as cur:
         button_cats = await cur.fetchall()

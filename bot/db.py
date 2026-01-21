@@ -1602,6 +1602,7 @@ class Database:
                         ("photo", "📸 Пришлите фото товара:", "photo"),
                         ("model_select", "💃 Выберите модель:", "model_select"),
                         ("info_load", "📊 Укажите нагруженность инфографики (1-10):", "text"),
+                        ("aspect", "🖼 Выберите формат фото:", "buttons"),
                     ]
                     await db.executemany(
                         "INSERT INTO library_steps (step_key, question_text, input_type) VALUES (?, ?, ?)",

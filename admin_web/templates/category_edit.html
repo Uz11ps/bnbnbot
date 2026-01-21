@@ -192,16 +192,17 @@
                     <div id="library-questions" class="list-group list-group-flush">
                         {% for step in lib_steps %}
                         <div class="list-group-item list-group-item-action border rounded mb-2 library-question-item" 
-                             data-key="{{ step[1] }}" 
-                             data-question="{{ step[2] }}" 
-                             data-type="{{ step[3] }}"
+                             data-key="{{ step.step_key }}" 
+                             data-question="{{ step.question_text }}" 
+                             data-type="{{ step.input_type }}"
+                             data-buttons='{{ step.default_buttons | e }}'
                              style="cursor: grab;">
                             <div class="d-flex justify-content-between align-items-center">
                                 <div>
-                                    <div class="fw-bold small">{{ step[2] }}</div>
-                                    <code class="x-small">{{ step[1] }}</code>
+                                    <div class="fw-bold small">{{ step.question_text }}</div>
+                                    <code class="x-small">{{ step.step_key }}</code>
                                 </div>
-                                <span class="badge bg-light text-muted small">{{ step[3] }}</span>
+                                <span class="badge bg-light text-muted small">{{ step.input_type }}</span>
                             </div>
                         </div>
                         {% endfor %}
@@ -372,14 +373,33 @@
                 const key = item.getAttribute('data-key');
                 const question = item.getAttribute('data-question');
                 const type = item.getAttribute('data-type');
+                const buttonsJson = item.getAttribute('data-buttons');
                 
                 // Создаем новый HTML для шага на холсте
                 const stepHtml = createStepHtml(key, question, type);
-                item.outerHTML = stepHtml;
+                const wrapper = document.createElement('div');
+                wrapper.innerHTML = stepHtml;
+                const stepEl = wrapper.firstElementChild;
+                item.replaceWith(stepEl);
 
-                const btnContainer = document.querySelector(`[data-key="${key}"] .canvas-buttons-list`);
+                const btnContainer = stepEl.querySelector('.canvas-buttons-list');
                 initButtonSortable(btnContainer);
-                if (type === 'buttons') ensureSystemButtons(btnContainer);
+                if (type === 'buttons') {
+                    let defaultButtons = [];
+                    if (buttonsJson) {
+                        try { defaultButtons = JSON.parse(buttonsJson); } catch (e) { defaultButtons = []; }
+                    }
+                    if (defaultButtons.length) {
+                        defaultButtons.forEach(btn => {
+                            btnContainer.insertAdjacentHTML(
+                                'beforeend',
+                                createButtonHtml(btn.text, btn.value, btn.prompt || '')
+                            );
+                        });
+                    } else {
+                        ensureSystemButtons(btnContainer);
+                    }
+                }
                 markDirty();
                 checkEmptyCanvas();
             },

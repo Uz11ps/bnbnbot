@@ -154,6 +154,18 @@ async def run_migrations(db: aiosqlite.Connection):
         print(f"Migration error (library_steps.model_select): {e}")
 
     try:
+        # Библиотека вопросов: нагруженность инфографики
+        async with db.execute("SELECT id FROM library_steps WHERE step_key=?", ("info_load",)) as cur:
+            if not await cur.fetchone():
+                await db.execute(
+                    "INSERT INTO library_steps (step_key, question_text, input_type) VALUES (?, ?, ?)",
+                    ("info_load", "📊 Укажите нагруженность инфографики (1-10):", "text")
+                )
+                await db.commit()
+    except Exception as e:
+        print(f"Migration error (library_steps.info_load): {e}")
+
+    try:
         # Категория пресетов: добавить шаг выбора модели, если его нет
         async with db.execute("SELECT id FROM categories WHERE key=?", ("presets",)) as cur:
             cat_row = await cur.fetchone()

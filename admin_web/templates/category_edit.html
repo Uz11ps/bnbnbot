@@ -366,9 +366,6 @@
         // Инициализация существующих списков кнопок на холсте
         document.querySelectorAll('.canvas-buttons-list').forEach(el => {
             initButtonSortable(el);
-            const step = el.closest('.step-item');
-            const type = step?.querySelector('.step-type-select')?.value;
-            if (type === 'buttons') ensureSystemButtons(el);
         });
     });
 
@@ -474,7 +471,6 @@
         const container = select.closest('.card-body').querySelector('.step-buttons-container');
         if (select.value === 'buttons') {
             container.classList.remove('d-none');
-            ensureSystemButtons(container.querySelector('.canvas-buttons-list'));
         } else {
             container.classList.add('d-none');
         }

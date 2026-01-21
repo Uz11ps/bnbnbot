@@ -782,17 +782,9 @@ async def on_create_photo(callback: CallbackQuery, db: Database, state: FSMConte
         await _safe_answer(callback, get_string("limit_rem_zero", lang), show_alert=True)
         return
     
-    # Обычная генерация теперь сразу просит фото
+    # Обычная генерация: фото -> промпт -> генерация
     await state.clear()
-    await state.update_data(category="random", random_mode=True, normal_gen_mode=True)
-    # Устанавливаем дефолтные параметры для обычной генерации
-    await state.update_data(
-        rand_gender="unisex",
-        height="170",
-        age="25",
-        view="front",
-        aspect="auto"
-    )
+    await state.update_data(category="normal", normal_gen_mode=True, aspect="auto")
     
     text = get_string("upload_photo", lang)
     await _replace_with_text(callback, text, reply_markup=back_main_keyboard(lang))
@@ -1661,6 +1653,10 @@ async def on_prompt_input(message: Message, state: FSMContext, db: Database) -> 
         return
     
     await state.update_data(prompt=prompt)
+    data = await state.get_data()
+    if data.get("normal_gen_mode"):
+        await _do_generate(message, state, db)
+        return
     await message.answer(get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
     await state.set_state(CreateForm.waiting_aspect)
 
@@ -2530,6 +2526,12 @@ async def handle_user_photo(message: Message, state: FSMContext, db: Database) -
     photo_id = message.photo[-1].file_id
     await state.update_data(user_photo_id=photo_id)
     lang = await db.get_user_language(message.from_user.id)
+
+    # Обычная генерация: после фото просим промпт
+    if data.get("normal_gen_mode"):
+        await message.answer(get_string("enter_prompt", lang), reply_markup=back_step_keyboard(lang))
+        await state.set_state(CreateForm.waiting_prompt)
+        return
 
     # Если мы в режиме "Повторить" — запускаем генерацию сразу
     if data.get("repeat_mode"):

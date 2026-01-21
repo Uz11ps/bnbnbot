@@ -352,6 +352,39 @@ async def run_migrations(db: aiosqlite.Connection):
         print(f"Migration error (library language): {e}")
 
     try:
+        # Категория формат и кнопки
+        async with db.execute("SELECT id FROM button_categories WHERE name=?", ("Формат",)) as cur:
+            row = await cur.fetchone()
+        if row:
+            format_cat_id = row[0]
+        else:
+            await db.execute("INSERT INTO button_categories (name) VALUES (?)", ("Формат",))
+            await db.commit()
+            async with db.execute("SELECT id FROM button_categories WHERE name=?", ("Формат",)) as cur:
+                format_cat_id = (await cur.fetchone())[0]
+
+        format_buttons = [
+            ("1:1", "1:1", None),
+            ("4:5", "4:5", None),
+            ("3:4", "3:4", None),
+            ("9:16", "9:16", None),
+            ("16:9", "16:9", None),
+        ]
+        for text, value, prompt in format_buttons:
+            async with db.execute(
+                "SELECT id FROM library_options WHERE category_id=? AND option_value=?",
+                (format_cat_id, value)
+            ) as cur:
+                if not await cur.fetchone():
+                    await db.execute(
+                        "INSERT INTO library_options (category_id, option_text, option_value, custom_prompt) VALUES (?, ?, ?, ?)",
+                        (format_cat_id, text, value, prompt)
+                    )
+        await db.commit()
+    except Exception as e:
+        print(f"Migration error (library format): {e}")
+
+    try:
         # Библиотека вопросов: выбор модели
         async with db.execute("SELECT id FROM library_steps WHERE step_key=?", ("model_select",)) as cur:
             if not await cur.fetchone():

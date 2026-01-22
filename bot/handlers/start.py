@@ -949,21 +949,31 @@ async def on_preset_gender_selected(callback: CallbackQuery, state: FSMContext, 
     gender = callback.data.split(":")[1]
     await state.clear()
     
-    # Сохраняем выбранный пол и флаг пресета
-    await state.update_data(category="presets", gender=gender, is_preset=True)
-    
     # Если в пресетах есть шаг выбора модели — используем динамический флоу
     cat_db = await db.get_category_by_key("presets")
     if cat_db:
         steps = await db.list_steps(cat_db[0])
         for idx, s in enumerate(steps):
             if s[1] == "model_select":
+                # Сбрасываем ответы шагов, но сохраняем выбранный пол
                 reset_payload = {st[1]: None for st in steps}
-                reset_payload["current_step_index"] = idx
+                reset_payload.update({
+                    "category": "presets",
+                    "is_preset": True,
+                    "gender": gender,
+                    "gender_label": get_string("cat_female", await db.get_user_language(callback.from_user.id)) if gender == "female"
+                        else get_string("cat_male", await db.get_user_language(callback.from_user.id)) if gender == "male"
+                        else get_string("gender_boy", await db.get_user_language(callback.from_user.id)) if gender == "boy"
+                        else get_string("gender_girl", await db.get_user_language(callback.from_user.id)),
+                    "current_step_index": idx
+                })
                 await state.update_data(**reset_payload)
                 await _show_next_step(callback, state, db)
                 await _safe_answer(callback)
                 return
+    
+    # Сохраняем выбранный пол и флаг пресета (фолбэк)
+    await state.update_data(category="presets", gender=gender, is_preset=True)
 
     # Иначе показываем выбор моделей для этого пола (старый флоу)
     await _show_models_for_category(callback, db, category=gender, cloth="all", index=0, logic_category="presets")

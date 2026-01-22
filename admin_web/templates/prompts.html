@@ -5,6 +5,39 @@
         <h4><i class="bi bi-file-earmark-code me-2"></i> Управление Промптами и Категориями</h4>
     </div>
 
+    <div class="card p-3 mb-4 bg-light border-dashed">
+        <h6 class="mb-3">🧩 Промпты категорий (используются в боте)</h6>
+        <form action="/prompts/category_prompts" method="post" class="row g-3">
+            <div class="col-12">
+                <label class="form-label">Белый фон</label>
+                <textarea name="whitebg_prompt" class="form-control" rows="3" placeholder="Промпт для белого фона">{{ cat_prompts.whitebg_prompt }}</textarea>
+            </div>
+            <div class="col-12">
+                <label class="form-label">Рандом</label>
+                <textarea name="random_prompt" class="form-control" rows="3" placeholder="Промпт для рандома">{{ cat_prompts.random_prompt }}</textarea>
+            </div>
+            <div class="col-12">
+                <label class="form-label">Свой вариант (одежда) — шаг 1</label>
+                <textarea name="own_prompt1" class="form-control" rows="2">{{ cat_prompts.own_prompt1 }}</textarea>
+            </div>
+            <div class="col-12">
+                <label class="form-label">Свой вариант (одежда) — шаг 2</label>
+                <textarea name="own_prompt2" class="form-control" rows="2">{{ cat_prompts.own_prompt2 }}</textarea>
+            </div>
+            <div class="col-12">
+                <label class="form-label">Свой вариант (одежда) — шаг 3</label>
+                <textarea name="own_prompt3" class="form-control" rows="2">{{ cat_prompts.own_prompt3 }}</textarea>
+            </div>
+            <div class="col-12">
+                <label class="form-label">Свой вариант (фон)</label>
+                <textarea name="own_variant_prompt" class="form-control" rows="3">{{ cat_prompts.own_variant_prompt }}</textarea>
+            </div>
+            <div class="col-12">
+                <button type="submit" class="btn btn-primary">Сохранить промпты</button>
+            </div>
+        </form>
+    </div>
+
     <div class="alert alert-info">
         <small>
             Используйте переменные в фигурных скобках для автоматической подстановки данных:

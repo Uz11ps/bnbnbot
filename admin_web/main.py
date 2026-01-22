@@ -928,12 +928,61 @@ async def list_prompts(request: Request, db: aiosqlite.Connection = Depends(get_
             categorized_models[cat] = []
         categorized_models[cat].append(m)
     prompt_placeholders = await _get_prompt_placeholders(db)
+    # Промпты категорий (используются в боте)
+    cat_prompt_keys = [
+        "whitebg_prompt",
+        "random_prompt",
+        "own_prompt1",
+        "own_prompt2",
+        "own_prompt3",
+        "own_variant_prompt",
+    ]
+    cat_prompts = {}
+    async with db.execute(
+        f"SELECT key, value FROM app_settings WHERE key IN ({','.join(['?']*len(cat_prompt_keys))})",
+        cat_prompt_keys
+    ) as cur:
+        rows = await cur.fetchall()
+        for r in rows:
+            cat_prompts[r[0]] = r[1]
+    for k in cat_prompt_keys:
+        cat_prompts.setdefault(k, "")
+
     return templates.TemplateResponse("prompts.html", {
         "request": request, 
         "categorized_models": categorized_models, 
         "categories": CATEGORIES,
-        "prompt_placeholders": prompt_placeholders
+        "prompt_placeholders": prompt_placeholders,
+        "cat_prompts": cat_prompts
     })
+
+@app.post("/prompts/category_prompts")
+async def update_category_prompts(
+    request: Request,
+    whitebg_prompt: str = Form(""),
+    random_prompt: str = Form(""),
+    own_prompt1: str = Form(""),
+    own_prompt2: str = Form(""),
+    own_prompt3: str = Form(""),
+    own_variant_prompt: str = Form(""),
+    db: aiosqlite.Connection = Depends(get_db),
+    user: str = Depends(get_current_username)
+):
+    payload = {
+        "whitebg_prompt": whitebg_prompt,
+        "random_prompt": random_prompt,
+        "own_prompt1": own_prompt1,
+        "own_prompt2": own_prompt2,
+        "own_prompt3": own_prompt3,
+        "own_variant_prompt": own_variant_prompt,
+    }
+    for key, value in payload.items():
+        await db.execute(
+            "INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (key, (value or "").strip())
+        )
+    await db.commit()
+    return RedirectResponse(url="/prompts", status_code=303)
 
 @app.post("/prompts/edit_model")
 async def edit_model_prompt(

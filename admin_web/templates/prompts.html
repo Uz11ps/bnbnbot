@@ -57,7 +57,7 @@
             'girl': 'Девочка',
             'unisex': 'Унисекс'
         } %}
-        {% for cat in categories if cat in cat_names %}
+        {% for cat in ['female', 'male', 'boy', 'girl', 'unisex'] %}
         <li class="nav-item">
             <button class="nav-link {% if loop.first %}active{% endif %}" id="{{ cat }}-tab" data-bs-toggle="tab" data-bs-target="#{{ cat }}-pane" type="button">
                 {{ cat_names.get(cat, cat | capitalize) }}
@@ -67,13 +67,21 @@
     </ul>
 
     <div class="tab-content">
-        {% for cat in categories if cat in cat_names %}
+        {% for cat in ['female', 'male', 'boy', 'girl', 'unisex'] %}
         <div class="tab-pane fade {% if loop.first %}show active{% endif %}" id="{{ cat }}-pane">
             
             <div class="card p-3 mb-4 bg-light border-dashed">
                 <h6 class="mb-3">➕ Добавить модель в категорию {{ cat_names.get(cat, cat | capitalize) }}</h6>
                 <form action="/models/add_full" method="post" enctype="multipart/form-data" class="row g-2">
-                    <input type="hidden" name="category" value="{{ cat }}">
+                    <div class="col-md-3">
+                        <select name="category" class="form-select">
+                            <option value="female">Женская</option>
+                            <option value="male">Мужская</option>
+                            <option value="boy">Мальчик</option>
+                            <option value="girl">Девочка</option>
+                            <option value="unisex">Унисекс</option>
+                        </select>
+                    </div>
                     <div class="col-md-3">
                         <input type="text" name="name" class="form-control" placeholder="Имя модели" required>
                     </div>

@@ -285,10 +285,14 @@
                     </div>
                 </div>
 
-                <div class="mb-2">
+                <div class="mb-3">
                     <label class="form-label">Кнопки (для типа "Кнопки")</label>
                     <div id="lib-step-buttons" class="d-flex flex-wrap gap-2 p-2 border rounded-3 bg-light" style="min-height: 60px;"></div>
-                    <small class="text-muted">Перетащите кнопки из библиотеки слева.</small>
+                    <small class="text-muted">Перетащите кнопки из списка ниже.</small>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">Библиотека кнопок</label>
+                    <div id="lib-step-buttons-library" class="d-flex flex-wrap gap-2 p-2 border rounded-3" style="min-height: 60px;"></div>
                 </div>
             </div>
             <div class="modal-footer d-flex justify-content-between">
@@ -651,6 +655,18 @@
         });
     }
 
+    function initLibraryButtonsLibrarySortable(el) {
+        new Sortable(el, {
+            group: {
+                name: 'buttons',
+                pull: 'clone',
+                put: false
+            },
+            sort: false,
+            animation: 150
+        });
+    }
+
     function openLibraryStepModal(item) {
         const stepId = item.getAttribute('data-id');
         const key = item.getAttribute('data-key');
@@ -673,6 +689,23 @@
         } catch (e) {}
 
         initLibraryButtonsSortable(btnContainer);
+
+        const libContainer = document.getElementById('lib-step-buttons-library');
+        libContainer.innerHTML = '';
+        document.querySelectorAll('.library-item').forEach(btn => {
+            const text = btn.getAttribute('data-text');
+            const value = btn.getAttribute('data-value');
+            const prompt = btn.getAttribute('data-prompt') || '';
+            const div = document.createElement('div');
+            div.className = 'btn btn-sm btn-outline-secondary library-item';
+            div.setAttribute('data-text', text);
+            div.setAttribute('data-value', value);
+            div.setAttribute('data-prompt', prompt);
+            div.textContent = text;
+            libContainer.appendChild(div);
+        });
+        initLibraryButtonsLibrarySortable(libContainer);
+
         document.getElementById('lib-step-delete-form').action = `/constructor/library/step/delete/${stepId}`;
         new bootstrap.Modal(document.getElementById('editLibraryStepModal')).show();
     }

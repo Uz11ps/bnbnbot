@@ -425,23 +425,25 @@ async def _show_model_selection(message_or_callback: Message | CallbackQuery, st
         # Если нет моделей - пробуем с 'all'
         cloth = "all"
         total = await db.count_models(category, cloth)
-        
-    if total <= 0:
-        # Если все еще нет - пробуем 'female'
-        category = "female"
+
+    if total <= 0 and data.get("is_preset") and data.get("gender"):
+        # Для пресетов пробуем категорию presets с вариантом пола
+        preset_gender = data.get("gender")
+        category = "presets"
+        cloth = preset_gender
         total = await db.count_models(category, cloth)
+        logger.info("[flow] model_select fallback category=%s cloth=%s total=%s", category, cloth, total)
+        if total <= 0:
+            cloth = "all"
+            total = await db.count_models(category, cloth)
 
     if total <= 0:
-        # Если совсем нет - ошибка или пропуск
+        # Если совсем нет - показываем ошибку и остаемся на шаге
+        text = "Извините, в этой категории пока нет доступных моделей."
         if isinstance(message_or_callback, Message):
-            await message_or_callback.answer("Извините, в этой категории пока нет доступных моделей.")
+            await message_or_callback.answer(text)
         else:
-            await _replace_with_text(message_or_callback, "Извините, в этой категории пока нет доступных моделей.")
-        
-        # Пропускаем шаг
-        current_idx = data.get("current_step_index", 0)
-        await state.update_data(current_step_index=current_idx + 1)
-        await _show_next_step(message_or_callback, state, db)
+            await _replace_with_text(message_or_callback, text)
         return
 
     index = data.get("model_index", 0)

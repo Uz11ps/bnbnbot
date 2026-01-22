@@ -956,13 +956,14 @@ async def on_preset_gender_selected(callback: CallbackQuery, state: FSMContext, 
     cat_db = await db.get_category_by_key("presets")
     if cat_db:
         steps = await db.list_steps(cat_db[0])
-        if any(s[1] == "model_select" for s in steps):
-            reset_payload = {s[1]: None for s in steps}
-            reset_payload["current_step_index"] = 0
-            await state.update_data(**reset_payload)
-            await _show_next_step(callback, state, db)
-            await _safe_answer(callback)
-            return
+        for idx, s in enumerate(steps):
+            if s[1] == "model_select":
+                reset_payload = {st[1]: None for st in steps}
+                reset_payload["current_step_index"] = idx
+                await state.update_data(**reset_payload)
+                await _show_next_step(callback, state, db)
+                await _safe_answer(callback)
+                return
 
     # Иначе показываем выбор моделей для этого пола (старый флоу)
     await _show_models_for_category(callback, db, category=gender, cloth="all", index=0, logic_category="presets")

@@ -698,6 +698,66 @@ class Database:
                 (safe,),
             )
             await db.commit()
+
+    async def get_random_other_prompt(self) -> str | None:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT value FROM app_settings WHERE key='random_other_prompt'") as cur:
+                row = await cur.fetchone()
+                return str(row[0]) if row else None
+
+    async def set_random_other_prompt(self, text: str) -> None:
+        safe = (text or "").strip()
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute(
+                "INSERT INTO app_settings (key, value) VALUES ('random_other_prompt', ?)\n                 ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (safe,),
+            )
+            await db.commit()
+
+    async def get_storefront_prompt(self) -> str | None:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT value FROM app_settings WHERE key='storefront_prompt'") as cur:
+                row = await cur.fetchone()
+                return str(row[0]) if row else None
+
+    async def set_storefront_prompt(self, text: str) -> None:
+        safe = (text or "").strip()
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute(
+                "INSERT INTO app_settings (key, value) VALUES ('storefront_prompt', ?)\n                 ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (safe,),
+            )
+            await db.commit()
+
+    async def get_infographic_clothing_prompt(self) -> str | None:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT value FROM app_settings WHERE key='infographic_clothing_prompt'") as cur:
+                row = await cur.fetchone()
+                return str(row[0]) if row else None
+
+    async def set_infographic_clothing_prompt(self, text: str) -> None:
+        safe = (text or "").strip()
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute(
+                "INSERT INTO app_settings (key, value) VALUES ('infographic_clothing_prompt', ?)\n                 ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (safe,),
+            )
+            await db.commit()
+
+    async def get_infographic_other_prompt(self) -> str | None:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT value FROM app_settings WHERE key='infographic_other_prompt'") as cur:
+                row = await cur.fetchone()
+                return str(row[0]) if row else None
+
+    async def set_infographic_other_prompt(self, text: str) -> None:
+        safe = (text or "").strip()
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute(
+                "INSERT INTO app_settings (key, value) VALUES ('infographic_other_prompt', ?)\n                 ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (safe,),
+            )
+            await db.commit()
     # Own prompts (3 steps)
     async def get_own_prompt1(self) -> str | None:
         async with aiosqlite.connect(self._db_path) as db:
@@ -735,6 +795,21 @@ class Database:
         async with aiosqlite.connect(self._db_path) as db:
             await db.execute(
                 "INSERT INTO app_settings (key, value) VALUES ('own_prompt3', ?)\n                 ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (safe,),
+            )
+            await db.commit()
+
+    async def get_own_prompt(self) -> str | None:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT value FROM app_settings WHERE key='own_prompt'") as cur:
+                row = await cur.fetchone()
+                return str(row[0]) if row else None
+
+    async def set_own_prompt(self, text: str) -> None:
+        safe = (text or "").strip()
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute(
+                "INSERT INTO app_settings (key, value) VALUES ('own_prompt', ?)\n                 ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                 (safe,),
             )
             await db.commit()

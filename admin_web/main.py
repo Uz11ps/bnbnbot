@@ -932,9 +932,11 @@ async def list_prompts(request: Request, db: aiosqlite.Connection = Depends(get_
     cat_prompt_keys = [
         "whitebg_prompt",
         "random_prompt",
-        "own_prompt1",
-        "own_prompt2",
-        "own_prompt3",
+        "random_other_prompt",
+        "storefront_prompt",
+        "infographic_clothing_prompt",
+        "infographic_other_prompt",
+        "own_prompt",
         "own_variant_prompt",
     ]
     cat_prompts = {}
@@ -961,9 +963,11 @@ async def update_category_prompts(
     request: Request,
     whitebg_prompt: str = Form(""),
     random_prompt: str = Form(""),
-    own_prompt1: str = Form(""),
-    own_prompt2: str = Form(""),
-    own_prompt3: str = Form(""),
+    random_other_prompt: str = Form(""),
+    storefront_prompt: str = Form(""),
+    infographic_clothing_prompt: str = Form(""),
+    infographic_other_prompt: str = Form(""),
+    own_prompt: str = Form(""),
     own_variant_prompt: str = Form(""),
     db: aiosqlite.Connection = Depends(get_db),
     user: str = Depends(get_current_username)
@@ -971,10 +975,16 @@ async def update_category_prompts(
     payload = {
         "whitebg_prompt": whitebg_prompt,
         "random_prompt": random_prompt,
-        "own_prompt1": own_prompt1,
-        "own_prompt2": own_prompt2,
-        "own_prompt3": own_prompt3,
+        "random_other_prompt": random_other_prompt,
+        "storefront_prompt": storefront_prompt,
+        "infographic_clothing_prompt": infographic_clothing_prompt,
+        "infographic_other_prompt": infographic_other_prompt,
+        "own_prompt": own_prompt,
         "own_variant_prompt": own_variant_prompt,
+        # совместимость: единый промпт для "Свой вариант (одежда)"
+        "own_prompt1": own_prompt,
+        "own_prompt2": own_prompt,
+        "own_prompt3": own_prompt,
     }
     for key, value in payload.items():
         await db.execute(

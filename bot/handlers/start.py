@@ -2778,7 +2778,7 @@ async def _build_final_prompt(data: dict, db: Database) -> str:
         view_key = data.get("view")
         view_word = {"close": "close shot", "far": "far shot", "medium": "medium shot"}.get(view_key, "medium shot")
         
-        base = await db.get_own_prompt3() or "Professional fashion photography. Place the product from the second image on the model from the first image, maintaining the same pose, lighting, and background style. High quality, realistic, natural lighting."
+        base = await db.get_own_prompt() or await db.get_own_prompt3() or "Professional fashion photography. Place the product from the second image on the model from the first image, maintaining the same pose, lighting, and background style. High quality, realistic, natural lighting."
         prompt_filled = base
         if own_length: prompt_filled += f" Garment length: {own_length}."
         if own_sleeve: prompt_filled += f" Sleeve length: {own_sleeve}."
@@ -2866,7 +2866,7 @@ async def _build_final_prompt(data: dict, db: Database) -> str:
         if holiday: p_parts.append(f"Occasion/Holiday: {holiday}. ")
         
         p_parts.append("8k resolution, cinematic lighting, professional studio look.")
-        base_random = await db.get_random_prompt() or ""
+        base_random = await db.get_random_other_prompt() or await db.get_random_prompt() or ""
         prompt_filled = (base_random + "\n\n" + "".join(p_parts)).strip()
     elif category == "whitebg":
         prompt_filled = prompt_text or "Professional commercial product photography on a pure white background. High resolution, studio lighting, sharp focus on the product."
@@ -2881,7 +2881,8 @@ async def _build_final_prompt(data: dict, db: Database) -> str:
             "{ракурс фотографии}": dist,
             "{Длина изделия}": length,
         }
-        prompt_filled = prompt_text or "Professional fashion photography. Model showing the product from {Угол камеры} at {ракурс фотографии} distance. {Длина изделия}"
+        base_storefront = await db.get_storefront_prompt()
+        prompt_filled = base_storefront or prompt_text or "Professional fashion photography. Model showing the product from {Угол камеры} at {ракурс фотографии} distance. {Длина изделия}"
         for placeholder, value in replacements.items():
             prompt_filled = prompt_filled.replace(placeholder, str(value))
     elif data.get("infographic_mode"):
@@ -2938,7 +2939,12 @@ async def _build_final_prompt(data: dict, db: Database) -> str:
             if length: p_parts.append(f"Garment length: {length}. ")
 
         p_parts.append("Clean composition, commercial lighting, professional studio look.")
-        prompt_filled = "".join(p_parts)
+        base_info = ""
+        if category == "infographic_clothing":
+            base_info = await db.get_infographic_clothing_prompt() or ""
+        elif category == "infographic_other":
+            base_info = await db.get_infographic_other_prompt() or ""
+        prompt_filled = (base_info + "\n\n" + "".join(p_parts)).strip() if base_info else "".join(p_parts)
     else:
         # Обычный режим (Пресеты)
         model_id = data.get("model_id")

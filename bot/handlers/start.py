@@ -415,9 +415,10 @@ async def _show_model_selection(message_or_callback: Message | CallbackQuery, st
     # Если они не заданы в data, пробуем использовать текущие
     if data.get("is_preset") and data.get("gender"):
         category = data.get("gender")
+        cloth = "all"
     else:
         category = data.get("display_category") or data.get("category", "female")
-    cloth = data.get("selected_cloth") or data.get("cloth", "all")
+        cloth = data.get("selected_cloth") or data.get("cloth", "all")
     
     total = await db.count_models(category, cloth)
     logger.info("[flow] model_select category=%s cloth=%s total=%s", category, cloth, total)
@@ -426,16 +427,8 @@ async def _show_model_selection(message_or_callback: Message | CallbackQuery, st
         cloth = "all"
         total = await db.count_models(category, cloth)
 
-    if total <= 0 and data.get("is_preset") and data.get("gender"):
-        # Для пресетов пробуем категорию presets с вариантом пола
-        preset_gender = data.get("gender")
-        category = "presets"
-        cloth = preset_gender
-        total = await db.count_models(category, cloth)
-        logger.info("[flow] model_select fallback category=%s cloth=%s total=%s", category, cloth, total)
-        if total <= 0:
-            cloth = "all"
-            total = await db.count_models(category, cloth)
+    # Для пресетов не используем фолбэк на другие категории,
+    # чтобы не показывать модели другого пола
 
     if total <= 0:
         # Если совсем нет - показываем ошибку и остаемся на шаге

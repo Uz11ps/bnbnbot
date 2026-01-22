@@ -408,6 +408,8 @@ async def _show_confirmation(message_or_callback: Message | CallbackQuery, state
 
 async def _show_model_selection(message_or_callback: Message | CallbackQuery, state: FSMContext, db: Database) -> None:
     """Хелпер для отображения выбора модели (пресета)"""
+    import logging
+    logger = logging.getLogger(__name__)
     data = await state.get_data()
     # Определяем категорию и тип одежды для выбора моделей
     # Если они не заданы в data, пробуем использовать текущие
@@ -418,6 +420,7 @@ async def _show_model_selection(message_or_callback: Message | CallbackQuery, st
     cloth = data.get("selected_cloth") or data.get("cloth", "all")
     
     total = await db.count_models(category, cloth)
+    logger.info("[flow] model_select category=%s cloth=%s total=%s", category, cloth, total)
     if total <= 0:
         # Если нет моделей - пробуем с 'all'
         cloth = "all"
@@ -466,6 +469,8 @@ async def _show_model_selection(message_or_callback: Message | CallbackQuery, st
             await _replace_with_text(message_or_callback, text, reply_markup=kb)
 
 async def _show_next_step(message_or_callback: Message | CallbackQuery, state: FSMContext, db: Database) -> None:
+    import logging
+    logger = logging.getLogger(__name__)
     data = await state.get_data()
     cat_key = data.get("category")
     if not cat_key:
@@ -538,6 +543,7 @@ async def _show_next_step(message_or_callback: Message | CallbackQuery, state: F
     step = steps[current_step_index]
     step_id, step_key, question, input_type, is_optional, order = step
     lang = await db.get_user_language(message_or_callback.from_user.id)
+    logger.info("[flow] show_step category=%s step=%s type=%s index=%s", cat_key, step_key, input_type, current_step_index)
     
     await state.update_data(current_step_id=step_id, current_step_key=step_key)
     await state.set_state(CreateForm.waiting_dynamic_step)
@@ -584,10 +590,13 @@ async def _show_next_step(message_or_callback: Message | CallbackQuery, state: F
             # Пытаемся вызвать внутреннюю функцию выбора модели
             await _show_model_selection(message_or_callback, state, db)
         except Exception as e:
-            logger.error(f"Error in model_select step: {e}")
-            # Фолбэк: просто пропускаем этот шаг
-            await state.update_data(current_step_index=current_step_index + 1)
-            await _show_next_step(message_or_callback, state, db)
+            logger.exception("Error in model_select step")
+            err_text = "⚠️ Ошибка при показе выбора модели. Попробуйте ещё раз."
+            if isinstance(message_or_callback, Message):
+                await message_or_callback.answer(err_text)
+            else:
+                await _replace_with_text(message_or_callback, err_text)
+            return
         
     else: # text
         kb = back_step_keyboard(lang)

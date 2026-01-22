@@ -689,10 +689,10 @@ async def on_dynamic_option(callback: CallbackQuery, state: FSMContext, db: Data
                             return
                         
                         if opt_val is not None:
-                            # Иначе просто сохраняем значение
-                            await state.update_data({step_key: opt_val})
-                            # Также сохраняем человекочитаемое название для сводки
-                            await state.update_data({f"{step_key}_label": opt_text})
+                        # Иначе просто сохраняем значение
+                        await state.update_data({step_key: opt_val})
+                        # Также сохраняем человекочитаемое название для сводки
+                        await state.update_data({f"{step_key}_label": opt_text})
         except ValueError:
             # На случай если пришло не число (старый формат или ошибка)
             await state.update_data({step_key: val})
@@ -700,6 +700,18 @@ async def on_dynamic_option(callback: CallbackQuery, state: FSMContext, db: Data
     # Получаем актуальные данные после обновления значения шага
     new_data = await state.get_data()
     current_idx = new_data.get("current_step_index", 0)
+
+    # Для пресетов после выбора пола сразу переходим к выбору модели
+    if new_data.get("is_preset") and step_key == "gender":
+        cat_db = await db.get_category_by_key("presets")
+        if cat_db:
+            steps = await db.list_steps(cat_db[0])
+            for idx, s in enumerate(steps):
+                if s[1] == "model_select":
+                    await state.update_data(current_step_index=idx)
+                    await _show_next_step(callback, state, db)
+                    await _safe_answer(callback)
+                    return
     
     # Переходим к следующему шагу
     await state.update_data(current_step_index=current_idx + 1)

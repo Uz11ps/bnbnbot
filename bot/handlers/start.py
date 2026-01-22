@@ -379,6 +379,13 @@ async def _show_confirmation(message_or_callback: Message | CallbackQuery, state
             if val:
                 # Если у нас есть сохраненная метка (label) — используем ее
                 label = data.get(f"{s_key}_label", val)
+                # Не показываем file_id и чувствительные значения
+                if s_type == "photo":
+                    label = "Фото получено"
+                elif isinstance(label, str) and (label.startswith("AgAC") or label.startswith("AQAD")):
+                    label = "Фото получено"
+                elif isinstance(label, str) and label.startswith("AIza") and len(label) > 20:
+                    label = "Скрыто"
                 
                 # Убираем эмодзи из вопроса для метки, если нужно, 
                 # или просто берем часть текста до двоеточия
@@ -782,11 +789,11 @@ async def on_create_photo(callback: CallbackQuery, db: Database, state: FSMConte
         await _safe_answer(callback, get_string("limit_rem_zero", lang), show_alert=True)
         return
     
-    # Обычная генерация: фото -> промпт -> генерация
+    # Обычная генерация: фото (до 4) -> промпт -> генерация
     await state.clear()
-    await state.update_data(category="normal", normal_gen_mode=True, aspect="auto")
+    await state.update_data(category="normal", normal_gen_mode=True, aspect="auto", photos=[])
     
-    text = get_string("upload_photo", lang)
+    text = "📸 Пришлите до 4 фото товара (можно по одному или серией)."
     await _replace_with_text(callback, text, reply_markup=back_main_keyboard(lang))
     await state.set_state(CreateForm.waiting_view)
 
@@ -1664,6 +1671,20 @@ async def on_prompt_input(message: Message, state: FSMContext, db: Database) -> 
     await state.set_state(CreateForm.waiting_aspect)
 
 
+@router.callback_query(F.data == "normal_photos_done")
+async def on_normal_photos_done(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    data = await state.get_data()
+    lang = await db.get_user_language(callback.from_user.id)
+    photos = data.get("photos") or []
+    if not photos:
+        await _safe_answer(callback)
+        await _replace_with_text(callback, "📸 Пришлите хотя бы одно фото.", reply_markup=back_step_keyboard(lang))
+        return
+    await _replace_with_text(callback, "✍️ Теперь отправьте промпт (до 1000 символов).", reply_markup=back_step_keyboard(lang))
+    await state.set_state(CreateForm.waiting_prompt)
+    await _safe_answer(callback)
+
+
 @router.callback_query(CreateForm.waiting_aspect, F.data.startswith("form_aspect:"))
 async def on_aspect_selected(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     aspect = callback.data.split(":", 1)[1]
@@ -2534,7 +2555,20 @@ async def handle_user_photo(message: Message, state: FSMContext, db: Database) -
 
     # Обычная генерация: после фото просим промпт
     if data.get("normal_gen_mode"):
-        await message.answer(get_string("enter_prompt", lang), reply_markup=back_step_keyboard(lang))
+        photos = data.get("photos") or []
+        photos.append(message.photo[-1].file_id)
+        # Ограничиваем до 4 фото
+        photos = photos[:4]
+        await state.update_data(photos=photos)
+        if len(photos) < 4:
+            from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="Далее", callback_data="normal_photos_done")],
+                [InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")]
+            ])
+            await message.answer(f"Фото {len(photos)}/4 получено. Отправьте ещё или нажмите «Далее».", reply_markup=kb)
+            return
+        await message.answer("✍️ Теперь отправьте промпт (до 1000 символов).", reply_markup=back_step_keyboard(lang))
         await state.set_state(CreateForm.waiting_prompt)
         return
 

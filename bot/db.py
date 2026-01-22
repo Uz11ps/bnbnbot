@@ -222,6 +222,8 @@ CREATE TABLE IF NOT EXISTS steps (
     category_id INTEGER NOT NULL,
     step_key TEXT NOT NULL,          -- ключ для сохранения в state (например 'age', 'size')
     question_text TEXT NOT NULL,     -- текст вопроса
+    question_text_en TEXT,
+    question_text_vi TEXT,
     input_type TEXT NOT NULL,        -- 'text', 'buttons', 'photo'
     is_optional INTEGER NOT NULL DEFAULT 0,
     order_index INTEGER NOT NULL DEFAULT 0,
@@ -234,6 +236,8 @@ CREATE TABLE IF NOT EXISTS step_options (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     step_id INTEGER NOT NULL,
     option_text TEXT NOT NULL,
+    option_text_en TEXT,
+    option_text_vi TEXT,
     option_value TEXT NOT NULL,
     order_index INTEGER NOT NULL DEFAULT 0,
     custom_prompt TEXT,              -- текст вопроса если выбрана эта кнопка ("свой вариант")
@@ -329,6 +333,24 @@ class Database:
                 cols = [row[1] for row in await cur.fetchall()]
             if "custom_prompt" not in cols:
                 await db.execute("ALTER TABLE step_options ADD COLUMN custom_prompt TEXT")
+                await db.commit()
+
+            # Миграции для переводов (steps)
+            async with db.execute("PRAGMA table_info(steps)") as cur:
+                s_cols = [row[1] for row in await cur.fetchall()]
+            if "question_text_en" not in s_cols:
+                await db.execute("ALTER TABLE steps ADD COLUMN question_text_en TEXT")
+                await db.commit()
+            if "question_text_vi" not in s_cols:
+                await db.execute("ALTER TABLE steps ADD COLUMN question_text_vi TEXT")
+                await db.commit()
+
+            # Миграции для переводов (step_options)
+            if "option_text_en" not in cols:
+                await db.execute("ALTER TABLE step_options ADD COLUMN option_text_en TEXT")
+                await db.commit()
+            if "option_text_vi" not in cols:
+                await db.execute("ALTER TABLE step_options ADD COLUMN option_text_vi TEXT")
                 await db.commit()
 
         await self._seed_prompts()
@@ -1518,6 +1540,37 @@ class Database:
             ) as cur:
                 return await cur.fetchall()
 
+    async def get_step_text(self, step_id: int, lang: str) -> str:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute(
+                "SELECT question_text, question_text_en, question_text_vi FROM steps WHERE id=?",
+                (step_id,),
+            ) as cur:
+                row = await cur.fetchone()
+                if not row:
+                    return ""
+                ru, en, vi = row
+                if lang == "en" and en:
+                    return str(en)
+                if lang == "vi" and vi:
+                    return str(vi)
+                return str(ru or "")
+
+    async def list_step_options_localized(self, step_id: int, lang: str) -> list[tuple]:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute(
+                "SELECT id, option_text, option_text_en, option_text_vi, option_value, order_index, custom_prompt "
+                "FROM step_options WHERE step_id=? ORDER BY order_index, id",
+                (step_id,),
+            ) as cur:
+                rows = await cur.fetchall()
+                result = []
+                for r in rows:
+                    opt_id, ru, en, vi, val, order_idx, custom_prompt = r
+                    text = en if lang == "en" and en else vi if lang == "vi" and vi else ru
+                    result.append((int(opt_id), str(text), str(val), int(order_idx), custom_prompt))
+                return result
+
     async def add_category(self, key: str, name_ru: str, is_active: int = 1, order_index: int = 0) -> int:
         async with aiosqlite.connect(self._db_path) as db:
             await db.execute(
@@ -1691,6 +1744,9 @@ class Database:
                         ("model_select", "💃 Выберите модель:", "model_select"),
                         ("info_load", "📊 Укажите нагруженность инфографики (1-10):", "text"),
                         ("aspect", "🖼 Выберите формат фото:", "buttons"),
+                        ("adv_1", "🏆 Укажите преимущество 1:", "text"),
+                        ("adv_2", "🏆 Укажите преимущество 2:", "text"),
+                        ("adv_3", "🏆 Укажите преимущество 3:", "text"),
                     ]
                     await db.executemany(
                         "INSERT INTO library_steps (step_key, question_text, input_type) VALUES (?, ?, ?)",

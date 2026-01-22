@@ -539,12 +539,13 @@ async def _show_next_step(message_or_callback: Message | CallbackQuery, state: F
     step_id, step_key, question, input_type, is_optional, order = step
     lang = await db.get_user_language(message_or_callback.from_user.id)
     logger.info("[flow] show_step category=%s step=%s type=%s index=%s", cat_key, step_key, input_type, current_step_index)
+    question = await db.get_step_text(step_id, lang)
     
     await state.update_data(current_step_id=step_id, current_step_key=step_key)
     await state.set_state(CreateForm.waiting_dynamic_step)
     
     if input_type == "buttons":
-        options = await db.list_step_options(step_id)
+        options = await db.list_step_options_localized(step_id, lang)
         from bot.keyboards import dynamic_keyboard
         kb = dynamic_keyboard(options, bool(is_optional), lang)
         

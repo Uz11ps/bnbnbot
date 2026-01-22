@@ -72,6 +72,30 @@ async def run_migrations(db: aiosqlite.Connection):
         except Exception as e:
             print(f"Migration error (step_options.custom_prompt): {e}")
 
+    # Миграции для переводов (steps)
+    try:
+        async with db.execute("PRAGMA table_info(steps)") as cur:
+            s_cols = [row[1] for row in await cur.fetchall()]
+        if s_cols and "question_text_en" not in s_cols:
+            await db.execute("ALTER TABLE steps ADD COLUMN question_text_en TEXT")
+            await db.commit()
+        if s_cols and "question_text_vi" not in s_cols:
+            await db.execute("ALTER TABLE steps ADD COLUMN question_text_vi TEXT")
+            await db.commit()
+    except Exception as e:
+        print(f"Migration error (steps translations): {e}")
+
+    # Миграции для переводов (step_options)
+    try:
+        if cols and "option_text_en" not in cols:
+            await db.execute("ALTER TABLE step_options ADD COLUMN option_text_en TEXT")
+            await db.commit()
+        if cols and "option_text_vi" not in cols:
+            await db.execute("ALTER TABLE step_options ADD COLUMN option_text_vi TEXT")
+            await db.commit()
+    except Exception as e:
+        print(f"Migration error (step_options translations): {e}")
+
     # Таблица опций для библиотечных вопросов
     try:
         await db.execute(
@@ -445,6 +469,24 @@ async def run_migrations(db: aiosqlite.Connection):
         print(f"Migration error (library_steps.aspect): {e}")
 
     try:
+        # Библиотека вопросов: преимущества 1-3
+        adv_steps = [
+            ("adv_1", "🏆 Укажите преимущество 1:", "text"),
+            ("adv_2", "🏆 Укажите преимущество 2:", "text"),
+            ("adv_3", "🏆 Укажите преимущество 3:", "text"),
+        ]
+        for key, question, i_type in adv_steps:
+            async with db.execute("SELECT id FROM library_steps WHERE step_key=?", (key,)) as cur:
+                if not await cur.fetchone():
+                    await db.execute(
+                        "INSERT INTO library_steps (step_key, question_text, input_type) VALUES (?, ?, ?)",
+                        (key, question, i_type)
+                    )
+        await db.commit()
+    except Exception as e:
+        print(f"Migration error (library_steps.advantages): {e}")
+
+    try:
         # Дефолтные кнопки формата для библиотечного вопроса
         async with db.execute("SELECT id FROM library_steps WHERE step_key=?", ("aspect",)) as cur:
             row = await cur.fetchone()
@@ -517,11 +559,14 @@ def _normalize_placeholder_label(text: str, fallback: str) -> str:
         return fallback
     # Убираем эмодзи и пунктуацию, оставляем буквы/цифры/пробелы
     clean = re.sub(r"[^0-9A-Za-zА-Яа-яЁё ]+", "", text).strip()
+    clean = re.sub(r"\s+", " ", clean).strip()
     # Убираем типовые префиксы
     for prefix in ("Выберите ", "Введите ", "Пришлите ", "Загрузите "):
         if clean.lower().startswith(prefix.lower()):
             clean = clean[len(prefix):].strip()
             break
+    if len(clean) > 60:
+        clean = clean[:60].rstrip()
     return clean or fallback
 
 
@@ -542,7 +587,7 @@ async def _get_prompt_placeholders(db: aiosqlite.Connection) -> list[dict]:
     seen = set()
     unique = []
     for p in placeholders:
-        key = p["token"]
+        key = p["token"].lower()
         if key not in seen:
             seen.add(key)
             unique.append(p)
@@ -1520,6 +1565,64 @@ async def category_steps_page(request: Request, cat_id: int, db: aiosqlite.Conne
         "lib_buttons": lib_buttons,
         "prompt_placeholders": prompt_placeholders
     })
+
+
+@app.get("/constructor/category/{cat_id}/languages", response_class=HTMLResponse)
+async def category_languages_page(request: Request, cat_id: int, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    async with db.execute("SELECT id, key, name_ru, is_active, order_index FROM categories WHERE id=?", (cat_id,)) as cur:
+        category = await cur.fetchone()
+    if not category:
+        return RedirectResponse("/constructor")
+
+    async with db.execute(
+        "SELECT id, step_key, question_text, question_text_en, question_text_vi "
+        "FROM steps WHERE category_id=? ORDER BY order_index, id",
+        (cat_id,)
+    ) as cur:
+        steps = await cur.fetchall()
+
+    options_by_step = {}
+    async with db.execute(
+        "SELECT id, step_id, option_text, option_text_en, option_text_vi, option_value "
+        "FROM step_options WHERE step_id IN (SELECT id FROM steps WHERE category_id=?) "
+        "ORDER BY step_id, order_index, id",
+        (cat_id,)
+    ) as cur:
+        rows = await cur.fetchall()
+        for row in rows:
+            options_by_step.setdefault(row["step_id"], []).append(row)
+
+    return templates.TemplateResponse("category_languages.html", {
+        "request": request,
+        "category": category,
+        "steps": steps,
+        "options_by_step": options_by_step
+    })
+
+
+@app.post("/constructor/category/{cat_id}/save_translations")
+async def save_category_translations(request: Request, cat_id: int, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    form = await request.form()
+    for key, val in form.items():
+        value = (val or "").strip()
+        if key.startswith("step_"):
+            parts = key.split("_")
+            if len(parts) == 3:
+                step_id = int(parts[1])
+                lang = parts[2]
+                if lang in ("en", "vi"):
+                    col = f"question_text_{lang}"
+                    await db.execute(f"UPDATE steps SET {col}=? WHERE id=?", (value, step_id))
+        elif key.startswith("opt_"):
+            parts = key.split("_")
+            if len(parts) == 3:
+                opt_id = int(parts[1])
+                lang = parts[2]
+                if lang in ("en", "vi"):
+                    col = f"option_text_{lang}"
+                    await db.execute(f"UPDATE step_options SET {col}=? WHERE id=?", (value, opt_id))
+    await db.commit()
+    return RedirectResponse(f"/constructor/category/{cat_id}/languages", status_code=303)
 
 @app.post("/constructor/step/add/{cat_id}")
 async def admin_add_step(cat_id: int, step_key: str = Form(...), question: str = Form(...), input_type: str = Form(...), is_optional: int = Form(0), order: int = Form(0), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):

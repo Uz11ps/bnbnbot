@@ -411,7 +411,10 @@ async def _show_model_selection(message_or_callback: Message | CallbackQuery, st
     data = await state.get_data()
     # Определяем категорию и тип одежды для выбора моделей
     # Если они не заданы в data, пробуем использовать текущие
-    category = data.get("display_category") or data.get("category", "female")
+    if data.get("is_preset") and data.get("gender"):
+        category = data.get("gender")
+    else:
+        category = data.get("display_category") or data.get("category", "female")
     cloth = data.get("selected_cloth") or data.get("cloth", "all")
     
     total = await db.count_models(category, cloth)
@@ -3550,6 +3553,12 @@ async def on_model_nav(callback: CallbackQuery, db: Database) -> None:
         return
     
     await _show_models_for_category(callback, db, category, cloth, index, logic_category=logic_category)
+    await _safe_answer(callback)
+
+
+@router.callback_query(F.data == "presets_back")
+async def on_presets_back(callback: CallbackQuery, db: Database) -> None:
+    await on_ready_presets(callback, db)
     await _safe_answer(callback)
 
 @router.callback_query(F.data.startswith("model_search:"))

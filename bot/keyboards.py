@@ -375,28 +375,10 @@ def model_select_keyboard(category: str, cloth: str, index: int, total: int, lan
     ]
     rows.append(nav_row)
     
-    # Кнопки быстрого перехода (до 10 штук в ряд)
-    quick_nav = []
-    max_quick = min(total, 10)
-    for i in range(max_quick):
-        text = f"{i+1}"
-        if i == 0:
-            # Вместо цифры 1 — кнопка поиска
-            text = "Поиск 🔍"
-            if i == index:
-                text = "Поиск 🔍 •1•"
-            quick_nav.append(InlineKeyboardButton(text=text, callback_data=f"model_search:{category}:{cloth}{logic_suffix}"))
-            continue
-            
-        if i == index:
-            text = f"•{i+1}•"
-        quick_nav.append(InlineKeyboardButton(text=text, callback_data=f"model_nav:{category}:{cloth}:{i}{logic_suffix}"))
-    
-    # Разбиваем кнопки 1-10 на ряды по 5
-    for i in range(0, len(quick_nav), 5):
-        rows.append(quick_nav[i:i+5])
+    # Оставляем только поиск по номеру
+    rows.append([InlineKeyboardButton(text="Поиск 🔍", callback_data=f"model_search:{category}:{cloth}{logic_suffix}")])
         
-    rows.append([InlineKeyboardButton(text=get_string("back", lang), callback_data="create_cat:presets")])
+    rows.append([InlineKeyboardButton(text=get_string("back", lang), callback_data="presets_back")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 def pose_keyboard(lang="ru") -> InlineKeyboardMarkup:

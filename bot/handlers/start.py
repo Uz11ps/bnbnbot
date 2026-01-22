@@ -689,10 +689,10 @@ async def on_dynamic_option(callback: CallbackQuery, state: FSMContext, db: Data
                             return
                         
                         if opt_val is not None:
-                        # Иначе просто сохраняем значение
-                        await state.update_data({step_key: opt_val})
-                        # Также сохраняем человекочитаемое название для сводки
-                        await state.update_data({f"{step_key}_label": opt_text})
+                            # Иначе просто сохраняем значение
+                            await state.update_data({step_key: opt_val})
+                            # Также сохраняем человекочитаемое название для сводки
+                            await state.update_data({f"{step_key}_label": opt_text})
         except ValueError:
             # На случай если пришло не число (старый формат или ошибка)
             await state.update_data({step_key: val})

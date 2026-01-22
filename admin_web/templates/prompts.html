@@ -51,13 +51,23 @@
 
     <ul class="nav nav-tabs mb-3" id="catTabs" role="tablist">
         {% set cat_names = {
+            'presets': '👗 Пресеты (Готовые)',
             'female': 'Женская',
             'male': 'Мужская',
+            'child': 'Детская',
             'boy': 'Мальчик',
             'girl': 'Девочка',
-            'unisex': 'Унисекс'
+            'unisex': 'Унисекс',
+            'storefront': 'Витринное фото',
+            'whitebg': 'Белый фон',
+            'random': 'Рандом',
+            'random_other': 'Рандом прочее',
+            'own': 'Свой вариант (одежда)',
+            'own_variant': 'Свой вариант (фон)',
+            'infographic_clothing': 'Инфографика (одежда)',
+            'infographic_other': 'Инфографика (прочее)'
         } %}
-        {% for cat in ['female', 'male', 'boy', 'girl', 'unisex'] %}
+        {% for cat in categories %}
         <li class="nav-item">
             <button class="nav-link {% if loop.first %}active{% endif %}" id="{{ cat }}-tab" data-bs-toggle="tab" data-bs-target="#{{ cat }}-pane" type="button">
                 {{ cat_names.get(cat, cat | capitalize) }}
@@ -67,7 +77,7 @@
     </ul>
 
     <div class="tab-content">
-        {% for cat in ['female', 'male', 'boy', 'girl', 'unisex'] %}
+        {% for cat in categories %}
         <div class="tab-pane fade {% if loop.first %}show active{% endif %}" id="{{ cat }}-pane">
             
             <div class="card p-3 mb-4 bg-light border-dashed">
@@ -75,11 +85,9 @@
                 <form action="/models/add_full" method="post" enctype="multipart/form-data" class="row g-2">
                     <div class="col-md-3">
                         <select name="category" class="form-select">
-                            <option value="female">Женская</option>
-                            <option value="male">Мужская</option>
-                            <option value="boy">Мальчик</option>
-                            <option value="girl">Девочка</option>
-                            <option value="unisex">Унисекс</option>
+                            {% for c in categories %}
+                            <option value="{{ c }}">{{ cat_names.get(c, c | capitalize) }}</option>
+                            {% endfor %}
                         </select>
                     </div>
                     <div class="col-md-3">

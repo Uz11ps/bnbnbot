@@ -199,18 +199,22 @@
                 <div class="card-body overflow-auto flex-grow-1">
                     <div id="library-questions" class="list-group list-group-flush">
                         {% for step in lib_steps %}
-                        <div class="list-group-item list-group-item-action border rounded mb-2 library-question-item" 
+                        <div class="list-group-item list-group-item-action border rounded mb-2 library-question-item d-flex justify-content-between align-items-center" 
                              data-key="{{ step.step_key }}" 
                              data-question="{{ step.question_text }}" 
                              data-type="{{ step.input_type }}"
+                             data-id="{{ step.id }}"
                              data-buttons='{{ step.default_buttons | e }}'
                              style="cursor: grab;">
-                            <div class="d-flex justify-content-between align-items-center">
-                                <div>
-                                    <div class="fw-bold small">{{ step.question_text }}</div>
-                                    <code class="x-small">{{ step.step_key }}</code>
-                                </div>
+                            <div>
+                                <div class="fw-bold small">{{ step.question_text }}</div>
+                                <code class="x-small">{{ step.step_key }}</code>
+                            </div>
+                            <div class="d-flex align-items-center gap-2">
                                 <span class="badge bg-light text-muted small">{{ step.input_type }}</span>
+                                <button type="button" class="btn btn-link btn-sm p-0 text-muted lib-edit-btn" title="Редактировать">
+                                    <i class="bi bi-gear"></i>
+                                </button>
                             </div>
                         </div>
                         {% endfor %}
@@ -247,6 +251,57 @@
                     <button type="submit" class="btn btn-primary">Создать</button>
                 </div>
             </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Редактировать готовый вопрос -->
+<div class="modal fade" id="editLibraryStepModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Редактировать вопрос в библиотеке</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="lib-step-id">
+                <div class="row g-2 mb-3">
+                    <div class="col-md-4">
+                        <label class="form-label">Ключ</label>
+                        <input type="text" id="lib-step-key" class="form-control">
+                    </div>
+                    <div class="col-md-5">
+                        <label class="form-label">Вопрос</label>
+                        <input type="text" id="lib-step-question" class="form-control">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Тип</label>
+                        <select id="lib-step-type" class="form-select">
+                            <option value="buttons">Кнопки</option>
+                            <option value="text">Текст</option>
+                            <option value="photo">Фото</option>
+                            <option value="model_select">Выбор модели</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="mb-2">
+                    <label class="form-label">Кнопки (для типа "Кнопки")</label>
+                    <div id="lib-step-buttons" class="d-flex flex-wrap gap-2 p-2 border rounded-3 bg-light" style="min-height: 60px;"></div>
+                    <small class="text-muted">Перетащите кнопки из библиотеки слева.</small>
+                </div>
+            </div>
+            <div class="modal-footer d-flex justify-content-between">
+                <form id="lib-step-delete-form" method="post">
+                    <button type="submit" class="btn btn-outline-danger" onclick="return confirm('Удалить этот вопрос из библиотеки?')">
+                        Удалить
+                    </button>
+                </form>
+                <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                    <button type="button" class="btn btn-primary" id="lib-step-save-btn" onclick="saveLibraryStep()">Сохранить</button>
+                </div>
+            </div>
         </div>
     </div>
 </div>
@@ -457,6 +512,14 @@
         document.querySelectorAll('.canvas-buttons-list').forEach(el => {
             initButtonSortable(el);
         });
+
+        document.querySelectorAll('.lib-edit-btn').forEach(btn => {
+            btn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                const item = this.closest('.library-question-item');
+                openLibraryStepModal(item);
+            });
+        });
     });
 
     function initButtonSortable(el) {
@@ -550,6 +613,102 @@
                 </div>
             </div>
         `;
+    }
+
+    function createLibraryButtonHtml(text, value, prompt = '') {
+        let badge = '';
+        if (value === 'skip') badge = '<span class="badge bg-warning text-dark x-small">SKIP</span>';
+        else if (value === 'back') badge = '<span class="badge bg-info x-small">BACK</span>';
+        else if (value === 'custom') badge = '<span class="badge bg-primary x-small">CUSTOM</span>';
+
+        return `
+            <div class="btn btn-xs btn-light border d-flex align-items-center gap-2 canvas-button-item"
+                 data-id="null"
+                 data-text="${text}"
+                 data-value="${value}"
+                 data-prompt="${prompt}">
+                <span>${text} ${badge}</span>
+                <div class="btn-group">
+                    ${prompt ? '<i class="bi bi-chat-dots text-primary small" title="Свой вариант"></i>' : ''}
+                    <button type="button" class="btn btn-link btn-xs p-0 text-danger ms-1" onclick="this.parentElement.parentElement.remove();"><i class="bi bi-x"></i></button>
+                </div>
+            </div>
+        `;
+    }
+
+    function initLibraryButtonsSortable(el) {
+        new Sortable(el, {
+            group: 'buttons',
+            animation: 150,
+            onAdd: function(evt) {
+                const item = evt.item;
+                const text = item.getAttribute('data-text');
+                const value = item.getAttribute('data-value');
+                const prompt = item.getAttribute('data-prompt');
+                const btnHtml = createLibraryButtonHtml(text, value, prompt);
+                item.outerHTML = btnHtml;
+            }
+        });
+    }
+
+    function openLibraryStepModal(item) {
+        const stepId = item.getAttribute('data-id');
+        const key = item.getAttribute('data-key');
+        const question = item.getAttribute('data-question');
+        const type = item.getAttribute('data-type');
+        const buttonsJson = item.getAttribute('data-buttons') || '[]';
+
+        document.getElementById('lib-step-id').value = stepId;
+        document.getElementById('lib-step-key').value = key;
+        document.getElementById('lib-step-question').value = question;
+        document.getElementById('lib-step-type').value = type;
+
+        const btnContainer = document.getElementById('lib-step-buttons');
+        btnContainer.innerHTML = '';
+        try {
+            const buttons = JSON.parse(buttonsJson);
+            buttons.forEach(btn => {
+                btnContainer.insertAdjacentHTML('beforeend', createLibraryButtonHtml(btn.text, btn.value, btn.prompt || ''));
+            });
+        } catch (e) {}
+
+        initLibraryButtonsSortable(btnContainer);
+        document.getElementById('lib-step-delete-form').action = `/constructor/library/step/delete/${stepId}`;
+        new bootstrap.Modal(document.getElementById('editLibraryStepModal')).show();
+    }
+
+    async function saveLibraryStep() {
+        const stepId = document.getElementById('lib-step-id').value;
+        const key = document.getElementById('lib-step-key').value;
+        const question = document.getElementById('lib-step-question').value;
+        const type = document.getElementById('lib-step-type').value;
+
+        const buttonsList = [];
+        document.querySelectorAll('#lib-step-buttons .canvas-button-item').forEach((btn, index) => {
+            buttonsList.push({
+                id: btn.getAttribute('data-id'),
+                text: btn.getAttribute('data-text'),
+                value: btn.getAttribute('data-value'),
+                prompt: btn.getAttribute('data-prompt'),
+                order: index + 1
+            });
+        });
+
+        const response = await fetch(`/constructor/library/step/update/${stepId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                step: { key, question, type },
+                options: buttonsList
+            })
+        });
+
+        if (response.ok) {
+            showToast('Вопрос обновлён', 'success');
+            setTimeout(() => location.reload(), 500);
+        } else {
+            showToast('Ошибка сохранения', 'danger');
+        }
     }
 
     function markDirty() {

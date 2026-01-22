@@ -268,6 +268,18 @@ CREATE TABLE IF NOT EXISTS library_options (
 );
 """
 
+CREATE_LIBRARY_STEP_OPTIONS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS library_step_options (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    step_id INTEGER NOT NULL,
+    option_text TEXT NOT NULL,
+    option_value TEXT NOT NULL,
+    order_index INTEGER NOT NULL DEFAULT 0,
+    custom_prompt TEXT,
+    FOREIGN KEY(step_id) REFERENCES library_steps(id)
+);
+"""
+
 
 class Database:
     def __init__(self, db_path: str = "bot.db") -> None:
@@ -299,6 +311,7 @@ class Database:
             await db.execute(CREATE_LIBRARY_STEPS_TABLE_SQL)
             await db.execute(CREATE_BUTTON_CATEGORIES_TABLE_SQL)
             await db.execute(CREATE_LIBRARY_OPTIONS_TABLE_SQL)
+            await db.execute(CREATE_LIBRARY_STEP_OPTIONS_TABLE_SQL)
             await db.commit()
         
         # Миграция для описаний планов

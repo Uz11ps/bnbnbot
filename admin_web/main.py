@@ -72,6 +72,25 @@ async def run_migrations(db: aiosqlite.Connection):
         except Exception as e:
             print(f"Migration error (step_options.custom_prompt): {e}")
 
+    # Таблица опций для библиотечных вопросов
+    try:
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS library_step_options (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                step_id INTEGER NOT NULL,
+                option_text TEXT NOT NULL,
+                option_value TEXT NOT NULL,
+                order_index INTEGER NOT NULL DEFAULT 0,
+                custom_prompt TEXT,
+                FOREIGN KEY(step_id) REFERENCES library_steps(id)
+            );
+            """
+        )
+        await db.commit()
+    except Exception as e:
+        print(f"Migration error (library_step_options): {e}")
+
     # Гарантируем системные кнопки в библиотеке и наличие шага выбора модели
     try:
         # Системная категория кнопок
@@ -424,6 +443,36 @@ async def run_migrations(db: aiosqlite.Connection):
                 await db.commit()
     except Exception as e:
         print(f"Migration error (library_steps.aspect): {e}")
+
+    try:
+        # Дефолтные кнопки формата для библиотечного вопроса
+        async with db.execute("SELECT id FROM library_steps WHERE step_key=?", ("aspect",)) as cur:
+            row = await cur.fetchone()
+        if row:
+            aspect_step_id = row[0]
+            async with db.execute("SELECT COUNT(*) FROM library_step_options WHERE step_id=?", (aspect_step_id,)) as cur:
+                count = (await cur.fetchone())[0]
+            if count == 0:
+                format_buttons = [
+                    ("1:1", "1:1", None),
+                    ("9:16", "9:16", None),
+                    ("16:9", "16:9", None),
+                    ("3:4", "3:4", None),
+                    ("4:3", "4:3", None),
+                    ("3:2", "3:2", None),
+                    ("2:3", "2:3", None),
+                    ("5:4", "5:4", None),
+                    ("4:5", "4:5", None),
+                    ("21:9", "21:9", None),
+                ]
+                for idx, (text, value, prompt) in enumerate(format_buttons, start=1):
+                    await db.execute(
+                        "INSERT INTO library_step_options (step_id, option_text, option_value, order_index, custom_prompt) VALUES (?, ?, ?, ?, ?)",
+                        (aspect_step_id, text, value, idx, prompt)
+                    )
+                await db.commit()
+    except Exception as e:
+        print(f"Migration error (library_steps.aspect buttons): {e}")
 
     try:
         # Категория пресетов: добавить шаг выбора модели, если его нет
@@ -1374,31 +1423,23 @@ async def category_steps_page(request: Request, cat_id: int, db: aiosqlite.Conne
     async with db.execute("SELECT id, step_key, question_text, input_type FROM library_steps ORDER BY id") as cur:
         lib_steps_raw = await cur.fetchall()
 
-    # Дефолтные кнопки для формата
-    default_format_buttons = []
-    async with db.execute("SELECT id FROM button_categories WHERE name=?", ("Формат",)) as cur:
-        fmt_row = await cur.fetchone()
-    if fmt_row:
-        async with db.execute(
-            "SELECT option_text, option_value, custom_prompt FROM library_options WHERE category_id=? ORDER BY id",
-            (fmt_row[0],)
-        ) as cur:
-            opts = await cur.fetchall()
-        default_format_buttons = [
-            {"text": o[0], "value": o[1], "prompt": o[2] or ""}
-            for o in opts
-        ]
-
     lib_steps = []
     for step in lib_steps_raw:
-        default_buttons = "[]"
-        if step[1] == "aspect" and default_format_buttons:
-            default_buttons = json.dumps(default_format_buttons, ensure_ascii=False)
+        step_id, step_key, question_text, input_type = step
+        async with db.execute(
+            "SELECT option_text, option_value, custom_prompt FROM library_step_options WHERE step_id=? ORDER BY order_index, id",
+            (step_id,)
+        ) as cur:
+            opts = await cur.fetchall()
+        default_buttons = json.dumps(
+            [{"text": o[0], "value": o[1], "prompt": o[2] or ""} for o in opts],
+            ensure_ascii=False
+        )
         lib_steps.append({
-            "id": step[0],
-            "step_key": step[1],
-            "question_text": step[2],
-            "input_type": step[3],
+            "id": step_id,
+            "step_key": step_key,
+            "question_text": question_text,
+            "input_type": input_type,
             "default_buttons": default_buttons
         })
 
@@ -1558,6 +1599,60 @@ async def admin_add_library_step(step_key: str = Form(...), question: str = Form
         "INSERT INTO library_steps (step_key, question_text, input_type) VALUES (?, ?, ?)",
         (step_key, question, input_type)
     )
+    await db.commit()
+    return RedirectResponse(request.headers.get("referer", "/constructor"), status_code=303)
+
+@app.post("/constructor/library/step/update/{step_id}")
+async def admin_update_library_step(step_id: int, request: Request, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    data = await request.json()
+    step_data = data.get("step", {})
+    options = data.get("options", [])
+    await db.execute(
+        "UPDATE library_steps SET step_key=?, question_text=?, input_type=? WHERE id=?",
+        (step_data.get("key"), step_data.get("question"), step_data.get("type"), step_id)
+    )
+
+    # Синхронизация опций
+    async with db.execute("SELECT id FROM library_step_options WHERE step_id=?", (step_id,)) as cur:
+        existing_ids = [row[0] for row in await cur.fetchall()]
+    received_ids = []
+    for b_data in options:
+        opt_id = b_data.get("id")
+        opt_text = b_data.get("text")
+        opt_value = b_data.get("value")
+        opt_prompt = b_data.get("prompt")
+        opt_order = b_data.get("order")
+
+        if opt_id == 'null':
+            opt_id = None
+        else:
+            opt_id = int(opt_id) if opt_id else None
+
+        if opt_id and opt_id in existing_ids:
+            await db.execute(
+                "UPDATE library_step_options SET option_text=?, option_value=?, order_index=?, custom_prompt=? WHERE id=?",
+                (opt_text, opt_value, opt_order, opt_prompt, opt_id)
+            )
+            received_ids.append(opt_id)
+        else:
+            await db.execute(
+                "INSERT INTO library_step_options (step_id, option_text, option_value, order_index, custom_prompt) VALUES (?, ?, ?, ?, ?)",
+                (step_id, opt_text, opt_value, opt_order, opt_prompt)
+            )
+            async with db.execute("SELECT last_insert_rowid()") as cur:
+                received_ids.append((await cur.fetchone())[0])
+
+    for old_id in existing_ids:
+        if old_id not in received_ids:
+            await db.execute("DELETE FROM library_step_options WHERE id=?", (old_id,))
+
+    await db.commit()
+    return JSONResponse({"status": "ok"})
+
+@app.post("/constructor/library/step/delete/{step_id}")
+async def admin_delete_library_step(step_id: int, request: Request, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    await db.execute("DELETE FROM library_step_options WHERE step_id=?", (step_id,))
+    await db.execute("DELETE FROM library_steps WHERE id=?", (step_id,))
     await db.commit()
     return RedirectResponse(request.headers.get("referer", "/constructor"), status_code=303)
 

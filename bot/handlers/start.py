@@ -940,7 +940,7 @@ async def on_create_category_universal(callback: CallbackQuery, db: Database, st
     elif cat_key == "random": await on_create_random(callback, state, db)
     elif cat_key == "random_other": await on_create_random_other(callback, state, db)
     elif cat_key.startswith("infographic"): await on_infographic_category(callback, state, db)
-    elif cat_key == "presets": await on_ready_presets(callback, db)
+    elif cat_key == "presets": await on_ready_presets(callback, db, state)
     
     await _safe_answer(callback)
 
@@ -985,8 +985,21 @@ async def on_infographic_selection_menu(callback: CallbackQuery, db: Database) -
     from bot.keyboards import infographic_selection_keyboard
     await _replace_with_text(callback, get_string("cat_infographics", lang), reply_markup=infographic_selection_keyboard(enabled, lang))
 
-async def on_ready_presets(callback: CallbackQuery, db: Database) -> None:
+async def on_ready_presets(callback: CallbackQuery, db: Database, state: FSMContext | None = None) -> None:
     lang = await db.get_user_language(callback.from_user.id)
+    # Если в конструкторе есть шаги для пресетов — используем их напрямую
+    cat_db = await db.get_category_by_key("presets")
+    if cat_db and state:
+        steps = await db.list_steps(cat_db[0])
+        if steps:
+            # Сбрасываем ответы шагов и запускаем флоу
+            reset_payload = {s[1]: None for s in steps}
+            reset_payload.update({"category": "presets", "is_preset": True, "current_step_index": 0})
+            await state.clear()
+            await state.update_data(**reset_payload)
+            await _show_next_step(callback, state, db)
+            await _safe_answer(callback)
+            return
     enabled = await db.list_categories_enabled()
     from bot.keyboards import ready_presets_keyboard
     await _replace_with_text(callback, get_string("cat_presets", lang), reply_markup=ready_presets_keyboard(enabled, lang))
@@ -3598,8 +3611,8 @@ async def on_model_nav(callback: CallbackQuery, db: Database) -> None:
 
 
 @router.callback_query(F.data == "presets_back")
-async def on_presets_back(callback: CallbackQuery, db: Database) -> None:
-    await on_ready_presets(callback, db)
+async def on_presets_back(callback: CallbackQuery, db: Database, state: FSMContext) -> None:
+    await on_ready_presets(callback, db, state)
     await _safe_answer(callback)
 
 @router.callback_query(F.data.startswith("model_search:"))

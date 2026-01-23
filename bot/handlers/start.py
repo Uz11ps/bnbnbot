@@ -507,30 +507,41 @@ async def _show_next_step(message_or_callback: Message | CallbackQuery, state: F
             # Если это метка кнопки
             if k.endswith("_label"):
                 label_v = str(v).lower()
-                if any(x in label_v for x in ("без человека", "нет", "no", "without person", "không")):
-                    # Проверяем что это именно про человека
+                # Если текст кнопки однозначно говорит об отсутствии человека
+                if any(x in label_v for x in ("без человека", "without person", "không có người")):
+                    person_absent = True
+                    break
+                # Если текст "нет" и ключ связан с человеком
+                if any(x in label_v for x in ("нет", "no", "không")):
                     low_k = k.lower()
-                    if "person" in low_k or "presence" in low_k or "человек" in low_k or "присутствие" in low_k:
+                    if any(x in low_k for x in ("person", "presence", "человек", "присутствие")):
                         person_absent = True
                         break
             
-            # Если значение само по себе говорит об отсутствии человека
+            # Если значение само по себе говорит об отсутствии человека (ID или спец. значение)
             if isinstance(v, str):
                 v_low = v.lower()
-                if v_low in ("person_no", "without_person"):
+                if v_low in ("person_no", "without_person", "no_person", "no-person"):
                     person_absent = True
                     break
                 # Если значение "нет" и ключ связан с человеком
                 if v_low in ("no", "off", "нет"):
                     low_k = k.lower()
-                    if "person" in low_k or "presence" in low_k or "человек" in low_k or "присутствие" in low_k:
+                    if any(x in low_k for x in ("person", "presence", "человек", "присутствие")):
                         person_absent = True
                         break
         
-        if person_absent and step_key in ("age", "pose", "height", "size"):
-            logger.info("[flow] skip step=%s because person_absent=True", step_key)
+        # Проверяем ключи шагов более гибко (по вхождению подстроки)
+        low_step_key = step_key.lower()
+        is_skip_target = any(x in low_step_key for x in ("age", "pose", "height", "size", "возраст", "поза", "рост", "телосложение"))
+        
+        if person_absent and is_skip_target:
+            logger.info("[flow] SKIP step=%s because person_absent=True found in data", step_key)
             current_step_index += 1
             continue
+        
+        if is_skip_target:
+            logger.info("[flow] CHECK skip target=%s person_absent=%s", step_key, person_absent)
             
         # 2. Пропускаем шаги, которые уже есть в данных
         if step_key in data and data.get(step_key) is not None:

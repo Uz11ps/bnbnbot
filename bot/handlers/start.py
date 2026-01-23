@@ -498,9 +498,16 @@ async def _show_next_step(message_or_callback: Message | CallbackQuery, state: F
             current_step_index += 1
             continue
 
-        # Условие: если присутствие человека = Нет (person_no), пропускаем Возраст и Позу
-        has_person = data.get("has_person") or data.get("person")
-        if (has_person == "person_no" or has_person == "no") and step_key in ("age", "pose"):
+        # Условие: если присутствие человека = Нет, пропускаем Возраст и Позу
+        # Ищем во всех данных любое значение, означающее отсутствие человека
+        person_absent = False
+        for k, v in data.items():
+            if isinstance(v, str) and v.lower() in ("person_no", "no", "off", "нет", "without_person"):
+                if "person" in k.lower() or "presence" in k.lower():
+                    person_absent = True
+                    break
+        
+        if person_absent and step_key in ("age", "pose", "height", "size"):
             current_step_index += 1
             continue
             

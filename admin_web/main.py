@@ -1825,8 +1825,8 @@ async def admin_save_all_steps(cat_id: int, request: Request, db: aiosqlite.Conn
             received_step_ids.append(step_id)
             
         # Работа с кнопками (опциями) этого шага
-        async with db.execute("SELECT id FROM step_options WHERE step_id=?", (step_id,)) as cur:
-            existing_opt_ids = [row[0] for row in await cur.fetchall()]
+        async with db.execute("SELECT id FROM step_options WHERE step_id=?", (int(step_id),)) as cur_opts:
+            existing_opt_ids = [row[0] for row in await cur_opts.fetchall()]
             
         received_opt_ids = []
         for b_data in buttons:
@@ -1836,13 +1836,16 @@ async def admin_save_all_steps(cat_id: int, request: Request, db: aiosqlite.Conn
             opt_text_vi = b_data.get("text_vi")
             opt_value = b_data.get("value")
             opt_prompt = b_data.get("prompt")
-            opt_order = b_data.get("order")
+            opt_order = int(b_data.get("order") or 0)
             
             # Если opt_id - строка 'null', приводим к None
-            if opt_id == 'null':
+            if opt_id == 'null' or opt_id is None:
                 opt_id = None
             else:
-                opt_id = int(opt_id) if opt_id else None
+                try:
+                    opt_id = int(opt_id)
+                except (ValueError, TypeError):
+                    opt_id = None
             
             if opt_id and opt_id in existing_opt_ids:
                 await db.execute(
@@ -1853,7 +1856,7 @@ async def admin_save_all_steps(cat_id: int, request: Request, db: aiosqlite.Conn
             else:
                 await db.execute(
                     "INSERT INTO step_options (step_id, option_text, option_text_en, option_text_vi, option_value, order_index, custom_prompt) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (step_id, opt_text, opt_text_en, opt_text_vi, opt_value, opt_order, opt_prompt)
+                    (int(step_id), opt_text, opt_text_en, opt_text_vi, opt_value, opt_order, opt_prompt)
                 )
                 async with db.execute("SELECT last_insert_rowid()") as cur_last:
                     received_opt_ids.append((await cur_last.fetchone())[0])

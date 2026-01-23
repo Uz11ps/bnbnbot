@@ -499,8 +499,8 @@ async def _show_next_step(message_or_callback: Message | CallbackQuery, state: F
             continue
 
         # Условие: если присутствие человека = Нет (person_no), пропускаем Возраст и Позу
-        has_person = data.get("has_person")
-        if has_person == "person_no" and step_key in ("age", "pose"):
+        has_person = data.get("has_person") or data.get("person")
+        if (has_person == "person_no" or has_person == "no") and step_key in ("age", "pose"):
             current_step_index += 1
             continue
             

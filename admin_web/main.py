@@ -1855,8 +1855,8 @@ async def admin_save_all_steps(cat_id: int, request: Request, db: aiosqlite.Conn
                     "INSERT INTO step_options (step_id, option_text, option_text_en, option_text_vi, option_value, order_index, custom_prompt) VALUES (?, ?, ?, ?, ?, ?, ?)",
                     (step_id, opt_text, opt_text_en, opt_text_vi, opt_value, opt_order, opt_prompt)
                 )
-                async with db.execute("SELECT last_insert_rowid()") as cur:
-                    received_opt_ids.append((await cur.fetchone())[0])
+                async with db.execute("SELECT last_insert_rowid()") as cur_last:
+                    received_opt_ids.append((await cur_last.fetchone())[0])
                     
         # Удаляем опции, которые не пришли
         for old_opt_id in existing_opt_ids:

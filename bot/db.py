@@ -334,6 +334,13 @@ class Database:
                 await db.execute("ALTER TABLE subscription_plans ADD COLUMN description_vi TEXT")
                 await db.commit()
 
+            # Миграция для step_options (custom_prompt)
+            async with db.execute("PRAGMA table_info(step_options)") as cur:
+                so_cols_pre = [row[1] for row in await cur.fetchall()]
+            if "custom_prompt" not in so_cols_pre:
+                await db.execute("ALTER TABLE step_options ADD COLUMN custom_prompt TEXT")
+                await db.commit()
+
             # Миграции для переводов (library_steps)
             async with db.execute("PRAGMA table_info(library_steps)") as cur:
                 ls_cols = [row[1] for row in await cur.fetchall()]
@@ -372,14 +379,6 @@ class Database:
                 await db.commit()
             if "question_text_vi" not in s_cols:
                 await db.execute("ALTER TABLE steps ADD COLUMN question_text_vi TEXT")
-                await db.commit()
-
-            # Миграции для переводов (step_options)
-            if "option_text_en" not in cols:
-                await db.execute("ALTER TABLE step_options ADD COLUMN option_text_en TEXT")
-                await db.commit()
-            if "option_text_vi" not in cols:
-                await db.execute("ALTER TABLE step_options ADD COLUMN option_text_vi TEXT")
                 await db.commit()
 
             # Миграции для переводов (library_options)

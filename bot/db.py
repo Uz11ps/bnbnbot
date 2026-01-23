@@ -266,6 +266,8 @@ CREATE TABLE IF NOT EXISTS library_options (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     category_id INTEGER,
     option_text TEXT NOT NULL,
+    option_text_en TEXT,
+    option_text_vi TEXT,
     option_value TEXT NOT NULL,
     custom_prompt TEXT,
     FOREIGN KEY(category_id) REFERENCES button_categories(id)
@@ -351,6 +353,16 @@ class Database:
                 await db.commit()
             if "option_text_vi" not in cols:
                 await db.execute("ALTER TABLE step_options ADD COLUMN option_text_vi TEXT")
+                await db.commit()
+
+            # Миграции для переводов (library_options)
+            async with db.execute("PRAGMA table_info(library_options)") as cur:
+                lib_cols = [row[1] for row in await cur.fetchall()]
+            if "option_text_en" not in lib_cols:
+                await db.execute("ALTER TABLE library_options ADD COLUMN option_text_en TEXT")
+                await db.commit()
+            if "option_text_vi" not in lib_cols:
+                await db.execute("ALTER TABLE library_options ADD COLUMN option_text_vi TEXT")
                 await db.commit()
 
         await self._seed_prompts()

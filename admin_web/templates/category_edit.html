@@ -27,7 +27,7 @@
         <!-- Левая колонка: Аббревиатуры для промпта -->
         <div class="col-lg-2">
             <div class="card shadow-sm border-0 h-100">
-                <div class="card-header bg-white py-3">
+        <div class="card-header bg-white py-3">
                     <h6 class="mb-0"><i class="bi bi-braces me-2"></i> Аббревиатуры</h6>
                 </div>
                 <div class="card-body overflow-auto" style="max-height: calc(100vh - 220px); height: calc(100vh - 220px);">
@@ -79,6 +79,8 @@
                             {% for btn in buttons %}
                             <div class="btn btn-sm btn-outline-secondary library-item position-relative" 
                                  data-text="{{ btn['option_text'] }}" 
+                                 data-text-en="{{ btn['option_text_en'] or '' }}"
+                                 data-text-vi="{{ btn['option_text_vi'] or '' }}"
                                  data-value="{{ btn['option_value'] }}"
                                  data-prompt="{{ btn['custom_prompt'] or '' }}">
                                 {{ btn['option_text'] }}
@@ -121,7 +123,7 @@
                             </div>
                             <div class="flex-grow-1">
                                 <input type="text" class="form-control form-control-sm border-0 fw-bold p-0 step-question-input" value="{{ step.question }}" onchange="markDirty()">
-                            </div>
+        </div>
                             <div class="dropdown">
                                 <button class="btn btn-link btn-sm text-muted" data-bs-toggle="dropdown">
                                     <i class="bi bi-three-dots-vertical"></i>
@@ -129,8 +131,8 @@
                                 <ul class="dropdown-menu dropdown-menu-end">
                                     <li><a class="dropdown-item text-danger" href="#" onclick="deleteStep({{ step.id }}, this)"><i class="bi bi-trash me-2"></i> Удалить</a></li>
                                 </ul>
-                            </div>
-                        </div>
+                </div>
+                </div>
                         <div class="card-body pt-0">
                             <div class="row g-2 mb-3">
                                 <div class="col-auto">
@@ -139,36 +141,38 @@
                                         <option value="text" {% if step.type == 'text' %}selected{% endif %}>Текст</option>
                                         <option value="photo" {% if step.type == 'photo' %}selected{% endif %}>Фото</option>
                                         <option value="model_select" {% if step.type == 'model_select' %}selected{% endif %}>Выбор модели</option>
-                                    </select>
-                                </div>
+                    </select>
+                </div>
                                 <div class="col-auto">
                                     <div class="form-check form-check-inline mt-1">
                                         <input class="form-check-input step-optional-check" type="checkbox" id="opt-{{ step.id }}" {% if step.optional %}checked{% endif %} onchange="markDirty()">
                                         <label class="form-check-label small" for="opt-{{ step.id }}">Можно пропустить</label>
-                                    </div>
-                                </div>
+                </div>
+                </div>
                                 <div class="col text-end">
                                     <small class="text-muted">Ключ: <code>{{ step.key }}</code></small>
-                                </div>
-                            </div>
+        </div>
+    </div>
 
                             <div class="step-buttons-container {% if step.type != 'buttons' %}d-none{% endif %}">
                                 <div class="d-flex flex-wrap gap-2 canvas-buttons-list p-2 border rounded-3 bg-white min-vh-5" style="min-height: 45px;">
                                     {% for opt in step.options %}
                                     <div class="btn btn-xs btn-light border d-flex align-items-center gap-2 canvas-button-item" 
-                                         data-id="{{ opt[0] }}" 
-                                         data-text="{{ opt[1] }}" 
-                                         data-value="{{ opt[2] }}"
-                                         data-prompt="{{ opt[4] or '' }}">
+                                         data-id="{{ opt.id }}" 
+                                         data-text="{{ opt.text }}" 
+                                         data-text-en="{{ opt.text_en or '' }}"
+                                         data-text-vi="{{ opt.text_vi or '' }}"
+                                         data-value="{{ opt.value }}"
+                                         data-prompt="{{ opt.prompt or '' }}">
                                         <span>
-                                            {{ opt[1] }}
-                                            {% if opt[2] == 'skip' %}<span class="badge bg-warning text-dark x-small">SKIP</span>{% endif %}
-                                            {% if opt[2] == 'back' %}<span class="badge bg-info x-small">BACK</span>{% endif %}
-                                            {% if opt[2] == 'custom' %}<span class="badge bg-primary x-small">CUSTOM</span>{% endif %}
+                                            {{ opt.text }}
+                                            {% if opt.value == 'skip' %}<span class="badge bg-warning text-dark x-small">SKIP</span>{% endif %}
+                                            {% if opt.value == 'back' %}<span class="badge bg-info x-small">BACK</span>{% endif %}
+                                            {% if opt.value == 'custom' %}<span class="badge bg-primary x-small">CUSTOM</span>{% endif %}
                                         </span>
                                         <div class="btn-group">
-                                            {% if opt[4] %}
-                                            <i class="bi bi-chat-dots text-primary small" title="Свой вариант: {{ opt[4] }}"></i>
+                                            {% if opt.prompt %}
+                                            <i class="bi bi-chat-dots text-primary small" title="Свой вариант: {{ opt.prompt }}"></i>
                                             {% endif %}
                                             <button type="button" class="btn btn-link btn-xs p-0 text-muted ms-1" onclick="editButton(this)"><i class="bi bi-gear"></i></button>
                                             <button type="button" class="btn btn-link btn-xs p-0 text-danger ms-1" onclick="this.parentElement.parentElement.remove(); markDirty();"><i class="bi bi-x"></i></button>
@@ -188,10 +192,10 @@
                     <div id="empty-canvas" class="text-center py-5 border-2 border-dashed rounded-3 {% if steps %}d-none{% endif %}">
                         <i class="bi bi-plus-circle h1 text-muted"></i>
                         <p class="text-muted mt-2">Перетащите вопросы из правой колонки сюда</p>
-                    </div>
                 </div>
-            </div>
-        </div>
+                        </div>
+                        </div>
+                    </div>
 
         <!-- Правая колонка: Библиотека вопросов -->
         <div class="col-lg-2">
@@ -217,12 +221,12 @@
                                 <span class="badge bg-light text-muted small">{{ step.input_type }}</span>
                                 <button type="button" class="btn btn-link btn-sm p-0 text-muted lib-edit-btn" title="Редактировать">
                                     <i class="bi bi-gear"></i>
-                                </button>
+                </button>
                             </div>
+                            </div>
+                            {% endfor %}
                         </div>
-                        {% endfor %}
-                    </div>
-                    
+                        
                     <div class="mt-4 pt-3 border-top">
                         <button class="btn btn-sm btn-outline-primary w-100" data-bs-toggle="modal" data-bs-target="#newCustomStepModal">
                             <i class="bi bi-plus-lg me-1"></i> Свой вопрос
@@ -247,14 +251,14 @@
                     <div class="mb-3">
                         <label class="form-label">Название категории</label>
                         <input type="text" name="name" class="form-control" placeholder="Например: Характер" required>
-                    </div>
-                </div>
+                            </div>
+                            </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
                     <button type="submit" class="btn btn-primary">Создать</button>
-                </div>
-            </form>
-        </div>
+                            </div>
+                        </form>
+                    </div>
     </div>
 </div>
 
@@ -302,8 +306,8 @@
                 <form id="lib-step-delete-form" method="post">
                     <button type="submit" class="btn btn-outline-danger" onclick="return confirm('Удалить этот вопрос из библиотеки?')">
                         Удалить
-                    </button>
-                </form>
+                            </button>
+                        </form>
                 <div class="d-flex gap-2">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
                     <button type="button" class="btn btn-primary" id="lib-step-save-btn" onclick="saveLibraryStep()">Сохранить</button>
@@ -324,8 +328,18 @@
             <div class="modal-body">
                 <input type="hidden" id="edit-btn-index">
                 <div class="mb-3">
-                    <label class="form-label">Текст на кнопке</label>
+                    <label class="form-label">Текст на кнопке (RU)</label>
                     <input type="text" id="edit-btn-text" class="form-control">
+                </div>
+                <div class="row g-2 mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label">Текст (EN)</label>
+                        <input type="text" id="edit-btn-text-en" class="form-control" placeholder="English">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Текст (VI)</label>
+                        <input type="text" id="edit-btn-text-vi" class="form-control" placeholder="Tiếng Việt">
+                    </div>
                 </div>
                 <div class="mb-3">
                     <label class="form-label">Значение (Value/ID)</label>
@@ -340,10 +354,10 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
                 <button type="button" class="btn btn-primary" onclick="applyButtonSettings()">Применить</button>
+                    </div>
+                </div>
             </div>
         </div>
-    </div>
-</div>
 
 <!-- Modal: Новая кнопка -->
 <div class="modal fade" id="newCustomBtnModal" tabindex="-1">
@@ -356,8 +370,18 @@
                 </div>
                 <div class="modal-body">
                     <div class="mb-3">
-                        <label class="form-label">Текст кнопки</label>
+                        <label class="form-label">Текст кнопки (RU)</label>
                         <input type="text" name="text" class="form-control" required>
+                    </div>
+                    <div class="row g-2 mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Текст (EN)</label>
+                            <input type="text" name="text_en" class="form-control" placeholder="English">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Текст (VI)</label>
+                            <input type="text" name="text_vi" class="form-control" placeholder="Tiếng Việt">
+                        </div>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Значение (ID)</label>
@@ -368,7 +392,7 @@
                         <select name="category" class="form-select">
                             {% for cat_name in lib_buttons.keys() %}
                             <option value="{{ cat_name }}">{{ cat_name }}</option>
-                            {% endfor %}
+        {% endfor %}
                             <option value="Разное">Новая категория (Разное)</option>
                         </select>
                     </div>
@@ -380,7 +404,7 @@
             </form>
         </div>
     </div>
-</div>
+    </div>
 
 <!-- Modal: Свой вопрос -->
 <div class="modal fade" id="newCustomStepModal" tabindex="-1">
@@ -415,7 +439,7 @@
                     <button type="submit" class="btn btn-primary">Создать в библиотеке</button>
                 </div>
             </form>
-        </div>
+    </div>
     </div>
 </div>
 
@@ -536,10 +560,12 @@
             onAdd: function(evt) {
                 const item = evt.item;
                 const text = item.getAttribute('data-text');
+                const textEn = item.getAttribute('data-text-en') || '';
+                const textVi = item.getAttribute('data-text-vi') || '';
                 const value = item.getAttribute('data-value');
                 const prompt = item.getAttribute('data-prompt');
                 
-                const btnHtml = createButtonHtml(text, value, prompt);
+                const btnHtml = createButtonHtml(text, value, prompt, textEn, textVi);
                 item.outerHTML = btnHtml;
                 markDirty();
             },
@@ -600,7 +626,7 @@
         `;
     }
 
-    function createButtonHtml(text, value, prompt = '') {
+    function createButtonHtml(text, value, prompt = '', text_en = '', text_vi = '') {
         let badge = '';
         if (value === 'skip') badge = '<span class="badge bg-warning text-dark x-small">SKIP</span>';
         else if (value === 'back') badge = '<span class="badge bg-info x-small">BACK</span>';
@@ -610,6 +636,8 @@
             <div class="btn btn-xs btn-light border d-flex align-items-center gap-2 canvas-button-item" 
                  data-id="null" 
                  data-text="${text}" 
+                 data-text-en="${text_en}"
+                 data-text-vi="${text_vi}"
                  data-value="${value}"
                  data-prompt="${prompt}">
                 <span>${text} ${badge}</span>
@@ -783,9 +811,11 @@
     function editButton(btn) {
         const item = btn.closest('.canvas-button-item');
         currentEditingBtn = item;
-        document.getElementById('edit-btn-text').value = item.getAttribute('data-text');
-        document.getElementById('edit-btn-value').value = item.getAttribute('data-value');
-        document.getElementById('edit-btn-prompt').value = item.getAttribute('data-prompt');
+        document.getElementById('edit-btn-text').value = item.getAttribute('data-text') || '';
+        document.getElementById('edit-btn-text-en').value = item.getAttribute('data-text-en') || '';
+        document.getElementById('edit-btn-text-vi').value = item.getAttribute('data-text-vi') || '';
+        document.getElementById('edit-btn-value').value = item.getAttribute('data-value') || '';
+        document.getElementById('edit-btn-prompt').value = item.getAttribute('data-prompt') || '';
         
         new bootstrap.Modal(document.getElementById('buttonSettingsModal')).show();
     }
@@ -794,10 +824,14 @@
         if (!currentEditingBtn) return;
         
         const text = document.getElementById('edit-btn-text').value;
+        const textEn = document.getElementById('edit-btn-text-en').value;
+        const textVi = document.getElementById('edit-btn-text-vi').value;
         const value = document.getElementById('edit-btn-value').value;
         const prompt = document.getElementById('edit-btn-prompt').value;
         
         currentEditingBtn.setAttribute('data-text', text);
+        currentEditingBtn.setAttribute('data-text-en', textEn);
+        currentEditingBtn.setAttribute('data-text-vi', textVi);
         currentEditingBtn.setAttribute('data-value', value);
         currentEditingBtn.setAttribute('data-prompt', prompt);
         currentEditingBtn.querySelector('span').textContent = text;
@@ -880,6 +914,8 @@
                 buttonsList.push({
                     id: btn.getAttribute('data-id'),
                     text: btn.getAttribute('data-text'),
+                    text_en: btn.getAttribute('data-text-en') || '',
+                    text_vi: btn.getAttribute('data-text-vi') || '',
                     value: btn.getAttribute('data-value'),
                     prompt: btn.getAttribute('data-prompt'),
                     order: bIndex + 1
@@ -903,7 +939,7 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ steps: stepsData })
             });
-
+            
             if (response.ok) {
                 isDirty = false;
                 document.getElementById('saveAllBtn').disabled = true;
@@ -919,19 +955,19 @@
     }
 
     function showToast(message, type = 'success') {
-        const toast = document.createElement('div');
-        toast.className = 'position-fixed bottom-0 end-0 p-3';
+                const toast = document.createElement('div');
+                toast.className = 'position-fixed bottom-0 end-0 p-3';
         toast.style.zIndex = '1060';
-        toast.innerHTML = `
+                toast.innerHTML = `
             <div class="toast show align-items-center text-white bg-${type} border-0" role="alert">
-                <div class="d-flex">
+                        <div class="d-flex">
                     <div class="toast-body">${message}</div>
                     <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
-                </div>
-            </div>
-        `;
-        document.body.appendChild(toast);
-        setTimeout(() => toast.remove(), 3000);
+                        </div>
+                    </div>
+                `;
+                document.body.appendChild(toast);
+                setTimeout(() => toast.remove(), 3000);
     }
 </script>
 

@@ -85,12 +85,27 @@ async def run_migrations(db: aiosqlite.Connection):
     except Exception as e:
         print(f"Migration error (steps translations): {e}")
 
+    # Миграции для переводов (library_options)
+    try:
+        async with db.execute("PRAGMA table_info(library_options)") as cur:
+            l_cols = [row[1] for row in await cur.fetchall()]
+        if l_cols and "option_text_en" not in l_cols:
+            await db.execute("ALTER TABLE library_options ADD COLUMN option_text_en TEXT")
+            await db.commit()
+        if l_cols and "option_text_vi" not in l_cols:
+            await db.execute("ALTER TABLE library_options ADD COLUMN option_text_vi TEXT")
+            await db.commit()
+    except Exception as e:
+        print(f"Migration error (library_options translations): {e}")
+
     # Миграции для переводов (step_options)
     try:
-        if cols and "option_text_en" not in cols:
+        async with db.execute("PRAGMA table_info(step_options)") as cur:
+            so_cols = [row[1] for row in await cur.fetchall()]
+        if so_cols and "option_text_en" not in so_cols:
             await db.execute("ALTER TABLE step_options ADD COLUMN option_text_en TEXT")
             await db.commit()
-        if cols and "option_text_vi" not in cols:
+        if so_cols and "option_text_vi" not in so_cols:
             await db.execute("ALTER TABLE step_options ADD COLUMN option_text_vi TEXT")
             await db.commit()
     except Exception as e:
@@ -557,16 +572,61 @@ async def run_migrations(db: aiosqlite.Connection):
 def _normalize_placeholder_label(text: str, fallback: str) -> str:
     if not text:
         return fallback
-    # Убираем эмодзи и пунктуацию, оставляем буквы/цифры/пробелы
+    
+    # 1. Очистка текста
     clean = re.sub(r"[^0-9A-Za-zА-Яа-яЁё ]+", "", text).strip()
     clean = re.sub(r"\s+", " ", clean).strip()
-    # Убираем типовые префиксы
+    
+    # 2. Убираем типовые префиксы
     for prefix in ("Выберите ", "Введите ", "Пришлите ", "Загрузите "):
         if clean.lower().startswith(prefix.lower()):
             clean = clean[len(prefix):].strip()
             break
-    if len(clean) > 60:
-        clean = clean[:60].rstrip()
+            
+    low = clean.lower()
+    
+    # 3. Интеллектуальный маппинг для объединения дублей (по смыслу)
+    mapping = {
+        "возраст": "Возраст модели",
+        "телосложение": "Телосложение",
+        "размер одежды": "Телосложение",
+        "рост": "Рост модели",
+        "пол": "Пол модели",
+        "тип позы": "Поза модели",
+        "поза": "Поза модели",
+        "угол камеры": "Угол камеры",
+        "вид фотографии": "Угол камеры",
+        "ракурс": "Ракурс",
+        "сезон": "Сезон",
+        "праздник": "Праздник",
+        "нагруженность": "Нагруженность инфографики",
+        "язык": "Язык инфографики",
+        "название товара": "Название товара/бренда",
+        "преимущество 1": "Топ 1 преимущества товара",
+        "преимущество 2": "Топ 2 преимущества товара",
+        "преимущество 3": "Топ 3 преимущества товара",
+        "преимущества": "Топ 1 преимущества товара",
+        "доп текст": "Дополнительная информация о продукте",
+        "тип кроя штанов": "Тип кроя штанов",
+        "тип рукав": "Тип рукава",
+        "длина изделия": "Длина изделия",
+        "формат фото": "Формат фото",
+        "фото товара": "Фото товара",
+        "фото фона": "Фото фона",
+        "фотографию модели": "Фото модели",
+        "ширину": "Ширина",
+        "высоту": "Высота",
+        "длину см": "Длина",
+        "модель": "Модель"
+    }
+    
+    for key, val in mapping.items():
+        if key in low:
+            return val
+
+    if len(clean) > 40:
+        clean = clean[:40].rstrip()
+        
     return clean or fallback
 
 
@@ -587,7 +647,7 @@ async def _get_prompt_placeholders(db: aiosqlite.Connection) -> list[dict]:
     seen = set()
     unique = []
     for p in placeholders:
-        key = p["token"].lower()
+        key = p["label"].lower()
         if key not in seen:
             seen.add(key)
             unique.append(p)
@@ -1508,10 +1568,21 @@ async def category_steps_page(request: Request, cat_id: int, db: aiosqlite.Conne
     steps_with_options = []
     for step in steps:
         async with db.execute(
-            "SELECT id, option_text, option_value, order_index, custom_prompt FROM step_options WHERE step_id=? ORDER BY order_index, id",
+            "SELECT id, option_text, option_text_en, option_text_vi, option_value, order_index, custom_prompt FROM step_options WHERE step_id=? ORDER BY order_index, id",
             (step['id'],)
         ) as cur_opt:
-            options = await cur_opt.fetchall()
+            options_raw = await cur_opt.fetchall()
+            options = [
+                {
+                    "id": r[0],
+                    "text": r[1],
+                    "text_en": r[2] or "",
+                    "text_vi": r[3] or "",
+                    "value": r[4],
+                    "order": r[5],
+                    "prompt": r[6] or ""
+                } for r in options_raw
+            ]
         
         steps_with_options.append({
             "id": step['id'],
@@ -1552,7 +1623,10 @@ async def category_steps_page(request: Request, cat_id: int, db: aiosqlite.Conne
 
     lib_buttons = {}
     for bcat in button_cats:
-        async with db.execute("SELECT id, option_text, option_value, custom_prompt FROM library_options WHERE category_id=? ORDER BY id", (bcat['id'],)) as cur:
+        async with db.execute(
+            "SELECT id, option_text, option_text_en, option_text_vi, option_value, custom_prompt FROM library_options WHERE category_id=? ORDER BY id", 
+            (bcat['id'],)
+        ) as cur:
             lib_buttons[bcat['name']] = await cur.fetchall()
 
     prompt_placeholders = await _get_prompt_placeholders(db)
@@ -1717,6 +1791,8 @@ async def admin_save_all_steps(cat_id: int, request: Request, db: aiosqlite.Conn
         for b_data in buttons:
             opt_id = b_data.get("id")
             opt_text = b_data.get("text")
+            opt_text_en = b_data.get("text_en")
+            opt_text_vi = b_data.get("text_vi")
             opt_value = b_data.get("value")
             opt_prompt = b_data.get("prompt")
             opt_order = b_data.get("order")
@@ -1729,14 +1805,14 @@ async def admin_save_all_steps(cat_id: int, request: Request, db: aiosqlite.Conn
             
             if opt_id and opt_id in existing_opt_ids:
                 await db.execute(
-                    "UPDATE step_options SET option_text=?, option_value=?, order_index=?, custom_prompt=? WHERE id=?",
-                    (opt_text, opt_value, opt_order, opt_prompt, opt_id)
+                    "UPDATE step_options SET option_text=?, option_text_en=?, option_text_vi=?, option_value=?, order_index=?, custom_prompt=? WHERE id=?",
+                    (opt_text, opt_text_en, opt_text_vi, opt_value, opt_order, opt_prompt, opt_id)
                 )
                 received_opt_ids.append(opt_id)
             else:
                 await db.execute(
-                    "INSERT INTO step_options (step_id, option_text, option_value, order_index, custom_prompt) VALUES (?, ?, ?, ?, ?)",
-                    (step_id, opt_text, opt_value, opt_order, opt_prompt)
+                    "INSERT INTO step_options (step_id, option_text, option_text_en, option_text_vi, option_value, order_index, custom_prompt) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (step_id, opt_text, opt_text_en, opt_text_vi, opt_value, opt_order, opt_prompt)
                 )
                 async with db.execute("SELECT last_insert_rowid()") as cur:
                     received_opt_ids.append((await cur.fetchone())[0])
@@ -1819,7 +1895,7 @@ async def admin_delete_library_step(step_id: int, request: Request, db: aiosqlit
     return RedirectResponse(request.headers.get("referer", "/constructor"), status_code=303)
 
 @app.post("/constructor/library/button/add")
-async def admin_add_library_button(request: Request, text: str = Form(...), value: str = Form(...), category: str = Form("Системные"), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+async def admin_add_library_button(request: Request, text: str = Form(...), text_en: str = Form(""), text_vi: str = Form(""), value: str = Form(...), category: str = Form("Системные"), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
     # Находим или создаем категорию кнопок
     async with db.execute("SELECT id FROM button_categories WHERE name=?", (category,)) as cur:
         row = await cur.fetchone()
@@ -1831,8 +1907,8 @@ async def admin_add_library_button(request: Request, text: str = Form(...), valu
                 cat_id = (await cur_new.fetchone())[0]
                 
     await db.execute(
-        "INSERT INTO library_options (category_id, option_text, option_value) VALUES (?, ?, ?)",
-        (cat_id, text, value)
+        "INSERT INTO library_options (category_id, option_text, option_text_en, option_text_vi, option_value) VALUES (?, ?, ?, ?, ?)",
+        (cat_id, text, text_en, text_vi, value)
     )
     await db.commit()
     return RedirectResponse(request.headers.get("referer", "/constructor"), status_code=303)

@@ -116,23 +116,29 @@
                 </div>
                 <div class="card-body bg-light" id="canvas">
                     {% for step in steps %}
-                    <div class="card mb-3 border-0 shadow-sm step-item" data-id="{{ step.id }}" data-key="{{ step.key }}">
-                        <div class="card-header bg-white d-flex align-items-center py-2 border-0">
-                            <div class="drag-handle-step me-2" style="cursor: move; color: #dee2e6;">
-                                <i class="bi bi-grip-vertical h5 mb-0"></i>
-                            </div>
-                            <div class="flex-grow-1">
-                                <input type="text" class="form-control form-control-sm border-0 fw-bold p-0 step-question-input" value="{{ step.question }}" onchange="markDirty()">
+    <div class="card mb-3 border-0 shadow-sm step-item" 
+         data-id="{{ step.id }}" 
+         data-key="{{ step.key }}"
+         data-question-en="{{ step.question_en or '' }}"
+         data-question-vi="{{ step.question_vi or '' }}">
+        <div class="card-header bg-white d-flex align-items-center py-2 border-0">
+            <div class="drag-handle-step me-2" style="cursor: move; color: #dee2e6;">
+                <i class="bi bi-grip-vertical h5 mb-0"></i>
+            </div>
+            <div class="flex-grow-1">
+                <input type="text" class="form-control form-control-sm border-0 fw-bold p-0 step-question-input" value="{{ step.question }}" onchange="markDirty()">
+            </div>
+            <div class="dropdown">
+                <button class="btn btn-link btn-sm text-muted" data-bs-toggle="dropdown">
+                    <i class="bi bi-three-dots-vertical"></i>
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                    <li><a class="dropdown-item" href="#" onclick="editStepTranslations(this)"><i class="bi bi-translate me-2"></i> Переводы</a></li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li><a class="dropdown-item text-danger" href="#" onclick="deleteStep({{ step.id }}, this)"><i class="bi bi-trash me-2"></i> Удалить</a></li>
+                </ul>
+            </div>
         </div>
-                            <div class="dropdown">
-                                <button class="btn btn-link btn-sm text-muted" data-bs-toggle="dropdown">
-                                    <i class="bi bi-three-dots-vertical"></i>
-                                </button>
-                                <ul class="dropdown-menu dropdown-menu-end">
-                                    <li><a class="dropdown-item text-danger" href="#" onclick="deleteStep({{ step.id }}, this)"><i class="bi bi-trash me-2"></i> Удалить</a></li>
-                                </ul>
-                </div>
-                </div>
                         <div class="card-body pt-0">
                             <div class="row g-2 mb-3">
                                 <div class="col-auto">
@@ -209,6 +215,8 @@
                         <div class="list-group-item list-group-item-action border rounded mb-2 library-question-item d-flex justify-content-between align-items-center" 
                              data-key="{{ step.step_key }}" 
                              data-question="{{ step.question_text }}" 
+                             data-question-en="{{ step.question_text_en }}"
+                             data-question-vi="{{ step.question_text_vi }}"
                              data-type="{{ step.input_type }}"
                              data-id="{{ step.id }}"
                              data-buttons='{{ step.default_buttons | e }}'
@@ -312,6 +320,33 @@
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
                     <button type="button" class="btn btn-primary" id="lib-step-save-btn" onclick="saveLibraryStep()">Сохранить</button>
                 </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Настройка вопроса (переводы) -->
+<div class="modal fade" id="stepTranslationsModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Переводы вопроса</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="edit-step-id">
+                <div class="mb-3">
+                    <label class="form-label">Вопрос (EN)</label>
+                    <input type="text" id="edit-step-question-en" class="form-control" placeholder="English question">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Вопрос (VI)</label>
+                    <input type="text" id="edit-step-question-vi" class="form-control" placeholder="Vietnamese question">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                <button type="button" class="btn btn-primary" onclick="applyStepTranslations()">Применить</button>
             </div>
         </div>
     </div>
@@ -447,6 +482,7 @@
 <script>
     let isDirty = false;
     let currentEditingBtn = null;
+    let currentEditingStep = null;
 
     const SYSTEM_BUTTONS = [
         { text: 'Назад', value: 'back', prompt: '' },
@@ -490,11 +526,13 @@
                 const item = evt.item;
                 const key = item.getAttribute('data-key');
                 const question = item.getAttribute('data-question');
+                const questionEn = item.getAttribute('data-question-en') || '';
+                const questionVi = item.getAttribute('data-question-vi') || '';
                 const type = item.getAttribute('data-type');
                 const buttonsJson = item.getAttribute('data-buttons');
                 
                 // Создаем новый HTML для шага на холсте
-                const stepHtml = createStepHtml(key, question, type);
+                const stepHtml = createStepHtml(key, question, type, questionEn, questionVi);
                 const wrapper = document.createElement('div');
                 wrapper.innerHTML = stepHtml;
                 const stepEl = wrapper.firstElementChild;
@@ -511,7 +549,7 @@
                         defaultButtons.forEach(btn => {
                             btnContainer.insertAdjacentHTML(
                                 'beforeend',
-                                createButtonHtml(btn.text, btn.value, btn.prompt || '')
+                                createButtonHtml(btn.text, btn.value, btn.prompt || '', btn.text_en || '', btn.text_vi || '')
                             );
                         });
                     } else {
@@ -575,10 +613,14 @@
         });
     }
 
-    function createStepHtml(key, question, type) {
+    function createStepHtml(key, question, type, question_en = '', question_vi = '') {
         const id = 'new-' + Date.now();
         return `
-            <div class="card mb-3 border-0 shadow-sm step-item" data-id="null" data-key="${key}">
+            <div class="card mb-3 border-0 shadow-sm step-item" 
+                 data-id="null" 
+                 data-key="${key}"
+                 data-question-en="${question_en}"
+                 data-question-vi="${question_vi}">
                 <div class="card-header bg-white d-flex align-items-center py-2 border-0">
                     <div class="drag-handle-step me-2" style="cursor: move; color: #dee2e6;">
                         <i class="bi bi-grip-vertical h5 mb-0"></i>
@@ -591,6 +633,8 @@
                             <i class="bi bi-three-dots-vertical"></i>
                         </button>
                         <ul class="dropdown-menu dropdown-menu-end">
+                            <li><a class="dropdown-item" href="#" onclick="editStepTranslations(this)"><i class="bi bi-translate me-2"></i> Переводы</a></li>
+                            <li><hr class="dropdown-divider"></li>
                             <li><a class="dropdown-item text-danger" href="#" onclick="deleteStep(null, this)"><i class="bi bi-trash me-2"></i> Удалить</a></li>
                         </ul>
                     </div>
@@ -650,7 +694,7 @@
         `;
     }
 
-    function createLibraryButtonHtml(text, value, prompt = '') {
+    function createLibraryButtonHtml(text, value, prompt = '', text_en = '', text_vi = '') {
         let badge = '';
         if (value === 'skip') badge = '<span class="badge bg-warning text-dark x-small">SKIP</span>';
         else if (value === 'back') badge = '<span class="badge bg-info x-small">BACK</span>';
@@ -660,11 +704,14 @@
             <div class="btn btn-xs btn-light border d-flex align-items-center gap-2 canvas-button-item"
                  data-id="null"
                  data-text="${text}"
+                 data-text-en="${text_en}"
+                 data-text-vi="${text_vi}"
                  data-value="${value}"
                  data-prompt="${prompt}">
                 <span>${text} ${badge}</span>
                 <div class="btn-group">
                     ${prompt ? '<i class="bi bi-chat-dots text-primary small" title="Свой вариант"></i>' : ''}
+                    <button type="button" class="btn btn-link btn-xs p-0 text-muted ms-1" onclick="editButton(this)"><i class="bi bi-gear"></i></button>
                     <button type="button" class="btn btn-link btn-xs p-0 text-danger ms-1" onclick="this.parentElement.parentElement.remove();"><i class="bi bi-x"></i></button>
                 </div>
             </div>
@@ -678,9 +725,11 @@
             onAdd: function(evt) {
                 const item = evt.item;
                 const text = item.getAttribute('data-text');
+                const textEn = item.getAttribute('data-text-en') || '';
+                const textVi = item.getAttribute('data-text-vi') || '';
                 const value = item.getAttribute('data-value');
                 const prompt = item.getAttribute('data-prompt');
-                const btnHtml = createLibraryButtonHtml(text, value, prompt);
+                const btnHtml = createLibraryButtonHtml(text, value, prompt, textEn, textVi);
                 item.outerHTML = btnHtml;
             }
         });
@@ -715,7 +764,7 @@
         try {
             const buttons = JSON.parse(buttonsJson);
             buttons.forEach(btn => {
-                btnContainer.insertAdjacentHTML('beforeend', createLibraryButtonHtml(btn.text, btn.value, btn.prompt || ''));
+                btnContainer.insertAdjacentHTML('beforeend', createLibraryButtonHtml(btn.text, btn.value, btn.prompt || '', btn.text_en || '', btn.text_vi || ''));
             });
         } catch (e) {}
 
@@ -725,11 +774,15 @@
         libContainer.innerHTML = '';
         document.querySelectorAll('.library-item').forEach(btn => {
             const text = btn.getAttribute('data-text');
+            const textEn = btn.getAttribute('data-text-en') || '';
+            const textVi = btn.getAttribute('data-text-vi') || '';
             const value = btn.getAttribute('data-value');
             const prompt = btn.getAttribute('data-prompt') || '';
             const div = document.createElement('div');
             div.className = 'btn btn-sm btn-outline-secondary library-item';
             div.setAttribute('data-text', text);
+            div.setAttribute('data-text-en', textEn);
+            div.setAttribute('data-text-vi', textVi);
             div.setAttribute('data-value', value);
             div.setAttribute('data-prompt', prompt);
             div.textContent = text;
@@ -752,6 +805,8 @@
             buttonsList.push({
                 id: btn.getAttribute('data-id'),
                 text: btn.getAttribute('data-text'),
+                text_en: btn.getAttribute('data-text-en') || '',
+                text_vi: btn.getAttribute('data-text-vi') || '',
                 value: btn.getAttribute('data-value'),
                 prompt: btn.getAttribute('data-prompt'),
                 order: index + 1
@@ -806,6 +861,28 @@
             markDirty();
             checkEmptyCanvas();
         }
+    }
+
+    function editStepTranslations(el) {
+        const item = el.closest('.step-item');
+        currentEditingStep = item;
+        document.getElementById('edit-step-question-en').value = item.getAttribute('data-question-en') || '';
+        document.getElementById('edit-step-question-vi').value = item.getAttribute('data-question-vi') || '';
+        
+        new bootstrap.Modal(document.getElementById('stepTranslationsModal')).show();
+    }
+
+    function applyStepTranslations() {
+        if (!currentEditingStep) return;
+        
+        const qEn = document.getElementById('edit-step-question-en').value;
+        const qVi = document.getElementById('edit-step-question-vi').value;
+        
+        currentEditingStep.setAttribute('data-question-en', qEn);
+        currentEditingStep.setAttribute('data-question-vi', qVi);
+        
+        markDirty();
+        bootstrap.Modal.getInstance(document.getElementById('stepTranslationsModal')).hide();
     }
 
     function editButton(btn) {
@@ -926,6 +1003,8 @@
                 id: stepId === 'null' ? null : parseInt(stepId),
                 key: item.getAttribute('data-key'),
                 question: item.querySelector('.step-question-input').value,
+                question_en: item.getAttribute('data-question-en') || '',
+                question_vi: item.getAttribute('data-question-vi') || '',
                 type: item.querySelector('.step-type-select').value,
                 optional: item.querySelector('.step-optional-check').checked ? 1 : 0,
                 order: index + 1,

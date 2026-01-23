@@ -1617,7 +1617,7 @@ async def category_steps_page(request: Request, cat_id: int, db: aiosqlite.Conne
         return RedirectResponse("/constructor")
     
     async with db.execute(
-        "SELECT id, step_key, question_text, input_type, is_optional, order_index FROM steps WHERE category_id=? ORDER BY order_index, id",
+        "SELECT id, step_key, question_text, question_text_en, question_text_vi, input_type, is_optional, order_index FROM steps WHERE category_id=? ORDER BY order_index, id",
         (cat_id,)
     ) as cur:
         steps = await cur.fetchall()
@@ -1645,6 +1645,8 @@ async def category_steps_page(request: Request, cat_id: int, db: aiosqlite.Conne
             "id": step['id'],
             "key": step['step_key'],
             "question": step['question_text'],
+            "question_en": step['question_text_en'] or "",
+            "question_vi": step['question_text_vi'] or "",
             "type": step['input_type'],
             "optional": step['is_optional'],
             "order": step['order_index'],
@@ -1652,25 +1654,27 @@ async def category_steps_page(request: Request, cat_id: int, db: aiosqlite.Conne
         })
 
     # Получаем библиотеки для конструктора
-    async with db.execute("SELECT id, step_key, question_text, input_type FROM library_steps ORDER BY id") as cur:
+    async with db.execute("SELECT id, step_key, question_text, question_text_en, question_text_vi, input_type FROM library_steps ORDER BY id") as cur:
         lib_steps_raw = await cur.fetchall()
 
     lib_steps = []
     for step in lib_steps_raw:
-        step_id, step_key, question_text, input_type = step
+        step_id, step_key, question_text, question_text_en, question_text_vi, input_type = step
         async with db.execute(
-            "SELECT option_text, option_value, custom_prompt FROM library_step_options WHERE step_id=? ORDER BY order_index, id",
+            "SELECT option_text, option_text_en, option_text_vi, option_value, custom_prompt FROM library_step_options WHERE step_id=? ORDER BY order_index, id",
             (step_id,)
         ) as cur:
             opts = await cur.fetchall()
         default_buttons = json.dumps(
-            [{"text": o[0], "value": o[1], "prompt": o[2] or ""} for o in opts],
+            [{"text": o[0], "text_en": o[1] or "", "text_vi": o[2] or "", "value": o[3], "prompt": o[4] or ""} for o in opts],
             ensure_ascii=False
         )
         lib_steps.append({
             "id": step_id,
             "step_key": step_key,
             "question_text": question_text,
+            "question_text_en": question_text_en or "",
+            "question_text_vi": question_text_vi or "",
             "input_type": input_type,
             "default_buttons": default_buttons
         })
@@ -1819,6 +1823,8 @@ async def admin_save_all_steps(cat_id: int, request: Request, db: aiosqlite.Conn
             step_id = s_data.get("id")
             step_key = s_data.get("key")
             question = s_data.get("question")
+            question_en = s_data.get("question_en") or ""
+            question_vi = s_data.get("question_vi") or ""
             input_type = s_data.get("type")
             is_optional = s_data.get("optional")
             order_index = int(s_data.get("order") or 0)
@@ -1836,15 +1842,15 @@ async def admin_save_all_steps(cat_id: int, request: Request, db: aiosqlite.Conn
             if step_id and step_id in existing_step_ids:
                 # Обновляем существующий шаг
                 await db.execute(
-                    "UPDATE steps SET question_text=?, input_type=?, is_optional=?, order_index=?, step_key=? WHERE id=?",
-                    (question, input_type, is_optional, order_index, step_key, step_id)
+                    "UPDATE steps SET question_text=?, question_text_en=?, question_text_vi=?, input_type=?, is_optional=?, order_index=?, step_key=? WHERE id=?",
+                    (question, question_en, question_vi, input_type, is_optional, order_index, step_key, step_id)
                 )
                 received_step_ids.append(step_id)
             else:
                 # Создаем новый шаг
                 await db.execute(
-                    "INSERT INTO steps (category_id, step_key, question_text, input_type, is_optional, order_index) VALUES (?, ?, ?, ?, ?, ?)",
-                    (cat_id, step_key, question, input_type, is_optional, order_index)
+                    "INSERT INTO steps (category_id, step_key, question_text, question_text_en, question_text_vi, input_type, is_optional, order_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (cat_id, step_key, question, question_en, question_vi, input_type, is_optional, order_index)
                 )
                 async with db.execute("SELECT last_insert_rowid()") as cur_last_step:
                     step_id = (await cur_last_step.fetchone())[0]
@@ -1930,28 +1936,33 @@ async def admin_update_library_step(step_id: int, request: Request, db: aiosqlit
     for b_data in options:
         opt_id = b_data.get("id")
         opt_text = b_data.get("text")
+        opt_text_en = b_data.get("text_en") or ""
+        opt_text_vi = b_data.get("text_vi") or ""
         opt_value = b_data.get("value")
         opt_prompt = b_data.get("prompt")
         opt_order = b_data.get("order")
 
-        if opt_id == 'null':
+        if opt_id == 'null' or opt_id is None:
             opt_id = None
         else:
-            opt_id = int(opt_id) if opt_id else None
+            try:
+                opt_id = int(opt_id)
+            except (ValueError, TypeError):
+                opt_id = None
 
         if opt_id and opt_id in existing_ids:
             await db.execute(
-                "UPDATE library_step_options SET option_text=?, option_value=?, order_index=?, custom_prompt=? WHERE id=?",
-                (opt_text, opt_value, opt_order, opt_prompt, opt_id)
+                "UPDATE library_step_options SET option_text=?, option_text_en=?, option_text_vi=?, option_value=?, order_index=?, custom_prompt=? WHERE id=?",
+                (opt_text, opt_text_en, opt_text_vi, opt_value, opt_order, opt_prompt, opt_id)
             )
             received_ids.append(opt_id)
         else:
             await db.execute(
-                "INSERT INTO library_step_options (step_id, option_text, option_value, order_index, custom_prompt) VALUES (?, ?, ?, ?, ?)",
-                (step_id, opt_text, opt_value, opt_order, opt_prompt)
+                "INSERT INTO library_step_options (step_id, option_text, option_text_en, option_text_vi, option_value, order_index, custom_prompt) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (step_id, opt_text, opt_text_en, opt_text_vi, opt_value, opt_order, opt_prompt)
             )
-            async with db.execute("SELECT last_insert_rowid()") as cur:
-                received_ids.append((await cur.fetchone())[0])
+            async with db.execute("SELECT last_insert_rowid()") as cur_last_opt:
+                received_ids.append((await cur_last_opt.fetchone())[0])
 
     for old_id in existing_ids:
         if old_id not in received_ids:

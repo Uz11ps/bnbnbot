@@ -250,6 +250,8 @@ CREATE TABLE IF NOT EXISTS library_steps (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     step_key TEXT NOT NULL,
     question_text TEXT NOT NULL,
+    question_text_en TEXT,
+    question_text_vi TEXT,
     input_type TEXT NOT NULL DEFAULT 'buttons'
 );
 """
@@ -279,6 +281,8 @@ CREATE TABLE IF NOT EXISTS library_step_options (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     step_id INTEGER NOT NULL,
     option_text TEXT NOT NULL,
+    option_text_en TEXT,
+    option_text_vi TEXT,
     option_value TEXT NOT NULL,
     order_index INTEGER NOT NULL DEFAULT 0,
     custom_prompt TEXT,
@@ -330,11 +334,34 @@ class Database:
                 await db.execute("ALTER TABLE subscription_plans ADD COLUMN description_vi TEXT")
                 await db.commit()
 
-            # Миграция для step_options (custom_prompt)
+            # Миграции для переводов (library_steps)
+            async with db.execute("PRAGMA table_info(library_steps)") as cur:
+                ls_cols = [row[1] for row in await cur.fetchall()]
+            if "question_text_en" not in ls_cols:
+                await db.execute("ALTER TABLE library_steps ADD COLUMN question_text_en TEXT")
+                await db.commit()
+            if "question_text_vi" not in ls_cols:
+                await db.execute("ALTER TABLE library_steps ADD COLUMN question_text_vi TEXT")
+                await db.commit()
+
+            # Миграции для переводов (library_step_options)
+            async with db.execute("PRAGMA table_info(library_step_options)") as cur:
+                lso_cols = [row[1] for row in await cur.fetchall()]
+            if "option_text_en" not in lso_cols:
+                await db.execute("ALTER TABLE library_step_options ADD COLUMN option_text_en TEXT")
+                await db.commit()
+            if "option_text_vi" not in lso_cols:
+                await db.execute("ALTER TABLE library_step_options ADD COLUMN option_text_vi TEXT")
+                await db.commit()
+
+            # Миграции для переводов (step_options)
             async with db.execute("PRAGMA table_info(step_options)") as cur:
-                cols = [row[1] for row in await cur.fetchall()]
-            if "custom_prompt" not in cols:
-                await db.execute("ALTER TABLE step_options ADD COLUMN custom_prompt TEXT")
+                so_cols = [row[1] for row in await cur.fetchall()]
+            if "option_text_en" not in so_cols:
+                await db.execute("ALTER TABLE step_options ADD COLUMN option_text_en TEXT")
+                await db.commit()
+            if "option_text_vi" not in so_cols:
+                await db.execute("ALTER TABLE step_options ADD COLUMN option_text_vi TEXT")
                 await db.commit()
 
             # Миграции для переводов (steps)

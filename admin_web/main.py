@@ -484,13 +484,17 @@ async def run_migrations(db: aiosqlite.Connection):
         print(f"Migration error (library_steps.aspect): {e}")
 
     try:
-        # Библиотека вопросов: преимущества 1-3
-        adv_steps = [
+        # Библиотека вопросов: преимущества 1-3 и другие
+        ready_steps = [
             ("adv_1", "🏆 Укажите преимущество 1:", "text"),
             ("adv_2", "🏆 Укажите преимущество 2:", "text"),
             ("adv_3", "🏆 Укажите преимущество 3:", "text"),
+            ("info_lang", "🌐 Выберите язык инфографики:", "buttons"),
+            ("extra_info", "ℹ️ Дополнительная информация о продукте:", "text"),
+            ("brand_name", "🏷️ Укажите название бренда/товара:", "text"),
+            ("holiday", "🎉 Выберите праздник:", "buttons"),
         ]
-        for key, question, i_type in adv_steps:
+        for key, question, i_type in ready_steps:
             async with db.execute("SELECT id FROM library_steps WHERE step_key=?", (key,)) as cur:
                 if not await cur.fetchone():
                     await db.execute(
@@ -499,7 +503,44 @@ async def run_migrations(db: aiosqlite.Connection):
                     )
         await db.commit()
     except Exception as e:
-        print(f"Migration error (library_steps.advantages): {e}")
+        print(f"Migration error (library_steps additions): {e}")
+
+    try:
+        # Дефолтные кнопки для языков в библиотеке вопросов
+        async with db.execute("SELECT id FROM library_steps WHERE step_key=?", ("info_lang",)) as cur:
+            row = await cur.fetchone()
+        if row:
+            lang_step_id = row[0]
+            async with db.execute("SELECT COUNT(*) FROM library_step_options WHERE step_id=?", (lang_step_id,)) as cur:
+                if (await cur.fetchone())[0] == 0:
+                    langs = [("Русский", "lang_ru"), ("English", "lang_en"), ("Tiếng Việt", "lang_vi")]
+                    for idx, (t, v) in enumerate(langs, 1):
+                        await db.execute(
+                            "INSERT INTO library_step_options (step_id, option_text, option_value, order_index) VALUES (?, ?, ?, ?)",
+                            (lang_step_id, t, v, idx)
+                        )
+                    await db.commit()
+
+        # Дефолтные кнопки для праздников в библиотеке вопросов
+        async with db.execute("SELECT id FROM library_steps WHERE step_key=?", ("holiday",)) as cur:
+            row = await cur.fetchone()
+        if row:
+            h_step_id = row[0]
+            async with db.execute("SELECT COUNT(*) FROM library_step_options WHERE step_id=?", (h_step_id,)) as cur:
+                if (await cur.fetchone())[0] == 0:
+                    hols = [
+                        ("Новый год", "newyear"), ("Рождество", "christmas"), 
+                        ("День рождения", "birthday"), ("8 марта", "mar8"), 
+                        ("Свадьба", "wedding"), ("Пропустить", "skip")
+                    ]
+                    for idx, (t, v) in enumerate(hols, 1):
+                        await db.execute(
+                            "INSERT INTO library_step_options (step_id, option_text, option_value, order_index) VALUES (?, ?, ?, ?)",
+                            (h_step_id, t, v, idx)
+                        )
+                    await db.commit()
+    except Exception as e:
+        print(f"Migration error (library_step_options defaults): {e}")
 
     try:
         # Дефолтные кнопки формата для библиотечного вопроса

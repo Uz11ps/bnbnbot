@@ -487,6 +487,8 @@ async def _show_next_step(message_or_callback: Message | CallbackQuery, state: F
     # Определяем текущий индекс шага
     current_step_index = data.get("current_step_index", 0)
     
+    logger.info("[flow] show_next_step data=%s", {k: v for k, v in data.items() if not k.startswith("_")})
+    
     # Проверка на пропуск шагов
     while current_step_index < len(steps):
         step = steps[current_step_index]
@@ -502,12 +504,31 @@ async def _show_next_step(message_or_callback: Message | CallbackQuery, state: F
         # Ищем во всех данных любое значение, означающее отсутствие человека
         person_absent = False
         for k, v in data.items():
-            if isinstance(v, str) and v.lower() in ("person_no", "no", "off", "нет", "without_person"):
-                if "person" in k.lower() or "presence" in k.lower():
+            # Если это метка кнопки
+            if k.endswith("_label"):
+                label_v = str(v).lower()
+                if any(x in label_v for x in ("без человека", "нет", "no", "without person", "không")):
+                    # Проверяем что это именно про человека
+                    low_k = k.lower()
+                    if "person" in low_k or "presence" in low_k or "человек" in low_k or "присутствие" in low_k:
+                        person_absent = True
+                        break
+            
+            # Если значение само по себе говорит об отсутствии человека
+            if isinstance(v, str):
+                v_low = v.lower()
+                if v_low in ("person_no", "without_person"):
                     person_absent = True
                     break
+                # Если значение "нет" и ключ связан с человеком
+                if v_low in ("no", "off", "нет"):
+                    low_k = k.lower()
+                    if "person" in low_k or "presence" in low_k or "человек" in low_k or "присутствие" in low_k:
+                        person_absent = True
+                        break
         
         if person_absent and step_key in ("age", "pose", "height", "size"):
+            logger.info("[flow] skip step=%s because person_absent=True", step_key)
             current_step_index += 1
             continue
             

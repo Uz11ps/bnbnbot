@@ -493,6 +493,7 @@ async def run_migrations(db: aiosqlite.Connection):
             ("extra_info", "ℹ️ Дополнительная информация о продукте:", "text"),
             ("brand_name", "🏷️ Укажите название бренда/товара:", "text"),
             ("holiday", "🎉 Выберите праздник:", "buttons"),
+            ("has_person", "👤 Присутствует ли человек на фото?", "buttons"),
         ]
         for key, question, i_type in ready_steps:
             async with db.execute("SELECT id FROM library_steps WHERE step_key=?", (key,)) as cur:
@@ -537,6 +538,21 @@ async def run_migrations(db: aiosqlite.Connection):
                         await db.execute(
                             "INSERT INTO library_step_options (step_id, option_text, option_value, order_index) VALUES (?, ?, ?, ?)",
                             (h_step_id, t, v, idx)
+                        )
+                    await db.commit()
+
+        # Дефолтные кнопки для присутствия человека
+        async with db.execute("SELECT id FROM library_steps WHERE step_key=?", ("has_person",)) as cur:
+            row = await cur.fetchone()
+        if row:
+            p_step_id = row[0]
+            async with db.execute("SELECT COUNT(*) FROM library_step_options WHERE step_id=?", (p_step_id,)) as cur:
+                if (await cur.fetchone())[0] == 0:
+                    btns = [("Да", "person_yes"), ("Нет", "person_no")]
+                    for idx, (t, v) in enumerate(btns, 1):
+                        await db.execute(
+                            "INSERT INTO library_step_options (step_id, option_text, option_value, order_index) VALUES (?, ?, ?, ?)",
+                            (p_step_id, t, v, idx)
                         )
                     await db.commit()
     except Exception as e:

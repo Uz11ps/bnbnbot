@@ -540,6 +540,18 @@ async def _show_next_step(message_or_callback: Message | CallbackQuery, state: F
             current_step_index += 1
             continue
         
+        # Условие для локаций в Рандоме
+        loc_group = data.get("rand_loc_group")
+        if loc_group:
+            if loc_group == "indoor" and step_key == "rand_location_outdoor":
+                logger.info("[flow] SKIP rand_location_outdoor because loc_group is indoor")
+                current_step_index += 1
+                continue
+            if loc_group == "outdoor" and step_key == "rand_location_indoor":
+                logger.info("[flow] SKIP rand_location_indoor because loc_group is outdoor")
+                current_step_index += 1
+                continue
+
         if is_skip_target:
             logger.info("[flow] CHECK skip target=%s person_absent=%s", step_key, person_absent)
             
@@ -2924,8 +2936,24 @@ async def _build_final_prompt(data: dict, db: Database) -> str:
         gender = data.get("rand_gender")
         gender_map = {"male":"мужчина","female":"женщина","boy":"мальчик","girl":"девочка"}
         
-        loc = data.get("rand_location")
-        loc_map = {"inside_restaurant":"внутри ресторана","photo_studio":"в фотостудии","coffee_shop":"в кофейне","city":"в городе","building":"у здания","wall":"у стены","park":"в парке","coffee_shop_out":"у кофейни","forest":"в лесу","car":"у машины"}
+        loc = data.get("rand_location") or data.get("rand_location_indoor") or data.get("rand_location_outdoor")
+        loc_map = {
+            "inside_restaurant":"внутри ресторана",
+            "photo_studio":"в фотостудии",
+            "coffee_shop":"в кофейне",
+            "city":"в городе",
+            "building":"у здания",
+            "wall":"у стены",
+            "park":"в парке",
+            "coffee_shop_out":"у кофейни",
+            "forest":"в лесу",
+            "car":"у машины",
+            "restaurant": "в ресторане",
+            "room": "в комнате",
+            "office": "в офисе",
+            "mall": "в торговом центре",
+            "cafe": "у кофейни"
+        }
         
         p_parts = ["Professional commercial fashion photography. High quality, realistic lighting. "]
         p_parts.append(f"Model: {gender_map.get(gender, 'person')}. ")

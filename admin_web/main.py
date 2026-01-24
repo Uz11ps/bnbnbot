@@ -484,17 +484,19 @@ async def run_migrations(db: aiosqlite.Connection):
         print(f"Migration error (library_steps.aspect): {e}")
 
     try:
-        # Библиотека вопросов: преимущества 1-3 и другие
-        ready_steps = [
-            ("adv_1", "🏆 Укажите преимущество 1:", "text"),
-            ("adv_2", "🏆 Укажите преимущество 2:", "text"),
-            ("adv_3", "🏆 Укажите преимущество 3:", "text"),
-            ("info_lang", "🌐 Выберите язык инфографики:", "buttons"),
-            ("extra_info", "ℹ️ Дополнительная информация о продукте:", "text"),
-            ("brand_name", "🏷️ Укажите название бренда/товара:", "text"),
-            ("holiday", "🎉 Выберите праздник:", "buttons"),
-            ("has_person", "👤 Присутствует ли человек на фото?", "buttons"),
-        ]
+            # Библиотека вопросов: преимущества 1-3 и другие
+            ready_steps = [
+                ("adv_1", "🏆 Укажите преимущество 1:", "text"),
+                ("adv_2", "🏆 Укажите преимущество 2:", "text"),
+                ("adv_3", "🏆 Укажите преимущество 3:", "text"),
+                ("info_lang", "🌐 Выберите язык инфографики:", "buttons"),
+                ("extra_info", "ℹ️ Дополнительная информация о продукте:", "text"),
+                ("brand_name", "🏷️ Укажите название бренда/товара:", "text"),
+                ("holiday", "🎉 Выберите праздник:", "buttons"),
+                ("has_person", "👤 Присутствует ли человек на фото?", "buttons"),
+                ("rand_location_indoor", "🏠 Выберите стиль (В помещении):", "buttons"),
+                ("rand_location_outdoor", "🌳 Выберите стиль (На улице):", "buttons"),
+            ]
         for key, question, i_type in ready_steps:
             async with db.execute("SELECT id FROM library_steps WHERE step_key=?", (key,)) as cur:
                 if not await cur.fetchone():
@@ -553,6 +555,38 @@ async def run_migrations(db: aiosqlite.Connection):
                         await db.execute(
                             "INSERT INTO library_step_options (step_id, option_text, option_value, order_index) VALUES (?, ?, ?, ?)",
                             (p_step_id, t, v, idx)
+                        )
+                    await db.commit()
+
+        # Дефолтные кнопки для локаций (В помещении)
+        async with db.execute("SELECT id FROM library_steps WHERE step_key='rand_location_indoor'") as cur:
+            row = await cur.fetchone()
+        if row:
+            step_id = row[0]
+            async with db.execute("SELECT COUNT(*) FROM library_step_options WHERE step_id=?", (step_id,)) as cur:
+                if (await cur.fetchone())[0] == 0:
+                    btns = [("Фотостудия", "photo_studio"), ("Ресторан", "restaurant"), ("Комната", "room"), ("Офис", "office"), ("ТЦ", "mall"), ("Свой вариант", "custom")]
+                    for idx, (t, v) in enumerate(btns, 1):
+                        prompt = "Введите ваш вариант помещения:" if v == "custom" else None
+                        await db.execute(
+                            "INSERT INTO library_step_options (step_id, option_text, option_value, order_index, custom_prompt) VALUES (?, ?, ?, ?, ?)",
+                            (step_id, t, v, idx, prompt)
+                        )
+                    await db.commit()
+
+        # Дефолтные кнопки для локаций (На улице)
+        async with db.execute("SELECT id FROM library_steps WHERE step_key='rand_location_outdoor'") as cur:
+            row = await cur.fetchone()
+        if row:
+            step_id = row[0]
+            async with db.execute("SELECT COUNT(*) FROM library_step_options WHERE step_id=?", (step_id,)) as cur:
+                if (await cur.fetchone())[0] == 0:
+                    btns = [("У машины", "car"), ("У здания", "building"), ("У стены", "wall"), ("В парке", "park"), ("У кофейни", "cafe"), ("В лесу", "forest"), ("Свой вариант", "custom")]
+                    for idx, (t, v) in enumerate(btns, 1):
+                        prompt = "Введите ваш вариант локации на улице:" if v == "custom" else None
+                        await db.execute(
+                            "INSERT INTO library_step_options (step_id, option_text, option_value, order_index, custom_prompt) VALUES (?, ?, ?, ?, ?)",
+                            (step_id, t, v, idx, prompt)
                         )
                     await db.commit()
     except Exception as e:

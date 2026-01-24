@@ -1991,8 +1991,12 @@ class Database:
         s_locg = await self.add_step(cat_id, "rand_loc_group", "📍 Выберите тип локации:", "buttons", order_index=1)
         await self.add_step_option(s_locg, "На улице", "outdoor", 1)
         await self.add_step_option(s_locg, "В помещении", "indoor", 2)
+
+        # Новые шаги стиля локации (будут пропускаться по условию)
+        await self.add_step(cat_id, "rand_location_outdoor", "🌳 Выберите стиль (На улице):", "buttons", order_index=2)
+        await self.add_step(cat_id, "rand_location_indoor", "🏠 Выберите стиль (В помещении):", "buttons", order_index=3)
         
-        s_gend = await self.add_step(cat_id, "rand_gender", "👤 Выберите пол модели:", "buttons", order_index=2)
+        s_gend = await self.add_step(cat_id, "rand_gender", "👤 Выберите пол модели:", "buttons", order_index=4)
         for i, (t, v) in enumerate(gender_options, 1):
             await self.add_step_option(s_gend, t, v, i)
         await self.add_step_option(s_gend, "Унисекс", "unisex", 5)

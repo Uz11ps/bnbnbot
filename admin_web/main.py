@@ -448,6 +448,79 @@ async def run_migrations(db: aiosqlite.Connection):
         print(f"Migration error (library format): {e}")
 
     try:
+        # Категория Локация (На улице)
+        async with db.execute("SELECT id FROM button_categories WHERE name=?", ("Локация (Улица)",)) as cur:
+            row = await cur.fetchone()
+        if row:
+            out_cat_id = row[0]
+        else:
+            await db.execute("INSERT INTO button_categories (name) VALUES (?)", ("Локация (Улица)",))
+            await db.commit()
+            async with db.execute("SELECT id FROM button_categories WHERE name=?", ("Локация (Улица)",)) as cur:
+                out_cat_id = (await cur.fetchone())[0]
+
+        out_buttons = [
+            ("У машины", "car", None),
+            ("У кофейни", "cafe", None),
+            ("У стены", "wall", None),
+            ("У здания", "building", None),
+            ("Москва сити", "moscow_city", None),
+            ("В лесу", "forest", None),
+            ("В горах", "mountains", None),
+            ("На аллее", "alley", None),
+            ("В парке", "park", None),
+            ("В городе", "city", None),
+            ("Свой вариант", "custom", "Введите ваш вариант локации на улице (до 100 симв):"),
+        ]
+        for text, value, prompt in out_buttons:
+            async with db.execute(
+                "SELECT id FROM library_options WHERE category_id=? AND option_value=?",
+                (out_cat_id, value)
+            ) as cur:
+                if not await cur.fetchone():
+                    await db.execute(
+                        "INSERT INTO library_options (category_id, option_text, option_value, custom_prompt) VALUES (?, ?, ?, ?)",
+                        (out_cat_id, text, value, prompt)
+                    )
+        await db.commit()
+    except Exception as e:
+        print(f"Migration error (library street location): {e}")
+
+    try:
+        # Категория Локация (Помещение)
+        async with db.execute("SELECT id FROM button_categories WHERE name=?", ("Локация (Помещение)",)) as cur:
+            row = await cur.fetchone()
+        if row:
+            in_cat_id = row[0]
+        else:
+            await db.execute("INSERT INTO button_categories (name) VALUES (?)", ("Локация (Помещение)",))
+            await db.commit()
+            async with db.execute("SELECT id FROM button_categories WHERE name=?", ("Локация (Помещение)",)) as cur:
+                in_cat_id = (await cur.fetchone())[0]
+
+        in_buttons = [
+            ("Фотостудия", "photo_studio", None),
+            ("В комнате", "room", None),
+            ("В ресторане", "restaurant", None),
+            ("В гостинице", "hotel", None),
+            ("В торговом центре", "mall", None),
+            ("Свой вариант", "custom", "Введите ваш вариант помещения (до 100 симв):"),
+        ]
+        for text, value, prompt in in_buttons:
+            async with db.execute(
+                "SELECT id FROM library_options WHERE category_id=? AND option_value=?",
+                (in_cat_id, value)
+            ) as cur:
+                if not await cur.fetchone():
+                    await db.execute(
+                        "INSERT INTO library_options (category_id, option_text, option_value, custom_prompt) VALUES (?, ?, ?, ?)",
+                        (in_cat_id, text, value, prompt)
+                    )
+        await db.commit()
+    except Exception as e:
+        print(f"Migration error (library indoor location): {e}")
+
+    try:
         # Библиотека вопросов: выбор модели
         async with db.execute("SELECT id FROM library_steps WHERE step_key=?", ("model_select",)) as cur:
             if not await cur.fetchone():

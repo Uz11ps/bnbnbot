@@ -565,9 +565,16 @@ async def run_migrations(db: aiosqlite.Connection):
             step_id = row[0]
             async with db.execute("SELECT COUNT(*) FROM library_step_options WHERE step_id=?", (step_id,)) as cur:
                 if (await cur.fetchone())[0] == 0:
-                    btns = [("Фотостудия", "photo_studio"), ("Ресторан", "restaurant"), ("Комната", "room"), ("Офис", "office"), ("ТЦ", "mall"), ("Свой вариант", "custom")]
+                    btns = [
+                        ("Фотостудия", "photo_studio"), 
+                        ("В комнате", "room"), 
+                        ("В ресторане", "restaurant"), 
+                        ("В гостинице", "hotel"), 
+                        ("В торговом центре", "mall"), 
+                        ("Свой вариант", "custom")
+                    ]
                     for idx, (t, v) in enumerate(btns, 1):
-                        prompt = "Введите ваш вариант помещения:" if v == "custom" else None
+                        prompt = "Введите ваш вариант помещения (до 100 симв):" if v == "custom" else None
                         await db.execute(
                             "INSERT INTO library_step_options (step_id, option_text, option_value, order_index, custom_prompt) VALUES (?, ?, ?, ?, ?)",
                             (step_id, t, v, idx, prompt)
@@ -581,9 +588,21 @@ async def run_migrations(db: aiosqlite.Connection):
             step_id = row[0]
             async with db.execute("SELECT COUNT(*) FROM library_step_options WHERE step_id=?", (step_id,)) as cur:
                 if (await cur.fetchone())[0] == 0:
-                    btns = [("У машины", "car"), ("У здания", "building"), ("У стены", "wall"), ("В парке", "park"), ("У кофейни", "cafe"), ("В лесу", "forest"), ("Свой вариант", "custom")]
+                    btns = [
+                        ("У машины", "car"), 
+                        ("У кофейни", "cafe"), 
+                        ("У стены", "wall"), 
+                        ("У здания", "building"), 
+                        ("Москва сити", "moscow_city"), 
+                        ("В лесу", "forest"), 
+                        ("В горах", "mountains"), 
+                        ("На аллее", "alley"), 
+                        ("В парке", "park"), 
+                        ("В городе", "city"), 
+                        ("Свой вариант", "custom")
+                    ]
                     for idx, (t, v) in enumerate(btns, 1):
-                        prompt = "Введите ваш вариант локации на улице:" if v == "custom" else None
+                        prompt = "Введите ваш вариант локации на улице (до 100 симв):" if v == "custom" else None
                         await db.execute(
                             "INSERT INTO library_step_options (step_id, option_text, option_value, order_index, custom_prompt) VALUES (?, ?, ?, ?, ?)",
                             (step_id, t, v, idx, prompt)

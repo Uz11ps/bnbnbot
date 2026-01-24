@@ -551,6 +551,12 @@ async def _show_next_step(message_or_callback: Message | CallbackQuery, state: F
                 logger.info("[flow] SKIP rand_location_indoor because loc_group is outdoor")
                 current_step_index += 1
                 continue
+            
+            # Если В ПОМЕЩЕНИИ (indoor), пропускаем выбор сезона (season)
+            if loc_group == "indoor" and "season" in step_key.lower():
+                logger.info("[flow] SKIP %s because loc_group is indoor", step_key)
+                current_step_index += 1
+                continue
 
         if is_skip_target:
             logger.info("[flow] CHECK skip target=%s person_absent=%s", step_key, person_absent)

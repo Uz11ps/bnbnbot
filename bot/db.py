@@ -1626,17 +1626,9 @@ class Database:
             async with db.execute("SELECT id, input_type FROM steps WHERE category_id=? AND step_key=?", (category_id, step_key)) as cur:
                 row = await cur.fetchone()
                 if row:
-                    step_id, old_type = row
-                    # Обновляем существующий шаг, чтобы изменения в коде (например, смена типа на text) применились
-                    await db.execute(
-                        "UPDATE steps SET question_text=?, input_type=?, is_optional=?, order_index=? WHERE id=?",
-                        (question_text, input_type, is_optional, order_index, step_id)
-                    )
-                    # Если тип сменился с кнопок на текст — удаляем старые кнопки
-                    if old_type == "buttons" and input_type != "buttons":
-                        await db.execute("DELETE FROM step_options WHERE step_id=?", (step_id,))
-                    await db.commit()
-                    return step_id
+                    # Если шаг существует, МЫ НЕ ОБНОВЛЯЕМ ЕГО
+                    # Это позволяет сохранять изменения, сделанные в конструкторе
+                    return row[0]
                     
             await db.execute(
                 "INSERT INTO steps (category_id, step_key, question_text, input_type, is_optional, order_index) VALUES (?, ?, ?, ?, ?, ?)",
@@ -1652,9 +1644,7 @@ class Database:
             async with db.execute("SELECT id FROM step_options WHERE step_id=? AND option_value=?", (step_id, value)) as cur:
                 row = await cur.fetchone()
                 if row:
-                    # Если существует - обновляем custom_prompt
-                    await db.execute("UPDATE step_options SET custom_prompt=? WHERE id=?", (custom_prompt, row[0]))
-                    await db.commit()
+                    # Если опция существует, НЕ ПЕРЕЗАПИСЫВАЕМ ЕЕ
                     return
                     
             await db.execute(
@@ -1893,7 +1883,15 @@ class Database:
             await db.commit()
 
     async def _seed_categories(self) -> None:
-        """Предзаполнение категорий и шагов текущей логикой"""
+        """Предзаполнение категорий и шагов только если база пуста"""
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT COUNT(*) FROM categories") as cur:
+                count = (await cur.fetchone())[0]
+            if count > 0:
+                # Если категории уже есть, ничего не делаем, 
+                # чтобы не перетирать изменения из конструктора
+                return
+
         # --- ОБЩИЕ ОПЦИИ ДЛЯ ПОВТОРНОГО ИСПОЛЬЗОВАНИЯ ---
         length_options = [
             ("Короткий топ", "short_top"),

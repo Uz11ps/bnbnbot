@@ -1885,6 +1885,15 @@ async def save_category_translations(request: Request, cat_id: int, db: aiosqlit
     await db.commit()
     return RedirectResponse(f"/constructor/category/{cat_id}/languages", status_code=303)
 
+@app.post("/constructor/category/update/{cat_id}")
+async def admin_update_category(cat_id: int, name: str = Form(...), key: str = Form(...), is_active: int = Form(1), order: int = Form(0), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    await db.execute(
+        "UPDATE categories SET name_ru=?, key=?, is_active=?, order_index=? WHERE id=?",
+        (name, key, is_active, order, cat_id)
+    )
+    await db.commit()
+    return RedirectResponse(f"/constructor/category/{cat_id}", status_code=303)
+
 @app.post("/constructor/step/add/{cat_id}")
 async def admin_add_step(cat_id: int, step_key: str = Form(...), question: str = Form(...), input_type: str = Form(...), is_optional: int = Form(0), order: int = Form(0), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
     if order == 0:
@@ -1937,6 +1946,7 @@ async def admin_reorder_steps(cat_id: int, request: Request, db: aiosqlite.Conne
 async def admin_save_all_steps(cat_id: int, request: Request, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
     try:
         data = await request.json()
+        print(f"Starting save_all for category {cat_id}. Data: {len(data.get('steps', []))} steps.")
         steps_data = data.get("steps", [])
         
         # Получаем текущие ID шагов этой категории

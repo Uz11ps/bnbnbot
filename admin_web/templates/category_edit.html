@@ -9,7 +9,28 @@
     </nav>
 
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h2><i class="bi bi-pencil-square me-2"></i> Конструктор: {{ category['name_ru'] }}</h2>
+        <h2 onclick="toggleCategoryEdit()" style="cursor: pointer;" title="Нажмите, чтобы изменить название">
+            <i class="bi bi-pencil-square me-2"></i> 
+            <span id="cat-name-display">{{ category['name_ru'] }}</span>
+            <small class="text-muted fs-6 ms-2">({{ category['key'] }})</small>
+        </h2>
+        <div id="cat-edit-form" class="d-none">
+            <form action="/constructor/category/update/{{ category['id'] }}" method="post" class="row g-2 align-items-center">
+                <div class="col-auto">
+                    <input type="text" name="name" class="form-control form-control-sm" value="{{ category['name_ru'] }}" required>
+                </div>
+                <div class="col-auto">
+                    <input type="text" name="key" class="form-control form-control-sm" value="{{ category['key'] }}" required>
+                </div>
+                <div class="col-auto">
+                    <input type="number" name="order" class="form-control form-control-sm" value="{{ category['order_index'] }}" style="width: 60px;">
+                </div>
+                <div class="col-auto">
+                    <button type="submit" class="btn btn-primary btn-sm">OK</button>
+                    <button type="button" class="btn btn-secondary btn-sm" onclick="toggleCategoryEdit()">Отмена</button>
+                </div>
+            </form>
+        </div>
         <div class="d-flex gap-2">
             <button id="saveAllBtn" class="btn btn-primary btn-round" onclick="saveAllChanges()" disabled>
                 <i class="bi bi-cloud-check me-1"></i> Сохранить всё
@@ -483,6 +504,13 @@
     let isDirty = false;
     let currentEditingBtn = null;
     let currentEditingStep = null;
+
+    function toggleCategoryEdit() {
+        const display = document.getElementById('cat-name-display').parentElement;
+        const form = document.getElementById('cat-edit-form');
+        display.classList.toggle('d-none');
+        form.classList.toggle('d-none');
+    }
 
     const SYSTEM_BUTTONS = [
         { text: 'Назад', value: 'back', prompt: '' },

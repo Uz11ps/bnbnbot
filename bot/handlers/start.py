@@ -569,8 +569,9 @@ async def _show_next_step(message_or_callback: Message | CallbackQuery, state: F
         if is_skip_target:
             logger.info("[flow] CHECK skip target=%s person_absent=%s", step_key, person_absent)
             
-        # 2. Пропускаем шаги, которые уже есть в данных
-        if step_key in data and data.get(step_key) is not None:
+        # 2. Пропускаем шаги, которые уже есть в данных (но только если мы НЕ идем назад)
+        is_going_back = data.get("is_going_back", False)
+        if step_key in data and data.get(step_key) is not None and not is_going_back:
             current_step_index += 1
             continue
             
@@ -586,6 +587,9 @@ async def _show_next_step(message_or_callback: Message | CallbackQuery, state: F
 
     # ОБЯЗАТЕЛЬНО сохраняем текущий индекс, чтобы обработчики (on_dynamic_option) знали, где мы
     await state.update_data(current_step_index=current_step_index)
+    
+    # [FIX] Очищаем флаг возврата, если мы успешно нашли шаг
+    await state.update_data(is_going_back=False)
 
     if current_step_index >= len(steps):
         # Все шаги пройдены — переходим к финалу
@@ -618,7 +622,14 @@ async def _show_next_step(message_or_callback: Message | CallbackQuery, state: F
     if input_type == "buttons":
         options = await db.list_step_options_localized(step_id, lang)
         from bot.keyboards import dynamic_keyboard
-        kb = dynamic_keyboard(options, bool(is_optional), lang)
+        
+        # [FIX] Если шаг необязательный или это текстовый ввод, добавляем кнопку "Пропустить"
+        # Проверяем также по ключам для преимуществ и доп текста
+        show_skip = bool(is_optional)
+        if any(x in step_key.lower() for x in ("adv_", "extra_info", "brand_name", "info_load", "преимущество", "доп_инфо")):
+            show_skip = True
+            
+        kb = dynamic_keyboard(options, show_skip, lang)
         
         # Специальная обработка для длины изделия (добавляем фото-гайд)
         if step_key == "length":
@@ -640,7 +651,11 @@ async def _show_next_step(message_or_callback: Message | CallbackQuery, state: F
             
     elif input_type == "photo":
         kb = back_step_keyboard(lang)
-        if is_optional:
+        show_skip = bool(is_optional)
+        if any(x in step_key.lower() for x in ("adv_", "extra_info", "brand_name", "info_load", "преимущество", "доп_инфо")):
+            show_skip = True
+            
+        if show_skip:
             from bot.keyboards import skip_step_keyboard
             kb = skip_step_keyboard(step_key, lang)
             
@@ -667,7 +682,11 @@ async def _show_next_step(message_or_callback: Message | CallbackQuery, state: F
         
     else: # text
         kb = back_step_keyboard(lang)
-        if is_optional:
+        show_skip = bool(is_optional)
+        if any(x in step_key.lower() for x in ("adv_", "extra_info", "brand_name", "info_load", "преимущество", "доп_инфо")):
+            show_skip = True
+            
+        if show_skip:
             from bot.keyboards import skip_step_keyboard
             kb = skip_step_keyboard(step_key, lang)
             
@@ -798,7 +817,32 @@ async def on_dynamic_option(callback: CallbackQuery, state: FSMContext, db: Data
 async def on_dynamic_input(message: Message, state: FSMContext, db: Database) -> None:
     data = await state.get_data()
     
-    # Если мы ждали ввода для "своего варианта"
+    # 1. Валидация текстового ввода
+    if message.text:
+        step_key = data.get("current_step_key")
+        waiting_custom_for = data.get("waiting_custom_for")
+        
+        # Определяем целевой ключ для валидации
+        target_key = waiting_custom_for if waiting_custom_for else step_key
+        
+        text_len = len(message.text)
+        max_len = 200 # Дефолт
+        
+        if target_key:
+            low_key = target_key.lower()
+            if any(x in low_key for x in ("adv_", "преимущество")):
+                max_len = 100
+            elif any(x in low_key for x in ("extra_info", "доп_текст")):
+                max_len = 80
+            elif waiting_custom_for: # "Свой вариант" (если не подошло под категории выше)
+                max_len = 70
+
+        if text_len > max_len:
+            lang = await db.get_user_language(message.from_user.id)
+            await message.answer(f"⚠️ Текст слишком длинный ({text_len}/{max_len} симв.). Пожалуйста, сократите до {max_len} символов.")
+            return
+
+    # 2. Если мы ждали ввода для "своего варианта"
     if data.get("waiting_custom_for"):
         step_key = data.get("waiting_custom_for")
         await state.update_data({step_key: message.text})
@@ -2736,6 +2780,9 @@ async def on_back_step(callback: CallbackQuery, state: FSMContext, db: Database)
     # --- Поддержка динамических шагов ---
     current_index = data.get("current_step_index")
     if current_index is not None:
+        # [FIX] Устанавливаем флаг возврата назад
+        await state.update_data(is_going_back=True)
+        
         # Если мы на вводе "Своего варианта" — возвращаемся к исходному вопросу
         waiting_custom_for = data.get("waiting_custom_for")
         if waiting_custom_for:

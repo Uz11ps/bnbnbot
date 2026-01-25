@@ -42,6 +42,7 @@ def settings_keyboard(lang="ru") -> InlineKeyboardMarkup:
         inline_keyboard=[
             [InlineKeyboardButton(text=get_string("select_lang", lang), callback_data="settings_lang")],
             [InlineKeyboardButton(text=get_string("agreement", lang), callback_data="menu_agreement")],
+            [InlineKeyboardButton(text=get_string("buy_plan", lang), callback_data="menu_subscription")],
             [InlineKeyboardButton(text=get_string("back_main", lang), callback_data="back_main")]
         ]
     )

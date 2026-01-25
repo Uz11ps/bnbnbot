@@ -112,6 +112,9 @@ def plans_keyboard(plans: list[tuple], lang="ru") -> InlineKeyboardMarkup:
         name_ru, name_en, name_vi = plan[1], plan[2], plan[3]
         price = plan[7]
         name = name_ru if lang == "ru" else (name_en if lang == "en" else name_vi)
+        # Если это пробный период (trial), не показываем его в списке планов для покупки
+        if "TRIAL" in str(name_ru).upper() or "ПРОБНЫЙ" in str(name_ru).upper():
+            continue
         rows.append([InlineKeyboardButton(text=f"{name} — {price} ₽", callback_data=f"buy_plan:{pid}")])
     rows.append([InlineKeyboardButton(text=get_string("back", lang), callback_data="menu_profile")])
     return InlineKeyboardMarkup(inline_keyboard=rows)

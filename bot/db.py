@@ -414,7 +414,7 @@ class Database:
             async with db.execute("PRAGMA table_info(users)") as cur:
                 cols = [row[1] for row in await cur.fetchall()]
             if "trial_used" not in cols:
-                await db.execute("ALTER TABLE users ADD COLUMN trial_used INTEGER NOT NULL DEFAULT 0")
+                await db.execute("ALTER TABLE users ADD COLUMN trial_used INTEGER NOT NULL DEFAULT 1")
             if "balance" not in cols:
                 await db.execute("ALTER TABLE users ADD COLUMN balance INTEGER NOT NULL DEFAULT 0")
             
@@ -1013,8 +1013,8 @@ class Database:
         async with aiosqlite.connect(self._db_path) as db:
             await db.execute(
                 """
-                INSERT INTO users (id, username, first_name, last_name, referrer_id)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO users (id, username, first_name, last_name, referrer_id, trial_used)
+                VALUES (?, ?, ?, ?, ?, 1)
                 ON CONFLICT(id) DO UPDATE SET
                     username=excluded.username,
                     first_name=excluded.first_name,

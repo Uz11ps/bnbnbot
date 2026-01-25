@@ -535,6 +535,14 @@ async def _show_next_step(message_or_callback: Message | CallbackQuery, state: F
         low_step_key = step_key.lower()
         is_skip_target = any(x in low_step_key for x in ("age", "pose", "height", "size", "возраст", "поза", "рост", "телосложение"))
         
+        # Специальное условие для infographic_other и random_other
+        # "если нет (человека) то спрашиваем только пол" -> пропускаем возраст, позу, рост, размер
+        if cat_key in ["infographic_other", "random_other"] and person_absent:
+            if any(x in low_step_key for x in ("age", "возраст", "pose", "поза", "height", "рост", "size", "телосложение")):
+                logger.info("[flow] SPECIAL SKIP step=%s for %s because person_absent=True", step_key, cat_key)
+                current_step_index += 1
+                continue
+
         if person_absent and is_skip_target:
             logger.info("[flow] SKIP step=%s because person_absent=True found in data", step_key)
             current_step_index += 1
@@ -3886,55 +3894,17 @@ async def on_buy_plan(callback: CallbackQuery, db: Database) -> None:
     
     # plan structure: (id, name_ru, name_en, name_vi, desc_ru, desc_en, desc_vi, price, duration, limit, active)
     name = plan[1] if lang == "ru" else (plan[2] if lang == "en" else plan[3])
+    desc = plan[4] if lang == "ru" else (plan[5] if lang == "en" else plan[6])
     price = plan[7]
-    duration = plan[8]
-    limit = plan[9]
     
-    # Для теста выдаем сразу. В реальности тут должен быть платежный шлюз.
-    await db.grant_subscription(callback.from_user.id, plan_id, name, duration, limit, amount=price)
+    text = get_string("buy_sub_text", lang, name=name, desc=desc, price=price, id=callback.from_user.id)
     
-    # Получаем информацию о подписке для отображения даты окончания
-    sub = await db.get_user_subscription(callback.from_user.id)
-    if sub:
-        plan_type, expires_at, daily_limit, daily_usage, ind_key = sub
-        # Форматируем дату и время окончания
-        from datetime import datetime
-        try:
-            # Парсим ISO формат даты (может быть с Z или без)
-            expires_str = expires_at.replace('Z', '') if 'Z' in expires_at else expires_at
-            if 'T' in expires_str:
-                expires_dt = datetime.fromisoformat(expires_str)
-            else:
-                # Если только дата без времени
-                expires_dt = datetime.fromisoformat(expires_str + "T00:00:00")
-            expires_date = expires_dt.strftime("%d.%m.%Y")
-            expires_time = expires_dt.strftime("%H:%M")
-        except Exception as e:
-            # Fallback форматирование
-            if 'T' in expires_at:
-                parts = expires_at.split('T')
-                date_part = parts[0]
-                time_part = parts[1][:5] if len(parts[1]) >= 5 else "00:00"
-                expires_date = ".".join(reversed(date_part.split("-")))
-                expires_time = time_part
-            else:
-                expires_date = expires_at[:10] if len(expires_at) >= 10 else expires_at
-                expires_time = "00:00"
-        
-        text = get_string("sub_success_congrats", lang, 
-                         plan_name=name,
-                         expires_date=expires_date,
-                         expires_time=expires_time,
-                         daily_limit=daily_limit)
-        
-        if "4K" in name.upper():
-            text += "\n\n⚠️ " + get_string("missing_4k_key", lang)
-    else:
-        # Fallback если не удалось получить подписку
-        text = f"✅ {get_string('sub_success_alert', lang)}\n\n📋 {get_string('menu_subscription', lang)}: {name}\n📊 Лимит: {limit}"
-        
-    # Отправляем новое сообщение пользователю с поздравлением
-    await callback.message.answer(text, reply_markup=back_main_keyboard(lang))
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=get_string("contact_admin", lang), url="https://t.me/Gbox_admin")],
+        [InlineKeyboardButton(text=get_string("back", lang), callback_data="menu_subscription")]
+    ])
+    
+    await _replace_with_text(callback, text, reply_markup=kb)
     await _safe_answer(callback)
 
 

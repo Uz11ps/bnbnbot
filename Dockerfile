@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1.7-labs
 FROM python:3.13-slim AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \

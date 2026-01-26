@@ -3106,15 +3106,27 @@ async def _build_final_prompt(data: dict, db: Database) -> str:
         "{Нагруженность}": str(data.get("info_load") or ""),
         "{Язык}": str(data.get("info_lang") or ""),
         "{Стиль}": str(data.get("style") or ""),
+        "{Стиль локации}": str(data.get("style") or ""),
         "{Сезон}": str(data.get("season") or data.get("info_season") or ""),
         "{Праздник}": str(data.get("holiday") or data.get("info_holiday") or ""),
         "{Поза}": str(data.get("pose") or data.get("info_pose") or ""),
+        "{Поза модели}": str(data.get("pose") or data.get("info_pose") or ""),
         "{Тип кроя}": str(data.get("pants_style") or ""),
+        "{Тип кроя штанов}": str(data.get("pants_style") or ""),
+        "{Ширина}": str(data.get("width_cm") or ""),
+        "{Высота}": str(data.get("height_cm") or ""),
+        "{Длина}": str(data.get("length_cm") or ""),
+        "{Человек}": "Да" if data.get("has_person") else "Нет",
+        "{Присутствует ли человек на фото}": "Да" if data.get("has_person") else "Нет",
+        "{Тип локации}": str(data.get("rand_location") or data.get("rand_location_indoor") or data.get("rand_location_outdoor") or ""),
     }
     
     # Добавляем преимущества для инфографики
     advs = [data.get("info_adv1"), data.get("info_adv2"), data.get("info_adv3")]
     replacements["{Преимущества}"] = ", ".join([a for a in advs if a])
+    replacements["{Преимущество 1}"] = str(data.get("info_adv1") or "")
+    replacements["{Преимущество 2}"] = str(data.get("info_adv2") or "")
+    replacements["{Преимущество 3}"] = str(data.get("info_adv3") or "")
     replacements["{Доп информация}"] = str(data.get("info_extra") or "")
 
     def apply_replacements(text: str) -> str:

@@ -3162,9 +3162,9 @@ async def _build_final_prompt(data: dict, db: Database) -> str:
         "{Длина}": str(data.get("length_cm") or ""),
         "(ТУТ УКАЗЫВАЕМ ДЛИНУ)": str(data.get("length_cm") or ""),
         
-        "{Человек}": "Yes" if data.get("has_person") == "yes" else "No",
-        "{Присутствует ли человек на фото}": "Yes" if data.get("has_person") == "yes" else "No",
-        "(ТУТ УКАЗЫВАЕМ Присутствует ли человек на фото)": "Yes" if data.get("has_person") == "yes" else "No",
+        "{Человек}": "Yes" if str(data.get("has_person")).lower() == "yes" else "No",
+        "{Присутствует ли человек на фото}": "Yes" if str(data.get("has_person")).lower() == "yes" else "No",
+        "(ТУТ УКАЗЫВАЕМ Присутствует ли человек на фото)": "Yes" if str(data.get("has_person")).lower() == "yes" else "No",
         
         "{Тип локации}": str(data.get("rand_location") or data.get("rand_location_indoor") or data.get("rand_location_outdoor") or ""),
         "(ТУТ УКАЗЫВАЕМ Тип локации}": str(data.get("rand_location") or data.get("rand_location_indoor") or data.get("rand_location_outdoor") or ""),

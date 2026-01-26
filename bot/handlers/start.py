@@ -3801,9 +3801,9 @@ async def on_result_edit_text(message: Message, state: FSMContext, db: Database)
                 reply_markup=kb
             )
 
-                    # Сохраняем в историю
-                    pid = await db.generate_pid()
-                    history_dir = os.path.join("data", "history")
+            # Сохраняем в историю
+            pid = await db.generate_pid()
+            history_dir = os.path.join("data", "history")
             os.makedirs(history_dir, exist_ok=True)
             
             local_input_paths = []

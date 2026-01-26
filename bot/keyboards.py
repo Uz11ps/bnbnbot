@@ -921,20 +921,28 @@ def admin_howto_edit_keyboard(lang="ru") -> InlineKeyboardMarkup:
 def dynamic_keyboard(options: list[tuple], is_optional: bool = False, lang="ru") -> InlineKeyboardMarkup:
     """Универсальная клавиатура для динамических шагов"""
     rows = []
+    has_back = False
+    has_skip = False
+    
     # options: list of (id, text, value, order, custom_prompt)
     # Группируем по 2 кнопки в ряд
     for i in range(0, len(options), 2):
         row = []
         for opt in options[i:i+2]:
+            if opt[2] == "back":
+                has_back = True
+            if opt[2] == "skip":
+                has_skip = True
             # Используем ID опции для однозначной идентификации в колбэке
             row.append(InlineKeyboardButton(text=opt[1], callback_data=f"dyn_opt:{opt[0]}"))
         rows.append(row)
     
-    # Добавляем кнопку пропустить, если шаг необязательный
-    if is_optional:
+    # Добавляем кнопку пропустить, если шаг необязательный и её нет в конструкторе
+    if is_optional and not has_skip:
         rows.append([InlineKeyboardButton(text=get_string("skip", lang), callback_data="dyn_opt:skip")])
         
-    # Всегда добавляем кнопку назад
-    rows.append([InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")])
+    # Добавляем системную кнопку назад, только если её нет в конструкторе
+    if not has_back:
+        rows.append([InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")])
     
     return InlineKeyboardMarkup(inline_keyboard=rows)

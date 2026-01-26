@@ -533,12 +533,16 @@ async def _show_next_step(message_or_callback: Message | CallbackQuery, state: F
         
         # Проверяем ключи шагов более гибко (по вхождению подстроки)
         low_step_key = step_key.lower()
-        is_skip_target = any(x in low_step_key for x in ("age", "pose", "height", "size", "возраст", "поза", "рост", "телосложение"))
+        # Для Рандом прочее и Инфографика прочее: 'height/рост' может быть параметром товара, а не модели
+        if cat_key in ("random_other", "infographic_other"):
+            is_skip_target = any(x in low_step_key for x in ("age", "pose", "size", "возраст", "поза", "телосложение"))
+        else:
+            is_skip_target = any(x in low_step_key for x in ("age", "pose", "height", "size", "возраст", "поза", "рост", "телосложение"))
         
         # Специальное условие для infographic_other и random_other
         # "если нет (человека) то спрашиваем только пол" -> пропускаем возраст, позу, рост, размер
         if cat_key in ["infographic_other", "random_other"] and person_absent:
-            if any(x in low_step_key for x in ("age", "возраст", "pose", "поза", "height", "рост", "size", "телосложение")):
+            if any(x in low_step_key for x in ("age", "возраст", "pose", "поза", "size", "телосложение")):
                 logger.info("[flow] SPECIAL SKIP step=%s for %s because person_absent=True", step_key, cat_key)
                 current_step_index += 1
                 continue
@@ -1268,15 +1272,28 @@ async def on_rand_other_gender(callback: CallbackQuery, state: FSMContext, db: D
     await _safe_answer(callback)
 
 @router.message(CreateForm.waiting_rand_other_name)
-async def on_rand_other_name(message: Message, state: FSMContext, db: Database) -> None:
-    text = (message.text or "").strip()
-    lang = await db.get_user_language(message.from_user.id)
-    if not text or len(text) > 50:
-        await message.answer("⚠️ Название слишком длинное (максимум 50 символов). Попробуйте еще раз:")
-        return
-    await state.update_data(product_name=text)
+@router.callback_query(F.data == "rand_name:skip")
+async def on_rand_other_name(message_or_callback: Message | CallbackQuery, state: FSMContext, db: Database) -> None:
+    lang = await db.get_user_language(message_or_callback.from_user.id)
+    
+    if isinstance(message_or_callback, Message):
+        text = (message_or_callback.text or "").strip()
+        if not text or len(text) > 50:
+            await message_or_callback.answer("⚠️ Название слишком длинное (максимум 50 символов). Попробуйте еще раз:")
+            return
+        await state.update_data(product_name=text)
+    else:
+        await state.update_data(product_name="")
+        
     from bot.keyboards import form_view_keyboard
-    await message.answer("Выберите угол камеры (Спереди/Сзади):", reply_markup=form_view_keyboard(lang))
+    msg_text = "Выберите угол камеры (Спереди/Сзади):"
+    markup = form_view_keyboard(lang)
+    
+    if isinstance(message_or_callback, Message):
+        await message_or_callback.answer(msg_text, reply_markup=markup)
+    else:
+        await _replace_with_text(message_or_callback, msg_text, reply_markup=markup)
+        await _safe_answer(message_or_callback)
     await state.set_state(CreateForm.waiting_rand_other_angle)
 
 @router.callback_query(CreateForm.waiting_rand_other_angle, F.data.startswith("form_view:"))
@@ -1588,7 +1605,8 @@ async def on_infographic_load_input(message: Message, state: FSMContext, db: Dat
 
     if data.get("random_other_mode"):
         # Рандом для остальных товаров — Название продукта (п. 3)
-        await message.answer(get_string("enter_product_name", lang), reply_markup=back_step_keyboard(lang))
+        from bot.keyboards import skip_step_keyboard
+        await message.answer(get_string("enter_product_name", lang), reply_markup=skip_step_keyboard("rand_name", lang))
         await state.set_state(CreateForm.waiting_rand_other_name)
     else:
         # 4. Язык инфографики (п. 4.4)
@@ -2377,7 +2395,9 @@ async def on_garment_len_callback(callback: CallbackQuery, state: FSMContext, db
     # Для пресетов и Рандом Одежда: после длины — к позе (п. 9)
     if (category in ("female", "male", "child") or data.get("random_mode")) and not data.get("infographic_mode"):
         await state.set_state(CreateForm.waiting_preset_pose)
-        await _replace_with_text(callback, "Выберите тип позы:", reply_markup=pose_keyboard(lang))
+        gender = data.get("gender") or data.get("rand_gender") or data.get("info_gender") or data.get("child_gender")
+        show_vulgar = (gender not in ("boy", "girl"))
+        await _replace_with_text(callback, "Выберите тип позы:", reply_markup=pose_keyboard(lang, show_vulgar=show_vulgar))
         await _safe_answer(callback)
         return
 
@@ -2583,7 +2603,9 @@ async def on_dist_selected(callback: CallbackQuery, state: FSMContext, db: Datab
         # Для всей инфографики (и одежда, и прочее): Поза (если есть человек)
         if data.get("has_person"):
             from bot.keyboards import pose_keyboard
-            await _replace_with_text(callback, "Выберите позу модели:", reply_markup=pose_keyboard(lang))
+            gender = data.get("gender") or data.get("rand_gender") or data.get("info_gender") or data.get("child_gender")
+            show_vulgar = (gender not in ("boy", "girl"))
+            await _replace_with_text(callback, "Выберите позу модели:", reply_markup=pose_keyboard(lang, show_vulgar=show_vulgar))
             await state.set_state(CreateForm.waiting_info_pose)
         else:
             # Если нет человека:
@@ -2763,7 +2785,10 @@ async def handle_user_photo(message: Message, state: FSMContext, db: Database) -
         return
 
     # ДЛЯ ВСЕХ ОСТАЛЬНЫХ РЕЖИМОВ: возвращаемся в основной флоу
-    await _show_next_step(message, state, db)
+    if data.get("random_other_mode"):
+        await _show_confirmation(message, state, db)
+    else:
+        await _show_next_step(message, state, db)
 
 
 @router.callback_query(F.data == "back_step")
@@ -2776,6 +2801,74 @@ async def on_back_step(callback: CallbackQuery, state: FSMContext, db: Database)
     if not current_state:
         await on_back_main(callback, state, db)
         return
+
+    # --- Рандом прочее (нединамические состояния) ---
+    if data.get("random_other_mode"):
+        from bot.keyboards import yes_no_keyboard, skip_step_keyboard, infographic_gender_keyboard, form_view_keyboard, camera_dist_keyboard, random_season_keyboard, style_keyboard
+        if current_state == CreateForm.waiting_rand_other_has_person.state:
+            await on_marketplace_menu(callback, db)
+            await state.clear()
+            await _safe_answer(callback)
+            return
+        elif current_state == CreateForm.waiting_rand_other_gender.state:
+            await _replace_with_text(callback, get_string("has_person_ask", lang), reply_markup=yes_no_keyboard(lang))
+            await state.set_state(CreateForm.waiting_rand_other_has_person)
+            await _safe_answer(callback)
+            return
+        elif current_state == CreateForm.waiting_info_load.state:
+            if data.get("has_person"):
+                await state.set_state(CreateForm.waiting_rand_other_gender)
+                await _replace_with_text(callback, get_string("select_gender", lang), reply_markup=infographic_gender_keyboard(lang))
+            else:
+                await state.set_state(CreateForm.waiting_rand_other_has_person)
+                await _replace_with_text(callback, get_string("has_person_ask", lang), reply_markup=yes_no_keyboard(lang))
+            await _safe_answer(callback)
+            return
+        elif current_state == CreateForm.waiting_rand_other_name.state:
+            await state.set_state(CreateForm.waiting_info_load)
+            await _replace_with_text(callback, get_string("enter_info_load", lang), reply_markup=skip_step_keyboard("info_load", lang))
+            await _safe_answer(callback)
+            return
+        elif current_state == CreateForm.waiting_rand_other_angle.state:
+            await _replace_with_text(callback, get_string("enter_product_name", lang), reply_markup=skip_step_keyboard("rand_name", lang))
+            await state.set_state(CreateForm.waiting_rand_other_name)
+            await _safe_answer(callback)
+            return
+        elif current_state == CreateForm.waiting_rand_other_dist.state:
+            await _replace_with_text(callback, "Выберите угол камеры (Спереди/Сзади):", reply_markup=form_view_keyboard(lang))
+            await state.set_state(CreateForm.waiting_rand_other_angle)
+            await _safe_answer(callback)
+            return
+        elif current_state == CreateForm.waiting_rand_other_height.state:
+            await _replace_with_text(callback, "Выберите ракурс фотографии (Дальний/Средний/Близкий):", reply_markup=camera_dist_keyboard(lang))
+            await state.set_state(CreateForm.waiting_rand_other_dist)
+            await _safe_answer(callback)
+            return
+        elif current_state == CreateForm.waiting_rand_other_width.state:
+            await _replace_with_text(callback, "Введите высоту (см):", reply_markup=skip_step_keyboard("rand_height", lang))
+            await state.set_state(CreateForm.waiting_rand_other_height)
+            await _safe_answer(callback)
+            return
+        elif current_state == CreateForm.waiting_rand_other_length.state:
+            await _replace_with_text(callback, "Введите ширину (см):", reply_markup=skip_step_keyboard("rand_width", lang))
+            await state.set_state(CreateForm.waiting_rand_other_width)
+            await _safe_answer(callback)
+            return
+        elif current_state == CreateForm.waiting_rand_other_season.state:
+            await _replace_with_text(callback, "Введите длину (см):", reply_markup=skip_step_keyboard("rand_length", lang))
+            await state.set_state(CreateForm.waiting_rand_other_length)
+            await _safe_answer(callback)
+            return
+        elif current_state == CreateForm.waiting_rand_other_style.state:
+            await _replace_with_text(callback, "Выберите сезон:", reply_markup=random_season_keyboard(lang))
+            await state.set_state(CreateForm.waiting_rand_other_season)
+            await _safe_answer(callback)
+            return
+        elif current_state == CreateForm.waiting_view.state:
+             await _replace_with_text(callback, get_string("select_style", lang), reply_markup=style_keyboard(lang))
+             await state.set_state(CreateForm.waiting_rand_other_style)
+             await _safe_answer(callback)
+             return
 
     # --- Поддержка динамических шагов ---
     current_index = data.get("current_step_index")
@@ -2941,6 +3034,17 @@ async def _build_final_prompt(data: dict, db: Database) -> str:
     age_text = age_map.get(age_key, age_key or "")
     sleeve_text = data.get('sleeve') or ""
     size_text = data.get('size') or ""
+    # Улучшаем описание размера для ИИ
+    if size_text and str(size_text).isdigit():
+        sz = int(size_text)
+        if sz >= 52:
+            size_text = f"plus size model, curvy body, size {sz}"
+        elif sz >= 48:
+            size_text = f"slightly curvy body, size {sz}"
+        elif sz <= 42:
+            size_text = f"slim model, size {sz}"
+        else:
+            size_text = f"athletic/average body, size {sz}"
         
     prompt_filled = ""
     if data.get("own_mode"):
@@ -3312,6 +3416,7 @@ async def _do_generate(message_or_callback: Message | CallbackQuery, state: FSMC
             return
 
         prompt_filled = await _build_final_prompt(data, db)
+        await state.update_data(last_sent_prompt=prompt_filled)
 
         if quality == '4K':
             prompt_filled += " High quality, 4K resolution, ultra detailed."
@@ -3706,6 +3811,21 @@ async def on_result_edit_text(message: Message, state: FSMContext, db: Database)
         except: pass
         await message.answer(get_string("gen_error", lang))
 
+
+@router.callback_query(F.data == "result_show_prompt")
+async def on_result_show_prompt(callback: CallbackQuery, state: FSMContext) -> None:
+    data = await state.get_data()
+    prompt = data.get("last_sent_prompt")
+    if not prompt:
+        await callback.answer("Промпт не найден в текущей сессии.", show_alert=True)
+        return
+    
+    # Разбиваем длинный промпт если нужно
+    if len(prompt) > 4000:
+        prompt = prompt[:4000] + "..."
+    
+    await callback.message.answer(f"📝 **Отправленный промпт:**\n\n`{prompt}`", parse_mode="Markdown")
+    await callback.answer()
 
 @router.callback_query(F.data == "result_repeat")
 async def on_result_repeat(callback: CallbackQuery, state: FSMContext, db: Database) -> None:

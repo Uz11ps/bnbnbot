@@ -351,6 +351,7 @@ def result_actions_keyboard(lang="ru") -> InlineKeyboardMarkup:
         inline_keyboard=[
             [InlineKeyboardButton(text=get_string("btn_repeat", lang), callback_data="result_repeat")],
             [InlineKeyboardButton(text=get_string("btn_edit", lang), callback_data="result_edit")],
+            [InlineKeyboardButton(text="🔍 Показать промпт", callback_data="result_show_prompt")],
             [InlineKeyboardButton(text=get_string("back_main", lang), callback_data="back_main")],
         ]
     )
@@ -359,6 +360,7 @@ def result_actions_own_keyboard(lang="ru") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text=get_string("btn_repeat", lang), callback_data="result_repeat")],
+            [InlineKeyboardButton(text="🔍 Показать промпт", callback_data="result_show_prompt")],
             [InlineKeyboardButton(text=get_string("back_main", lang), callback_data="back_main")],
         ]
     )
@@ -385,15 +387,18 @@ def model_select_keyboard(category: str, cloth: str, index: int, total: int, lan
     rows.append([InlineKeyboardButton(text=get_string("back", lang), callback_data="presets_back")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
-def pose_keyboard(lang="ru") -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=get_string("pose_vulgar", lang), callback_data="pose:vulgar")],
-            [InlineKeyboardButton(text=get_string("pose_unusual", lang), callback_data="pose:unusual")],
-            [InlineKeyboardButton(text=get_string("pose_normal", lang), callback_data="pose:normal")],
-            [InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")],
-        ]
-    )
+def pose_keyboard(lang="ru", show_vulgar=True) -> InlineKeyboardMarkup:
+    buttons = []
+    if show_vulgar:
+        buttons.append([InlineKeyboardButton(text=get_string("pose_vulgar", lang), callback_data="pose:vulgar")])
+    
+    buttons.extend([
+        [InlineKeyboardButton(text=get_string("pose_unusual", lang), callback_data="pose:unusual")],
+        [InlineKeyboardButton(text=get_string("pose_normal", lang), callback_data="pose:normal")],
+        [InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")],
+    ])
+    
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def angle_keyboard(lang="ru") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(

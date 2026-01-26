@@ -22,6 +22,7 @@ def main_menu_keyboard(lang="ru") -> InlineKeyboardMarkup:
         inline_keyboard=[
             [InlineKeyboardButton(text=get_string("create_normal_gen", lang), callback_data="menu_create")],
             [InlineKeyboardButton(text=get_string("menu_market", lang), callback_data="menu_market")],
+            [InlineKeyboardButton(text=get_string("buy_plan", lang), callback_data="menu_subscription")],
             [InlineKeyboardButton(text=get_string("menu_profile", lang), callback_data="menu_profile")],
             [InlineKeyboardButton(text=get_string("menu_howto", lang), callback_data="menu_howto")],
             [InlineKeyboardButton(text=get_string("menu_settings", lang), callback_data="menu_settings")]
@@ -31,7 +32,6 @@ def main_menu_keyboard(lang="ru") -> InlineKeyboardMarkup:
 def profile_keyboard(lang="ru") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=get_string("menu_subscription", lang), callback_data="menu_subscription")],
             [InlineKeyboardButton(text=get_string("menu_history", lang), callback_data="menu_history")],
             [InlineKeyboardButton(text=get_string("back_main", lang), callback_data="back_main")]
         ]
@@ -42,7 +42,6 @@ def settings_keyboard(lang="ru") -> InlineKeyboardMarkup:
         inline_keyboard=[
             [InlineKeyboardButton(text=get_string("select_lang", lang), callback_data="settings_lang")],
             [InlineKeyboardButton(text=get_string("agreement", lang), callback_data="menu_agreement")],
-            [InlineKeyboardButton(text=get_string("buy_plan", lang), callback_data="menu_subscription")],
             [InlineKeyboardButton(text=get_string("back_main", lang), callback_data="back_main")]
         ]
     )

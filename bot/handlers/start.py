@@ -3486,14 +3486,8 @@ async def _do_generate(message_or_callback: Message | CallbackQuery, state: FSMC
 
         anim_task = asyncio.create_task(animate_gen(process_msg, lang))
     
-        is_own_variant = (category == "own_variant")
-        if data.get("normal_gen_mode"):
-            is_own_variant = False
-            
-        if is_own_variant:
-            api_keys = await db.list_own_variant_api_keys()
-        else:
-            api_keys = await db.list_api_keys()
+        # Всегда используем основные API ключи (Pro версия)
+        api_keys = await db.list_api_keys()
             
         active_keys = [k for k in api_keys if k[2]] # is_active
         if not active_keys:
@@ -3513,10 +3507,7 @@ async def _do_generate(message_or_callback: Message | CallbackQuery, state: FSMC
         for key_tuple in active_keys:
             kid = key_tuple[0]
             token = key_tuple[1]
-            if is_own_variant:
-                ok, limit_err = await db.check_own_variant_rate_limit(kid)
-            else:
-                ok, limit_err = await db.check_api_key_limits(kid)
+            ok, limit_err = await db.check_api_key_limits(kid)
             if not ok: continue
             
             try:
@@ -3540,8 +3531,7 @@ async def _do_generate(message_or_callback: Message | CallbackQuery, state: FSMC
                     except: pass
                 
                 if result_path:
-                    if is_own_variant: await db.record_own_variant_usage(kid)
-                    else: await db.record_api_usage(kid)
+                    await db.record_api_usage(kid)
                     
                     await db.update_daily_usage(user_id)
                     await db.increment_user_balance(user_id, -(price_tenths // 10))
@@ -3575,14 +3565,38 @@ async def _do_generate(message_or_callback: Message | CallbackQuery, state: FSMC
                     
                     # Сохраняем в историю
                     import json
+                    import os
                     pid = await db.generate_pid()
+                    history_dir = os.path.join("data", "history")
+                    os.makedirs(history_dir, exist_ok=True)
+                    local_input_paths = []
+                    local_result_path = os.path.join(history_dir, f"result_{pid}.jpg").replace("\\", "/")
+
+                    try:
+                        # Качаем результат
+                        file_info = await bot.get_file(res_msg.photo[-1].file_id)
+                        await bot.download_file(file_info.file_path, local_result_path)
+                        # Качаем входные фото
+                        for i, f_id in enumerate(input_photos):
+                            if not f_id: continue
+                            inp_path = os.path.join(history_dir, f"input_{pid}_{i}.jpg").replace("\\", "/")
+                            try:
+                                f_info = await bot.get_file(f_id)
+                                await bot.download_file(f_info.file_path, inp_path)
+                                local_input_paths.append(inp_path)
+                            except: pass
+                    except Exception as e:
+                        logger.error(f"Error downloading images for history: {e}")
+
                     await db.add_generation_history(
                         pid=pid,
                         user_id=user_id,
                         category=category,
                         params=json.dumps(data),
                         input_photos=json.dumps(input_photos),
-                        result_photo_id=res_photo_id,
+                        result_photo_id=res_msg.photo[-1].file_id,
+                        input_paths=json.dumps(local_input_paths),
+                        result_path=local_result_path,
                         prompt=prompt_filled
                     )
                     
@@ -3722,9 +3736,8 @@ async def on_result_edit_text(message: Message, state: FSMContext, db: Database)
             downloaded_paths.append(p)
 
         # Выбор API ключей
-        is_own_variant = (category == "own_variant")
-        if is_own_variant: api_keys = await db.list_own_variant_api_keys()
-        else: api_keys = await db.list_api_keys()
+        # Всегда используем основные API ключи (Pro версия)
+        api_keys = await db.list_api_keys()
         
         active_keys = [k for k in api_keys if k[2]]
         import random
@@ -3739,8 +3752,7 @@ async def on_result_edit_text(message: Message, state: FSMContext, db: Database)
 
         for key_tuple in active_keys:
             kid, token = key_tuple[0], key_tuple[1]
-            if is_own_variant: ok, _ = await db.check_own_variant_rate_limit(kid)
-            else: ok, _ = await db.check_api_key_limits(kid)
+            ok, _ = await db.check_api_key_limits(kid)
             if not ok: continue
             
             try:
@@ -3766,8 +3778,7 @@ async def on_result_edit_text(message: Message, state: FSMContext, db: Database)
 
         if result_path:
             # Успех
-            if is_own_variant: await db.record_own_variant_usage(kid_used)
-            else: await db.record_api_usage(kid_used)
+            await db.record_api_usage(kid_used)
             
             # Списываем баланс
             await db.increment_user_balance(user_id, -(price_tenths // 10))
@@ -3800,7 +3811,7 @@ async def on_result_edit_text(message: Message, state: FSMContext, db: Database)
             history_dir = os.path.join("data", "history")
             os.makedirs(history_dir, exist_ok=True)
             local_input_paths = []
-            local_result_path = os.path.join(history_dir, f"result_{pid}.jpg")
+            local_result_path = os.path.join(history_dir, f"result_{pid}.jpg").replace("\\", "/")
 
             try:
                 # Качаем результат
@@ -3809,7 +3820,7 @@ async def on_result_edit_text(message: Message, state: FSMContext, db: Database)
                 # Качаем входные фото
                 for i, f_id in enumerate(input_photos):
                     if not f_id: continue
-                    inp_path = os.path.join(history_dir, f"input_{pid}_{i}.jpg")
+                    inp_path = os.path.join(history_dir, f"input_{pid}_{i}.jpg").replace("\\", "/")
                     try:
                         f_info = await message.bot.get_file(f_id)
                         await message.bot.download_file(f_info.file_path, inp_path)

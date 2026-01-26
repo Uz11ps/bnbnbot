@@ -1,27 +1,20 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="card p-3 mb-4 bg-dark text-white">
-    <h5 class="mb-3">Добавить новый ключ</h5>
+    <h5 class="mb-3">Добавить новый ключ Gemini Pro</h5>
     <form action="/api_keys/add" method="post">
         <div class="mb-2">
-            <input type="text" name="token" class="form-control" placeholder="Вставьте токен..." required>
+            <input type="text" name="token" class="form-control" placeholder="Вставьте токен AIza..." required>
         </div>
-        <div class="d-flex gap-2">
-            <select name="table" class="form-select">
-                <option value="gemini">Gemini (Стандарт)</option>
-                <option value="own">Свой вариант (Banano)</option>
-            </select>
-            <button type="submit" class="btn btn-primary w-100">Добавить</button>
-        </div>
+        <button type="submit" class="btn btn-primary w-100">Добавить ключ</button>
     </form>
 </div>
 
-<h5 class="mt-4">Ключи (Gemini 20/мин, 235/день)</h5>
+<h5 class="mt-4">Активные ключи (Gemini Pro)</h5>
 <div class="table-responsive">
     <table class="table table-sm align-middle bg-white">
         <thead>
             <tr>
-                <th>Тип</th>
                 <th>Токен</th>
                 <th>Статус</th>
                 <th>Сегодня</th>
@@ -32,8 +25,7 @@
         <tbody>
             {% for k in gemini_keys %}
             <tr>
-                <td><span class="badge bg-light text-dark">Gemini</span></td>
-                <td><code class="text-truncate" style="max-width: 150px;">{{ k.token }}</code></td>
+                <td><code class="text-truncate" style="max-width: 250px;">{{ k.token }}</code></td>
                 <td>
                     <span class="badge {% if k.is_active %}bg-success{% else %}bg-danger{% endif %}">
                         {{ "Active" if k.is_active else "Blocked" }}
@@ -42,23 +34,7 @@
                 <td>{{ k.daily_usage }} / 235</td>
                 <td>{{ k.total_usage }}</td>
                 <td>
-                    <a href="/api_keys/delete/gemini/{{ k.id }}" class="btn btn-sm btn-outline-danger" onclick="return confirm('Удалить?')"><i class="bi bi-trash"></i></a>
-                </td>
-            </tr>
-            {% endfor %}
-            {% for k in own_keys %}
-            <tr>
-                <td><span class="badge bg-light text-dark">Свой вариант</span></td>
-                <td><code class="text-truncate" style="max-width: 150px;">{{ k.token }}</code></td>
-                <td>
-                    <span class="badge {% if k.is_active %}bg-success{% else %}bg-danger{% endif %}">
-                        {{ "Active" if k.is_active else "Blocked" }}
-                    </span>
-                </td>
-                <td class="text-muted">—</td>
-                <td class="text-muted">—</td>
-                <td>
-                    <a href="/api_keys/delete/own/{{ k.id }}" class="btn btn-sm btn-outline-danger" onclick="return confirm('Удалить?')"><i class="bi bi-trash"></i></a>
+                    <a href="/api_keys/delete/{{ k.id }}" class="btn btn-sm btn-outline-danger" onclick="return confirm('Удалить?')"><i class="bi bi-trash"></i></a>
                 </td>
             </tr>
             {% endfor %}

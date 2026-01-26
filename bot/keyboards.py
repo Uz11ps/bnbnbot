@@ -162,7 +162,6 @@ def admin_main_keyboard(lang="ru") -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text=get_string("admin_own_variant_prompts", lang), callback_data="admin_own_variant_prompts")],
             [InlineKeyboardButton(text=get_string("admin_howto_edit", lang), callback_data="admin_howto_edit")],
             [InlineKeyboardButton(text=get_string("admin_api_keys", lang), callback_data="admin_api_keys")],
-            [InlineKeyboardButton(text=get_string("admin_own_variant_api_keys", lang), callback_data="admin_own_variant_api_keys")],
             [InlineKeyboardButton(text=get_string("admin_logs", lang), callback_data="admin_logs"), InlineKeyboardButton(text=get_string("admin_proxy", lang), callback_data="admin_proxy_status")],
             [InlineKeyboardButton(text=get_string("admin_maint_on", lang), callback_data="admin_maint_on"), InlineKeyboardButton(text=get_string("admin_maint_off", lang), callback_data="admin_maint_off")],
             [InlineKeyboardButton(text=get_string("back_main", lang), callback_data="back_main")],

@@ -513,20 +513,12 @@ class Database:
 
     # Own Variant API keys management
     async def list_own_variant_api_keys(self) -> list[tuple[int, str, int]]:
-        async with aiosqlite.connect(self._db_path) as db:
-            async with db.execute(
-                "SELECT id, token, is_active FROM own_variant_api_keys ORDER BY is_active DESC, priority DESC, id"
-            ) as cur:
-                rows = await cur.fetchall()
-                return [(int(r[0]), str(r[1]), int(r[2])) for r in rows]
+        keys = await self.list_api_keys()
+        # Возвращаем в формате (id, token, is_active)
+        return [(k[0], k[1], k[2]) for k in keys]
 
     async def list_active_own_variant_api_keys(self) -> list[str]:
-        async with aiosqlite.connect(self._db_path) as db:
-            async with db.execute(
-                "SELECT token FROM own_variant_api_keys WHERE is_active=1 ORDER BY priority DESC, id"
-            ) as cur:
-                rows = await cur.fetchall()
-                return [str(r[0]) for r in rows]
+        return await self.list_active_api_keys()
 
     async def add_own_variant_api_key(self, token: str, priority: int = 0) -> int:
         async with aiosqlite.connect(self._db_path) as db:
@@ -565,73 +557,10 @@ class Database:
 
     # Own Variant Rate Limiting
     async def check_own_variant_rate_limit(self, key_id: int, tokens_needed: int = 2) -> tuple[bool, str]:
-        """
-        Проверяет rate limits для own_variant API ключа:
-        - 20 запросов в минуту
-        - 100 токенов в день
-        - 250 запросов в день
-        
-        Returns: (is_allowed, error_message)
-        """
-        from datetime import datetime, timedelta
-        import time
-        
-        now = datetime.now()
-        today = now.date()
-        current_minute = int(time.time() // 60)
-        
-        async with aiosqlite.connect(self._db_path) as db:
-            # Проверка: 20 запросов в минуту
-            async with db.execute(
-                "SELECT SUM(requests_count) FROM own_variant_rate_limit WHERE key_id=? AND minute_start=?",
-                (int(key_id), current_minute)
-            ) as cur:
-                row = await cur.fetchone()
-                minute_requests = int(row[0]) if row and row[0] else 0
-                if minute_requests >= 20:
-                    return False, "Превышен лимит: 20 запросов в минуту"
-            
-            # Проверка: 100 токенов в день
-            async with db.execute(
-                "SELECT SUM(tokens_used) FROM own_variant_rate_limit WHERE key_id=? AND date=?",
-                (int(key_id), today.isoformat())
-            ) as cur:
-                row = await cur.fetchone()
-                daily_tokens = int(row[0]) if row and row[0] else 0
-                if daily_tokens + tokens_needed > 100:
-                    return False, f"Превышен лимит: 100 токенов в день (использовано: {daily_tokens}, нужно: {tokens_needed})"
-            
-            # Проверка: 250 запросов в день
-            async with db.execute(
-                "SELECT SUM(requests_count) FROM own_variant_rate_limit WHERE key_id=? AND date=?",
-                (int(key_id), today.isoformat())
-            ) as cur:
-                row = await cur.fetchone()
-                daily_requests = int(row[0]) if row and row[0] else 0
-                if daily_requests >= 250:
-                    return False, "Превышен лимит: 250 запросов в день"
-            
-            return True, ""
+        return await self.check_api_key_limits(key_id)
 
     async def record_own_variant_usage(self, key_id: int, tokens_used: int = 2) -> None:
-        """Записывает использование API ключа для rate limiting"""
-        from datetime import datetime
-        import time
-        
-        now = datetime.now()
-        today = now.date()
-        current_minute = int(time.time() // 60)
-        
-        async with aiosqlite.connect(self._db_path) as db:
-            await db.execute(
-                """INSERT INTO own_variant_rate_limit (key_id, date, minute_start, requests_count, tokens_used)
-                   VALUES (?, ?, ?, 1, ?)
-                   ON CONFLICT(key_id, date, minute_start) DO UPDATE SET
-                       requests_count = requests_count + 1,
-                       tokens_used = tokens_used + excluded.tokens_used""",
-                (int(key_id), today.isoformat(), current_minute, int(tokens_used))
-            )
-            await db.commit()
+        await self.record_api_usage(key_id)
 
     # Maintenance flag
     async def get_maintenance(self) -> bool:

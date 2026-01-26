@@ -1421,17 +1421,10 @@ async def admin_api_key_add_priority(message: Message, state: FSMContext, db: Da
         except Exception:
             await message.answer(get_string("admin_gemini_key_val_error", lang))
             return
-    is_own_variant = data.get("own_variant", False)
-    if is_own_variant:
-        await db.add_own_variant_api_key(token, priority)
-        await state.clear()
-        keys = await db.list_own_variant_api_keys()
-        await message.answer(get_string("admin_gemini_key_added", lang), reply_markup=admin_own_variant_api_keys_keyboard(keys, lang))
-    else:
-        await db.add_api_key(token, priority)
-        await state.clear()
-        keys = await db.list_api_keys()
-        await message.answer(get_string("admin_gemini_key_added", lang), reply_markup=admin_api_keys_keyboard(keys, lang))
+    await db.add_api_key(token, priority)
+    await state.clear()
+    keys = await db.list_api_keys()
+    await message.answer(get_string("admin_gemini_key_added", lang), reply_markup=admin_api_keys_keyboard(keys, lang))
 
 
 @router.callback_query(F.data.startswith("api_key_toggle:"))
@@ -1538,83 +1531,6 @@ async def admin_api_key_edit_priority(message: Message, state: FSMContext, db: D
     await state.clear()
     keys = await db.list_api_keys()
     await message.answer(get_string("admin_gemini_key_updated", lang), reply_markup=admin_api_keys_keyboard(keys, lang))
-
-
-# Own Variant API Keys Management
-@router.callback_query(F.data == "admin_own_variant_api_keys")
-async def admin_own_variant_api_keys(callback: CallbackQuery, db: Database, settings: Settings) -> None:
-    if not _is_admin(callback.from_user.id, settings):
-        await _safe_answer(callback)
-        return
-    lang = await db.get_user_language(callback.from_user.id)
-    keys = await db.list_own_variant_api_keys()
-    await callback.message.edit_text(get_string("admin_own_variant_keys", lang), reply_markup=admin_own_variant_api_keys_keyboard(keys, lang))
-    await _safe_answer(callback)
-
-
-@router.callback_query(F.data == "own_variant_api_key_add")
-async def admin_own_variant_api_key_add_start(callback: CallbackQuery, settings: Settings, state: FSMContext, db: Database) -> None:
-    if not _is_admin(callback.from_user.id, settings):
-        await _safe_answer(callback)
-        return
-    lang = await db.get_user_language(callback.from_user.id)
-    await state.set_state(ApiKeyAddState.waiting_token)
-    await state.update_data(own_variant=True)
-    await _replace_with_text(callback, get_string("admin_gemini_add_key_own", lang))
-    await _safe_answer(callback)
-
-
-@router.callback_query(F.data.startswith("own_variant_api_key_toggle:"))
-async def admin_own_variant_api_key_toggle(callback: CallbackQuery, db: Database, settings: Settings) -> None:
-    if not _is_admin(callback.from_user.id, settings):
-        await _safe_answer(callback)
-        return
-    lang = await db.get_user_language(callback.from_user.id)
-    key_id = int(callback.data.split(":", 1)[1])
-    keys = await db.list_own_variant_api_keys()
-    status = 1
-    for kid, _tok, is_active in keys:
-        if kid == key_id:
-            status = 0 if is_active else 1
-            break
-    await db.update_own_variant_api_key(key_id, is_active=status)
-    keys = await db.list_own_variant_api_keys()
-    await callback.message.edit_text(get_string("admin_own_variant_keys", lang), reply_markup=admin_own_variant_api_keys_keyboard(keys, lang))
-    await _safe_answer(callback)
-
-
-@router.callback_query(F.data.startswith("own_variant_api_key_delete:"))
-async def admin_own_variant_api_key_delete(callback: CallbackQuery, db: Database, settings: Settings) -> None:
-    if not _is_admin(callback.from_user.id, settings):
-        await _safe_answer(callback)
-        return
-    lang = await db.get_user_language(callback.from_user.id)
-    key_id = int(callback.data.split(":", 1)[1])
-    await db.delete_own_variant_api_key(key_id)
-    keys = await db.list_own_variant_api_keys()
-    await callback.message.edit_text(get_string("admin_own_variant_keys", lang), reply_markup=admin_own_variant_api_keys_keyboard(keys, lang))
-    await _safe_answer(callback)
-
-
-@router.callback_query(F.data.startswith("own_variant_api_key_show:"))
-async def admin_own_variant_api_key_show(callback: CallbackQuery, db: Database, settings: Settings) -> None:
-    if not _is_admin(callback.from_user.id, settings):
-        await _safe_answer(callback)
-        return
-    lang = await db.get_user_language(callback.from_user.id)
-    key_id = int(callback.data.split(":", 1)[1])
-    keys = await db.list_own_variant_api_keys()
-    token = None
-    state_txt = ""
-    for kid, tok, is_active in keys:
-        if kid == key_id:
-            token = tok
-            state_txt = get_string("admin_maint_enabled", lang) if is_active else get_string("admin_maint_disabled", lang)
-            break
-    if token is None:
-        await _safe_answer(callback, get_string("admin_user_not_found", lang), show_alert=True)
-        return
-    await _safe_answer(callback, get_string("admin_own_variant_key_show", lang, key_id=key_id, token=token, state_txt=state_txt), show_alert=True)
 
 
 # Own Variant Prompt Management

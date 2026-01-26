@@ -1390,24 +1390,18 @@ async def update_app_settings(
 @app.get("/api_keys", response_class=HTMLResponse)
 async def list_keys(request: Request, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
     try:
-        async with db.execute("SELECT * FROM api_keys") as cur:
+        async with db.execute("SELECT * FROM api_keys ORDER BY is_active DESC, id") as cur:
             gemini_keys = await cur.fetchall()
     except Exception: gemini_keys = []
     
-    try:
-        async with db.execute("SELECT * FROM own_variant_api_keys") as cur:
-            own_keys = await cur.fetchall()
-    except Exception: own_keys = []
-    
-    return templates.TemplateResponse("api_keys.html", {"request": request, "gemini_keys": gemini_keys, "own_keys": own_keys})
+    return templates.TemplateResponse("api_keys.html", {"request": request, "gemini_keys": gemini_keys})
 
 @app.post("/api_keys/add")
-async def add_key(token: str = Form(...), table: str = Form(...), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+async def add_key(token: str = Form(...), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
     # Очистка токена от всего лишнего
-    # 1. Убираем пробелы, табы, переносы строк
     token = "".join(token.split())
     
-    # 2. Исправляем кириллицу (частые ошибки при копировании)
+    # Исправляем кириллицу
     cyr_to_lat = {
         'А': 'A', 'В': 'B', 'Е': 'E', 'К': 'K', 'М': 'M', 'Н': 'H', 
         'О': 'O', 'Р': 'P', 'С': 'C', 'Т': 'T', 'У': 'y', 'Х': 'X',
@@ -1418,19 +1412,16 @@ async def add_key(token: str = Form(...), table: str = Form(...), db: aiosqlite.
         new_token += cyr_to_lat.get(char, char)
     token = new_token
 
-    # 3. Оставляем только допустимые символы для API ключа (A-Z, a-z, 0-9, _, -)
     import re
     token = re.sub(r'[^A-Za-z0-9_\-]', '', token)
     
-    table_name = "api_keys" if table == "gemini" else "own_variant_api_keys"
-    await db.execute(f"INSERT INTO {table_name} (token) VALUES (?)", (token,))
+    await db.execute("INSERT INTO api_keys (token) VALUES (?)", (token,))
     await db.commit()
     return RedirectResponse(url="/api_keys", status_code=303)
 
-@app.get("/api_keys/delete/{table}/{key_id}")
-async def delete_key(table: str, key_id: int, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
-    table_name = "api_keys" if table == "gemini" else "own_variant_api_keys"
-    await db.execute(f"DELETE FROM {table_name} WHERE id=?", (key_id,))
+@app.get("/api_keys/delete/{key_id}")
+async def delete_key(key_id: int, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    await db.execute("DELETE FROM api_keys WHERE id=?", (key_id,))
     await db.commit()
     return RedirectResponse(url="/api_keys", status_code=303)
 

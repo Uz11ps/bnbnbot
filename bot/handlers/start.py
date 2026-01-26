@@ -3121,6 +3121,7 @@ async def _build_final_prompt(data: dict, db: Database) -> str:
         "{Пол модели}": gender_word, "{пол}": gender_word, "{Пол}": gender_word,
         "(ТУТ УКАЗЫВАЕМ УКАЗЫВАЕМ ПОЛ)": gender_word, "(ТУТ УКАЗЫВАЕМ ПОВТОРНО ПОЛ МОДЕЛИ)": gender_word,
         "(ТУТ УКАЗЫВАЕМ ПОВТОРНО Пол модели}": gender_word, "(ТУТ УКАЗЫВАЕМ Пол модели)": gender_word,
+        "(ТУТ УКАЗЫВАЕМ  УКАЗЫВАЕМ ПОЛ)": gender_word,
         
         "{Название товара}": str(data.get("product_name") or data.get("info_brand") or ""),
         "{brand}": str(data.get("info_brand") or ""),

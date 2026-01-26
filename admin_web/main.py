@@ -753,11 +753,16 @@ async def run_migrations(db: aiosqlite.Connection):
 
     # --- МИГРАЦИЯ ПРОМПТОВ (FORCE UPDATE) ---
     try:
-        # Проверяем, нужно ли обновлять инфографику
+        # Функция для проверки, содержит ли текст старые метки
+        def has_old_tags(text: str) -> bool:
+            if not text: return True
+            return any(x in text for x in ["(ТУТ УКАЗЫВАЕМ", "УКАЗЫВАЕМ ПОЛ", "НАГРУЖЕННОСТЬ", "ПРИМУЩЕСТВО", "УКАЗЫВАЕМ  УКАЗЫВАЕМ"])
+
+        # 1. Инфографика (Одежда)
         async with db.execute("SELECT value FROM app_settings WHERE key='infographic_clothing_prompt'") as cur:
             row = await cur.fetchone()
-            if not row or "(ТУТ УКАЗЫВАЕМ" in row[0]:
-                infographic_prompt = r'''ROLE / TASK
+            if not row or has_old_tags(row[0]):
+                text = r'''ROLE / TASK
 Generate ONE modern high-fashion advertising poster in a magazine cover style,
 derived from the uploaded product photo.
 for a marketplace using ONLY the uploaded product photo.
@@ -880,7 +885,7 @@ IMAGE QUALITY
 – no blur or plastic effects
 
 STYLE MODE BY CATEGORY
-Product gender category: {Пол}
+Product gender category: {Пол модели}
 
 If WOMEN: modern editorial, elegant, trendy.
 If MEN: строгий, геометричный, контрастный.
@@ -1227,12 +1232,12 @@ body volume. Body size ALWAYS overrides pose, styling, age and camera angle.
 
 Height: {Рост модели}
 Age: {Возраст модели}
-Gender: {Пол}
+Gender: {Пол модели}
 
 GARMENT PARAMETERS
 Product length: {Длина изделия}
 Sleeve type: {Тип рукава}
-Pants cut: {Тип кроя}
+Pants cut: {Тип кроя штанов}
 If empty → use only what is visible.
 
 CATEGORY DETECTION
@@ -1255,18 +1260,14 @@ FINAL QUALITY CHECK
 – exact color match
 – zero invented details
 – model neutral and product unobstructed'''
-                await db.execute(
-                    "INSERT INTO app_settings (key, value) VALUES ('infographic_clothing_prompt', ?) "
-                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                    (infographic_prompt.strip(),)
-                )
-                await db.commit()
+                await db.execute("INSERT INTO app_settings (key, value) VALUES ('infographic_clothing_prompt', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (text.strip(),))
                 print("Migration: Updated infographic_clothing_prompt")
 
+        # 2. Рандом прочее
         async with db.execute("SELECT value FROM app_settings WHERE key='random_other_prompt'") as cur:
             row = await cur.fetchone()
-            if not row or "(ТУТ УКАЗЫВАЕМ" in row[0]:
-                random_other_prompt = r'''You are a professional product stylist and commercial photographer.
+            if not row or has_old_tags(row[0]):
+                text = r'''You are a professional product stylist and commercial photographer.
 Analyze the uploaded image and identify the main product only.
 Treat the product as a finished commercial item with a final, approved design.
 Product Integrity (STRICT)
@@ -1346,13 +1347,373 @@ Ultra-realistic
 Professional commercial photography
 Correct perspective and lighting
 No added text or watermarks'''
-                await db.execute(
-                    "INSERT INTO app_settings (key, value) VALUES ('random_other_prompt', ?) "
-                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                    (random_other_prompt.strip(),)
-                )
-                await db.commit()
+                await db.execute("INSERT INTO app_settings (key, value) VALUES ('random_other_prompt', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (text.strip(),))
                 print("Migration: Updated random_other_prompt")
+
+        # 3. Рандом
+        async with db.execute("SELECT value FROM app_settings WHERE key='random_prompt'") as cur:
+            row = await cur.fetchone()
+            if not row or has_old_tags(row[0]):
+                text = r'''You are a professional commercial fashion imaging AI. Your task is to take the uploaded product photo as the ONLY source of truth and present the product on a realistic human model strictly for sale purposes.
+
+ABSOLUTE PRODUCT FIDELITY (CRITICAL):
+The uploaded product photo is the only reference. The product must be reproduced with 100% accuracy including exact shape, silhouette, proportions, cut, construction, seams, stitching, materials, fabric texture, thickness impression, exact color and shade. It is strictly forbidden to redesign, stylize, improve, simplify, reinterpret, add or remove elements or invent details not visible on the photo. If a detail, material or texture is not clearly visible on the photo, it must be treated as non-existent.
+
+FABRIC & TEXTURE DISTRIBUTION LOCK (ABSOLUTE):
+Fabric type, knit structure and texture MUST be reproduced exactly as shown on the product photo AND ONLY in the areas where they are visible. If a specific texture (e.g. ribbed, knitted, “lapsha”, structured knit, smooth knit, woven fabric) appears only in certain zones of the product (such as neckline, collar, cuffs, hem or panels), it MUST remain strictly limited to those zones. It is strictly forbidden to extend, repeat, generalize or apply a visible texture or knit pattern to other parts of the product where it is not present on the photo. Any global material unification is a critical failure.
+
+STRUCTURAL CONSTRUCTION LOCK (ABSOLUTE):
+Any structural construction elements that exist on the product (including but not limited to neckline, collar, neck opening, cuffs, hems, closures, zippers, tongues, waistlines or openings) MUST be reproduced exactly as shown on the uploaded product photo. The AI is strictly forbidden to modify, reinterpret, stylize, adjust or “improve” the shape, height, width, depth, curvature, openness, fit or construction logic of any existing structural element. If a structural element is not clearly visible on the product photo, it must be treated as non-existent and must not be inferred.
+
+GARMENT SURFACE CONDITION RULE (ABSOLUTE):
+If the product on the photo shows wrinkles, creases or folds caused by storage or hanging, the product MUST be presented neatly steamed and smooth on the model. Removing wrinkles is allowed ONLY as surface smoothing. It is strictly forbidden to change fabric behavior, stiffness, thickness, drape, elasticity, knit structure or material appearance while smoothing. No reshaping, tightening or texture alteration is allowed.
+
+PRODUCT COLOR LOCK (ABSOLUTE):
+The AI must determine the exact product color exclusively from the uploaded photo. Color must match base color, undertone, saturation and brightness exactly. No recoloring, enhancement, lighting reinterpretation or stylistic shift is allowed. Lighting must not alter perceived color.
+
+IMAGE RESOLUTION, SHARPNESS & OPTICAL QUALITY (CRITICAL)
+
+The generated image must simulate a true high-end commercial fashion photograph captured in studio-grade Ultra High Definition (true 4K).
+
+MANDATORY TECHNICAL REQUIREMENTS:
+– ultra-high resolution look with true 4K-equivalent pixel density
+– extreme micro-detail clarity on fabric, seams, stitching, edges and construction lines
+– tack-sharp focus across the entire visible product area
+– no softness, haze, blur, diffusion, glow or cinematic softness
+– no motion blur, depth blur, lens blur or artificial bokeh on the product
+– no painterly, illustrative or AI-smoothed textures
+
+OPTICAL & SENSOR REALISM RULES:
+– simulate professional commercial camera optics and sensor behavior (high-end fashion photography setup)
+– realistic depth of field, but the product must remain 100% in sharp focus at all times
+– natural micro-contrast and edge acuity without digital oversharpening
+– edge definition must be crisp, clean and physically precise
+– fabric texture must be clearly readable at close inspection
+– stitching, seams and material transitions must be visibly distinct and realistic
+
+ANTI-AI SMOOTHING & ANTI-RENDER LOCK:
+– strictly forbid any neural smoothing, beauty smoothing or texture averaging
+– strictly forbid plastic, waxy, rubbery or over-processed surfaces
+– forbid CGI-like, render-like or synthetic surface appearance
+– preserve natural fabric micro-structure and physical irregularities without exaggeration
+
+COMPRESSION & OUTPUT QUALITY:
+– image must look uncompressed and lossless
+– no JPEG artifacts, noise blobs, aliasing or texture breakup
+– clean tonal transitions without banding or posterization
+
+PRIORITY RULE:
+Image sharpness, resolution, texture readability and physical realism must NEVER be reduced for style, mood, lighting effects or artistic interpretation.
+
+STRUCTURAL CONSTRUCTION LOCK (ABSOLUTE):
+Any structural construction elements that exist on the product (including but not limited to neckline, collar, neck opening, cuffs, hems, closures, zippers, tongues, collars, waistlines or openings) MUST be reproduced exactly as shown on the uploaded product photo. The AI is strictly forbidden to modify, reinterpret, stylize, adjust or “improve” the shape, height, width, depth, curvature, openness, fit or construction logic of any existing structural element. If a structural element is not clearly visible on the product photo, it must be treated as non-existent and must not be inferred. Any deviation from original structural construction is a critical failure.
+
+Location type: {Тип локации}
+Rules: If На улице → image must be outdoors. If В помещении → image must be indoors. Mixing is forbidden.
+
+2.LOCATION DESIGN DIVERSITY & STYLE RANDOMIZATION (CRITICAL): {Стиль локации}
+
+If the Location style / subtype is a short generic phrase (length ≤ 18 characters, e.g. у кофейни, на улице, в помещении, у машины), the AI MUST generate a visually strong, contemporary environment aligned with global fashion, architecture and visual design standards of 2025.
+
+The design language MUST be modern, bold and editorial, not cozy or lifestyle-oriented.
+
+FORBIDDEN STYLES & MOODS:
+– warm cozy interiors
+– beige / cream / soft brown dominant palettes
+– “comfortable”, “homey”, “vintage”, “loft lifestyle” aesthetics
+– rustic, retro, classic, Scandinavian hygge
+– warm ambient lighting as dominant mood
+
+MANDATORY VISUAL CHARACTERISTICS:
+– contemporary materials (glass, metal, concrete, stone, technical surfaces)
+– clear geometry and spatial contrast
+– neutral-to-cool or mixed temperature lighting with directional light
+– fashion-editorial or architectural composition
+– sense of modernity, clarity and visual tension
+
+The AI MUST vary visual direction across generations using modern design approaches such as contemporary minimalism, architectural modern, urban editorial, experimental space, brutal-modern, high-fashion showroom or cinematic contemporary environments.
+
+Repetition of the same color palette, lighting mood or spatial logic across generations is strictly forbidden.
+
+Environmental lighting and design must never cast color reflections onto the product or alter perceived product color.
+
+If the location refers to a real existing place, the AI MUST follow its real-world architectural identity regardless of text length.
+
+Season: {Сезон}
+Applied ONLY if Location type = На улице. Зима → visible snow; Лето → clear weather and sunlight; Осень → dry autumn leaves; Весна → fresh spring atmosphere. If В помещении → ignore completely.
+
+Holiday: {Праздник}
+Apply only a light, subtle holiday hint without heavy decorations or product changes. If empty → ignore.
+
+Model’s pose: {Поза модели}
+Обычный → natural commercial pose. Вульгарный → openly provocative pose. Нестандартная → unstable or transitional pose. Pose must never distort, hide or deform the product.
+
+Body size of the model: {Размер модели}
+BODY SIZE GEOMETRY RULE (ABSOLUTE): Body size defines real physical body volume, mass and softness, not styling, posture or fitness. Each higher size must be visibly larger and heavier than the previous one.
+42–44 very slim; 46–48 slim; 50–52 slim-curvy with visible softness and NO athletic appearance; 54–56 curvy with clear belly volume and wide waist; 58–60 heavy with substantial mass; 60+ very large massive body.
+FORBIDDEN FOR SIZES 50 AND ABOVE: flat or tight abdomen, athletic or fit body, toned muscles, narrow waist, “plus-size but slim” interpretation.
+Pose, posture, camera angle or clothing must not slim or hide body volume. Body size always overrides age, pose, styling and camera angle.
+
+Model height: {Рост модели}
+Use exactly as specified.
+
+Model’s age: {Возраст модели}
+50+ → visible age signs and natural wrinkles; 65+ → pronounced aging. Any rejuvenation, blur or beauty filters are forbidden.
+
+Pants cut type: {Тип кроя штанов}
+If empty → choose a cut that naturally fits the product.
+
+Sleeve type: {Тип рукава}
+If empty → replicate sleeves exactly as on the product photo. If footwear → ignore.
+
+Product length: {Длина изделия}
+If specified → follow precisely. If empty → determine strictly from the product photo.
+
+Model orientation: {Угол камеры}
+Спереди → front view with slight tilt allowed. Сзади → back view with head turn allowed.
+
+Camera angle: {ракурс фотографии}
+CAMERA FRAMING LOCK (ABSOLUTE):
+Дальний → full body head to feet only.
+Средний → head to mid-thigh ONLY; legs below mid-thigh must not be visible.
+Близкий → waist to head ONLY; hips and legs must not be visible.
+Product category rules must NOT expand framing beyond the specified camera angle.
+
+Gender: {Пол модели}
+Specify explicitly.
+
+PRODUCT CATEGORY LOGIC (CRITICAL):
+Upper garments require suitable bottoms that do not hide the product. Dresses must never have pants. Long coats or robes must not show pants. Pants as product require a top that does not cover waist or cut. Footwear requires suitable complementary clothing.
+
+MODEL APPEARANCE AND RANDOMIZATION (CRITICAL):
+
+Randomization is mandatory and should vary depending on certain categories of appearance.
+
+FORBIDDEN BY APPEARANCE:
+Asian, African, and African-American types are strictly prohibited.
+
+Any kind of hairstyle and hair styling is allowed!
+
+SKIN REALISM LOCK (ABSOLUTE):
+Skin must be natural and physically realistic. Glossy, oily, plastic, porcelain or beauty-retouched skin is forbidden. Visible pores and natural texture are required.
+
+MODEL REUSE PREVENTION (FAIL-SAFE):
+If face, hairstyle, hair color or overall appearance is visually similar to a previous generation, the result is INVALID and must be regenerated.
+
+FINAL GOAL:
+Produce a realistic, professional, sale-ready image where commercial presentation NEVER overrides product construction, proportions, fit, structure or color accuracy.'''
+                await db.execute("INSERT INTO app_settings (key, value) VALUES ('random_prompt', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (text.strip(),))
+                print("Migration: Updated random_prompt")
+
+        # 4. Белый фон
+        async with db.execute("SELECT value FROM app_settings WHERE key='whitebg_prompt'") as cur:
+            row = await cur.fetchone()
+            if not row or has_old_tags(row[0]):
+                text = r'''ROLE / SYSTEM TASK
+
+You are a professional commercial product visualization AI used for marketplaces, brand catalogs, and e-commerce vitrines.
+
+Your task is to analyze the uploaded real product photo and generate a photorealistic 3D-render-style product image on a pure white background, visually indistinguishable from a real studio photograph.
+
+The result must look like a high-end retail vitrine product photo, NOT like obvious CGI or synthetic 3D.
+
+SOURCE OF TRUTH (CRITICAL)
+
+The uploaded product photo is the ONLY and ABSOLUTE SOURCE OF TRUTH.
+
+You must study the product carefully.
+
+You must analyze only the product itself, NOT the background.
+
+Color(s), material, shape, proportions, construction, seams, edges, thickness, texture, and all physical details must be derived strictly from the product visible in the photo.
+
+🚫 DO NOT copy-paste, overlay, or reuse the original photo in any form.
+🚫 DO NOT place the original photo on top of a background.
+🚫 DO NOT partially reuse pixels, silhouettes, shadows, or cutouts from the source image.
+
+The final image must be a newly generated, reconstructed product, not a manipulation of the original image.
+
+PRODUCT RECONSTRUCTION RULES (HIGHEST PRIORITY)
+
+Recreate the product with 100% structural fidelity:
+
+Exact silhouette and proportions
+
+Exact cut and geometry
+
+Exact number and placement of seams, stitches, panels
+
+Exact edges, folds, thickness, and volume
+
+Exact material appearance (fabric, leather, plastic, metal, etc.)
+
+Exact color(s) of the product itself (ignore background lighting)
+
+🚫 FORBIDDEN ACTIONS
+
+Adding buttons, zippers, pockets, logos, straps, patterns, prints, textures, or any elements not present in the original photo
+
+Removing elements that exist in the original photo
+
+“Improving”, “enhancing”, “stylizing”, or “modernizing” the design
+
+Guessing hidden details that are not visible
+
+Symmetry correction if the product is asymmetrical in the photo
+
+If a detail is not clearly visible, keep it neutral and minimal, never invented.
+
+COLOR & MATERIAL INTELLIGENCE
+
+Analyze only the product’s real color(s), not reflections from background or lighting.
+
+Do not change hue, saturation, brightness, or tone.
+
+Do not “beautify” colors.
+
+Material realism is mandatory: fabric grain, matte/gloss level, softness, rigidity must match reality.
+
+WRINKLES & CONDITION NORMALIZATION
+
+If the product in the photo shows:
+
+Wrinkles
+
+Creases
+
+Folding marks
+
+Signs of being un-ironed or deformed by storage
+
+You must render the product as:
+
+Perfectly straightened
+
+Neatly arranged
+
+Ironed / smoothed
+
+Retail-ready condition
+
+⚠️ This applies ONLY to surface condition.
+⚠️ Structural shape, cut, and proportions must remain unchanged.
+
+PHOTOREALISTIC 3D STYLE (CRITICAL)
+
+The output must:
+
+Look like a real studio product photograph
+
+Be indistinguishable from a DSLR or medium-format camera shot
+
+Avoid visible CGI traits (plastic look, fake highlights, unnatural edges)
+
+Lighting:
+
+Soft, neutral studio lighting
+
+Natural shadows under the product
+
+No dramatic, artistic, or cinematic lighting
+
+Background:
+
+Pure white (#FFFFFF)
+
+No gradients
+
+No textures
+
+No reflections
+
+No environment
+
+Camera:
+
+Neutral focal length (no distortion)
+
+Product centered
+
+Clean, commercial framing
+
+ABSOLUTE PROHIBITIONS
+
+🚫 Do NOT:
+
+Copy the original photo
+
+Paste the original product image onto a background
+
+Add branding, text, labels, watermarks
+
+Add props, models, hands, stands (unless visible in original photo)
+
+Change product orientation unless clearly required for vitrine presentation
+
+Add “AI enhancements” or fictional improvements
+
+QUALITY CONTROL CHECK (MANDATORY INTERNAL STEP)
+
+Before finalizing the image, verify internally:
+
+Is this a newly generated product, not a reused photo?
+
+Does every visible detail exist in the original photo?
+
+Are there ZERO invented elements?
+
+Does it look like a real retail product photo, not CGI?
+
+Is the background pure white and clean?
+
+Is the product ironed and neat, without altering structure?
+
+If any answer is “NO” → regenerate.
+
+FINAL OUTPUT REQUIREMENT
+
+Produce ONE single, high-resolution, photorealistic product image suitable for:
+
+Marketplace product card
+
+Online store vitrine
+
+Brand catalog
+
+No explanations.
+No captions.
+No text overlays.
+Image only.'''
+                await db.execute("INSERT INTO app_settings (key, value) VALUES ('whitebg_prompt', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (text.strip(),))
+                print("Migration: Updated whitebg_prompt")
+
+        # 5. Очистка всех промптов в таблице prompts (для пресетов)
+        async with db.execute("SELECT id, text FROM prompts") as cur:
+            rows = await cur.fetchall()
+            for pid, ptext in rows:
+                if ptext and "(ТУТ УКАЗЫВАЕМ" in ptext:
+                    new_text = ptext.replace("(ТУТ УКАЗЫВАЕМ Пол модели)", "{Пол модели}") \
+                                     .replace("(ТУТ УКАЗЫВАЕМ ШИРИНУ)", "{Ширина}") \
+                                     .replace("(ТУТ УКАЗЫВАЕМ ВЫСОТУ)", "{Высота}") \
+                                     .replace("(ТУТ УКАЗЫВАЕМ ДЛИНУ)", "{Длина}") \
+                                     .replace("(ТУТ УКАЗЫВАЕМ СЕЗОН)", "{Сезон}") \
+                                     .replace("(ТУТ УКАЗЫВАЕМ СТИЛЬ)", "{Стиль}") \
+                                     .replace("(ТУТ УКАЗЫВАЕМ Присутствует ли человек на фото)", "{Присутствует ли человек на фото}") \
+                                     .replace("(ТУТ УКАЗЫВАЕМ Нагруженность инфографики)", "{Нагруженность}") \
+                                     .replace("(ТУТ УКАЗЫВАЕМ Угол камеры)", "{Угол камеры}") \
+                                     .replace("(ТУТ УКАЗЫВАЕМ Поза модели)", "{Поза}") \
+                                     .replace("(ТУТ УКАЗЫВАЕМ Рост модели)", "{Рост модели}") \
+                                     .replace("(ТУТ УКАЗЫВАЕМ Возраст модели)", "{Возраст модели}") \
+                                     .replace("(ТУТ УКАЗЫВАЕМ РАЗМЕР МОДЕЛИ)", "{Размер модели}") \
+                                     .replace("(ТУТ УКАЗЫВАЕМ ЯЗЫК ИНФОГРАФИКИ)", "{Язык инфографики}") \
+                                     .replace("(ТУТ УКАЗЫВАЕМ ПРИМУЩЕСТВО 1)", "{Преимущество 1}") \
+                                     .replace("(ТУТ УКАЗЫВАЕМ ПРИМУЩЕСТВО 2)", "{Преимущество 2}") \
+                                     .replace("(ТУТ УКАЗЫВАЕМ ПРИМУЩЕСТВО 3)", "{Преимущество 3}") \
+                                     .replace("(ТУТ УКАЗЫВАЕМ ДОП ЧТО УГОДНО О ТОВАРЕ)", "{Доп информация}")
+                    await db.execute("UPDATE prompts SET text=? WHERE id=?", (new_text, pid))
+                    print(f"Migration: Cleaned up prompt ID {pid}")
+
+        await db.commit()
     except Exception as e:
         print(f"Migration error (prompts update): {e}")
 

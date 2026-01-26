@@ -61,7 +61,10 @@ import asyncio
 import time
 from aiogram.enums import ChatAction
 import logging
+import os
+import json
 
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 logger = logging.getLogger(__name__)
 
 
@@ -3522,7 +3525,7 @@ async def _do_generate(message_or_callback: Message | CallbackQuery, state: FSMC
                     downloaded_paths.append(p)
                 
                 from bot.gemini import generate_image
-                aspect = data.get("aspect", "1:1").replace(":", "x")
+                aspect = (data.get("aspect") or "1:1").replace(":", "x")
                 result_path = await generate_image(api_key=token, prompt=prompt_filled, image_paths=downloaded_paths, aspect_ratio=aspect, quality=quality)
                 
                 import os
@@ -3563,27 +3566,29 @@ async def _do_generate(message_or_callback: Message | CallbackQuery, state: FSMC
                     res_photo_id = res_msg.photo[-1].file_id
                     await state.update_data(result_photo_id=res_photo_id)
                     
-                    # Сохраняем в историю
-                    import json
-                    import os
-                    pid = await db.generate_pid()
                     history_dir = os.path.join("data", "history")
                     os.makedirs(history_dir, exist_ok=True)
+                    
+                    pid = await db.generate_pid()
                     local_input_paths = []
-                    local_result_path = os.path.join(history_dir, f"result_{pid}.jpg").replace("\\", "/")
+                    # Для Windows/Linux совместимости путей в БД используем /
+                    db_result_path = f"data/history/result_{pid}.jpg"
+                    local_result_path = os.path.join(BASE_DIR, db_result_path)
 
                     try:
                         # Качаем результат
                         file_info = await bot.get_file(res_msg.photo[-1].file_id)
                         await bot.download_file(file_info.file_path, local_result_path)
+                        
                         # Качаем входные фото
                         for i, f_id in enumerate(input_photos):
                             if not f_id: continue
-                            inp_path = os.path.join(history_dir, f"input_{pid}_{i}.jpg").replace("\\", "/")
+                            db_inp_path = f"data/history/input_{pid}_{i}.jpg"
+                            local_inp_path = os.path.join(BASE_DIR, db_inp_path)
                             try:
                                 f_info = await bot.get_file(f_id)
-                                await bot.download_file(f_info.file_path, inp_path)
-                                local_input_paths.append(inp_path)
+                                await bot.download_file(f_info.file_path, local_inp_path)
+                                local_input_paths.append(db_inp_path)
                             except: pass
                     except Exception as e:
                         logger.error(f"Error downloading images for history: {e}")
@@ -3596,7 +3601,7 @@ async def _do_generate(message_or_callback: Message | CallbackQuery, state: FSMC
                         input_photos=json.dumps(input_photos),
                         result_photo_id=res_msg.photo[-1].file_id,
                         input_paths=json.dumps(local_input_paths),
-                        result_path=local_result_path,
+                        result_path=db_result_path,
                         prompt=prompt_filled
                     )
                     
@@ -3747,7 +3752,7 @@ async def on_result_edit_text(message: Message, state: FSMContext, db: Database)
         kid_used = None
         
         from bot.gemini import generate_image
-        aspect = data.get("aspect", "1:1").replace(":", "x")
+        aspect = (data.get("aspect") or "1:1").replace(":", "x")
         if aspect == "auto": aspect = "1x1" # Для Gemini лучше передать конкретный формат
 
         for key_tuple in active_keys:
@@ -3804,27 +3809,29 @@ async def on_result_edit_text(message: Message, state: FSMContext, db: Database)
                 reply_markup=kb
             )
 
-            # Сохраняем в историю
-            import json
-            import os
-            pid = await db.generate_pid()
-            history_dir = os.path.join("data", "history")
+                    # Сохраняем в историю
+                    pid = await db.generate_pid()
+                    history_dir = os.path.join("data", "history")
             os.makedirs(history_dir, exist_ok=True)
+            
             local_input_paths = []
-            local_result_path = os.path.join(history_dir, f"result_{pid}.jpg").replace("\\", "/")
+            db_result_path = f"data/history/result_{pid}.jpg"
+            local_result_path = os.path.join(BASE_DIR, db_result_path)
 
             try:
                 # Качаем результат
                 file_info = await message.bot.get_file(res_msg.photo[-1].file_id)
                 await message.bot.download_file(file_info.file_path, local_result_path)
+                
                 # Качаем входные фото
                 for i, f_id in enumerate(input_photos):
                     if not f_id: continue
-                    inp_path = os.path.join(history_dir, f"input_{pid}_{i}.jpg").replace("\\", "/")
+                    db_inp_path = f"data/history/input_{pid}_{i}.jpg"
+                    local_inp_path = os.path.join(BASE_DIR, db_inp_path)
                     try:
                         f_info = await message.bot.get_file(f_id)
-                        await message.bot.download_file(f_info.file_path, inp_path)
-                        local_input_paths.append(inp_path)
+                        await message.bot.download_file(f_info.file_path, local_inp_path)
+                        local_input_paths.append(db_inp_path)
                     except: pass
             except Exception as e:
                 logger.error(f"Error downloading images for history in edit: {e}")
@@ -3837,7 +3844,7 @@ async def on_result_edit_text(message: Message, state: FSMContext, db: Database)
                 input_photos=json.dumps(input_photos),
                 result_photo_id=res_msg.photo[-1].file_id,
                 input_paths=json.dumps(local_input_paths),
-                result_path=local_result_path,
+                result_path=db_result_path,
                 prompt=prompt_filled
             )
 

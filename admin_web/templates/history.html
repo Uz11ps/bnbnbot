@@ -2,7 +2,7 @@
 {% block content %}
 <div class="card p-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h4><i class="bi bi-clock-history me-2"></i> История генераций</h4>
+        <h4><i class="bi bi-clock-history me-2"></i> История генераций (Обновлено)</h4>
         <form class="d-flex gap-2" action="/history" method="get">
             <input type="text" name="q" class="form-control" placeholder="PID или User ID" value="{{ q }}">
             <button type="submit" class="btn btn-primary">Поиск</button>
@@ -16,10 +16,10 @@
                     <th>PID</th>
                     <th>User ID</th>
                     <th>Категория</th>
-                    <th class="text-center">До (Исходники)</th>
-                    <th class="text-center">После (Результат)</th>
-                    <th>Параметры</th>
+                    <th>До (Исходники)</th>
+                    <th>После (Результат)</th>
                     <th>Промпт</th>
+                    <th>Параметры</th>
                     <th>Дата</th>
                 </tr>
             </thead>
@@ -56,20 +56,10 @@
                         {% if item.result_path %}
                             <img src="/{{ item.result_path }}" class="rounded shadow-sm border border-success border-2 history-img clickable" style="width: 80px; height: 80px; object-fit: cover; cursor: pointer;" alt="Result" onclick="showModal('/{{ item.result_path }}')">
                         {% elif item.result_photo_id %}
-                            <img src="/tg_img/{{ item.result_photo_id }}" class="rounded shadow-sm border border-success border-2 history-img clickable" style="width: 80px; height: 80px; object-fit: cover; cursor: pointer;" alt="Result" onclick="showModal('/tg_img/{{ item.result_photo_id }}')">
+                            <img src="/tg_img/{{ item.result_photo_id }}" class="rounded shadow-sm border border-success border-2 history-img clickable" style="width: 80px; height: 80px; object-fit: cover; cursor: pointer;" alt="Result" onclick="showModal('/{{ item.result_photo_id }}')">
                         {% else %}
                             <div class="badge bg-secondary">Нет фото</div>
                         {% endif %}
-                    </td>
-                    <td>
-                        <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#params-{{ item.pid }}">
-                            Параметры
-                        </button>
-                        <div class="collapse mt-2" id="params-{{ item.pid }}">
-                            <div class="card card-body p-2 bg-light shadow-none border">
-                                <pre class="mb-0" style="font-size: 0.7rem; white-space: pre-wrap;">{{ item.params }}</pre>
-                            </div>
-                        </div>
                     </td>
                     <td>
                         {% if item.prompt %}
@@ -84,6 +74,16 @@
                         {% else %}
                         <span class="text-muted small">—</span>
                         {% endif %}
+                    </td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#params-{{ item.pid }}">
+                            Параметры
+                        </button>
+                        <div class="collapse mt-2" id="params-{{ item.pid }}">
+                            <div class="card card-body p-2 bg-light shadow-none border">
+                                <pre class="mb-0" style="font-size: 0.7rem; white-space: pre-wrap;">{{ item.params }}</pre>
+                            </div>
+                        </div>
                     </td>
                     <td><small>{{ item.created_at }}</small></td>
                 </tr>

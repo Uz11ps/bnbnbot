@@ -3093,32 +3093,81 @@ async def _build_final_prompt(data: dict, db: Database) -> str:
     
     replacements = {
         "{размер}": size_text, "{Размер модели}": size_text, "{Размер тела модели}": size_text,
-        "{рост}": str(data.get("height") or data.get("height_cm") or ""), "{Рост модели}": str(data.get("height") or data.get("height_cm") or ""),
+        "(ТУТ УКАЗЫВАЕМ РАЗМЕР МОДЕЛИ)": size_text, "(ТУТ УКАЗЫВАЕМ Размер модели}": size_text,
+        
+        "{рост}": str(data.get("height") or data.get("height_cm") or ""), 
+        "{Рост модели}": str(data.get("height") or data.get("height_cm") or ""),
+        "(ТУТ УКАЗЫВАЕМ РОСТ МОДЕЛИ)": str(data.get("height") or data.get("height_cm") or ""),
+        "(ТУТ УКАЗЫВАЕМ Рост модели}": str(data.get("height") or data.get("height_cm") or ""),
+        
         "{длина изделия}": str(data.get("length") or data.get("length_cm") or data.get("own_length") or ""), 
         "{Длина изделия}": str(data.get("length") or data.get("length_cm") or data.get("own_length") or ""),
+        "(ТУТ УКАЗЫВАЕМ ДЛИНУ ИЗДЕЛИЯ)": str(data.get("length") or data.get("length_cm") or data.get("own_length") or ""),
+        "(ТУТ УКАЗЫВАЕМ длину изделия}": str(data.get("length") or data.get("length_cm") or data.get("own_length") or ""),
+        
         "{возраст}": age_text, "{Возраст модели}": age_text,
+        "(ТУТ УКАЗЫВАЕМ ВОЗРАСТ МОДЕЛИ)": age_text, "(ТУТ УКАЗЫВАЕМ Возраст модели}": age_text,
+        
         "{длина рукав}": sleeve_text, "{Тип рукава}": sleeve_text,
-        "{сзади/спереди}": view_word, "{Угол камеры}": view_word,
-        "{ракурс фотографии}": dist_word, "{Ракурс}": view_word, "{Дистанция}": dist_word,
+        "(ТУТ УКАЗЫВАЕМ ТИП РУКАВОВ": sleeve_text, "(ТУТ УКАЗЫВАЕМ Тип рукава}": sleeve_text,
+        
+        "{сзади/спереди}": view_word, "{Угол камеры}": view_word, "{Ракурс}": view_word,
+        "(ТУТ УКАЗЫВАЕМ ВИД ФОТОГРАФИИ СПЕРЕДИ \СЗАДИ)": view_word, "(ТУТ УКАЗЫВАЕМ Угол камеры}": view_word,
+        
+        "{ракурс фотографии}": dist_word, "{Дистанция}": dist_word,
+        "(ТУТ УКАЗЫВАЕМ РАКУРС ФОТОГРАФИИ)": dist_word, "(ТУТ УКАЗЫВАЕМ ракурс фотографии}": dist_word,
+        
         "{Пол модели}": gender_word, "{пол}": gender_word,
+        "(ТУТ УКАЗЫВАЕМ УКАЗЫВАЕМ ПОЛ)": gender_word, "(ТУТ УКАЗЫВАЕМ ПОВТОРНО ПОЛ МОДЕЛИ)": gender_word,
+        "(ТУТ УКАЗЫВАЕМ ПОВТОРНО Пол модели}": gender_word, "(ТУТ УКАЗЫВАЕМ Пол модели)": gender_word,
+        
         "{Название товара}": str(data.get("product_name") or data.get("info_brand") or ""),
         "{brand}": str(data.get("info_brand") or ""),
+        "{Укажите название брендатовара}": str(data.get("product_name") or data.get("info_brand") or ""),
+        
         "{Нагруженность}": str(data.get("info_load") or ""),
+        "(ТУТ УКАЗЫВАЕМ НАГРУЖЕННОСТЬ)": str(data.get("info_load") or ""),
+        "(ТУТ УКАЗЫВАЕМ Нагруженность инфографики}": str(data.get("info_load") or ""),
+        
         "{Язык}": str(data.get("info_lang") or ""),
+        "(ТУТ УКАЗЫВАЕМ ЯЗЫК ИНФОГРАФИКИ)": str(data.get("info_lang") or ""),
+        
         "{Стиль}": str(data.get("style") or ""),
         "{Стиль локации}": str(data.get("style") or ""),
+        "(ТУТ УКАЗЫВАЕМ СТИЛЬ)": str(data.get("style") or ""),
+        
         "{Сезон}": str(data.get("season") or data.get("info_season") or ""),
+        "(ТУТ УКАЗЫВАЕМ СЕЗОН)": str(data.get("season") or data.get("info_season") or ""),
+        "(ТУТ УКАЗЫВАЕМ Сезон}": str(data.get("season") or data.get("info_season") or ""),
+        
         "{Праздник}": str(data.get("holiday") or data.get("info_holiday") or ""),
+        "(ТУТ УКАЗЫВАЕМ Праздник}": str(data.get("holiday") or data.get("info_holiday") or ""),
+        
         "{Поза}": str(data.get("pose") or data.get("info_pose") or ""),
         "{Поза модели}": str(data.get("pose") or data.get("info_pose") or ""),
+        "(ТУТ УКАЗЫВАЕМ ПОЗУ МОДЕЛИ)": str(data.get("pose") or data.get("info_pose") or ""),
+        "(ТУТ УКАЗЫВАЕМ Поза модели}": str(data.get("pose") or data.get("info_pose") or ""),
+        
         "{Тип кроя}": str(data.get("pants_style") or ""),
         "{Тип кроя штанов}": str(data.get("pants_style") or ""),
+        "(ТУТ УКАЗЫВАЕМ ТИП КРОЯ ШТАНОВ)": str(data.get("pants_style") or ""),
+        "(ТУТ УКАЗЫВАЕМ Тип кроя штанов}": str(data.get("pants_style") or ""),
+        
         "{Ширина}": str(data.get("width_cm") or ""),
+        "(ТУТ УКАЗЫВАЕМ ШИРИНУ)": str(data.get("width_cm") or ""),
+        
         "{Высота}": str(data.get("height_cm") or ""),
+        "(ТУТ УКАЗЫВАЕМ ВЫСОТУ)": str(data.get("height_cm") or ""),
+        
         "{Длина}": str(data.get("length_cm") or ""),
-        "{Человек}": "Да" if data.get("has_person") else "Нет",
-        "{Присутствует ли человек на фото}": "Да" if data.get("has_person") else "Нет",
+        "(ТУТ УКАЗЫВАЕМ ДЛИНУ)": str(data.get("length_cm") or ""),
+        
+        "{Человек}": "Yes" if data.get("has_person") == "yes" else "No",
+        "{Присутствует ли человек на фото}": "Yes" if data.get("has_person") == "yes" else "No",
+        "(ТУТ УКАЗЫВАЕМ Присутствует ли человек на фото)": "Yes" if data.get("has_person") == "yes" else "No",
+        
         "{Тип локации}": str(data.get("rand_location") or data.get("rand_location_indoor") or data.get("rand_location_outdoor") or ""),
+        "(ТУТ УКАЗЫВАЕМ Тип локации}": str(data.get("rand_location") or data.get("rand_location_indoor") or data.get("rand_location_outdoor") or ""),
     }
     
     # Добавляем преимущества для инфографики
@@ -3127,7 +3176,11 @@ async def _build_final_prompt(data: dict, db: Database) -> str:
     replacements["{Преимущество 1}"] = str(data.get("info_adv1") or "")
     replacements["{Преимущество 2}"] = str(data.get("info_adv2") or "")
     replacements["{Преимущество 3}"] = str(data.get("info_adv3") or "")
+    replacements["(ТУТ УКАЗЫВАЕМ ПРИМУЩЕСТВО 1)"] = str(data.get("info_adv1") or "")
+    replacements["(ТУТ УКАЗЫВАЕМ ПРИМУЩЕСТВО 2)"] = str(data.get("info_adv2") or "")
+    replacements["(ТУТ УКАЗЫВАЕМ ПРИМУЩЕСТВО 3)"] = str(data.get("info_adv3") or "")
     replacements["{Доп информация}"] = str(data.get("info_extra") or "")
+    replacements["(ТУТ УКАЗЫВАЕМ ДОП ЧТО УГОДНО О ТОВАРЕ)"] = str(data.get("info_extra") or "")
 
     def apply_replacements(text: str) -> str:
         if not text: return ""

@@ -893,6 +893,11 @@ async def lifespan(app: FastAPI):
                     await db.execute("ALTER TABLE generation_history ADD COLUMN result_path TEXT")
                     await db.commit()
                 except Exception as e: print(f"Migration error (history.result_path): {e}")
+            if "prompt" not in h_cols:
+                try:
+                    await db.execute("ALTER TABLE generation_history ADD COLUMN prompt TEXT")
+                    await db.commit()
+                except Exception as e: print(f"Migration error (history.prompt): {e}")
     
     # Запуск очистки в фоне
     asyncio.create_task(cleanup_old_history())

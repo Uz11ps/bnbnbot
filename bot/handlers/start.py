@@ -3551,7 +3551,8 @@ async def _do_generate(message_or_callback: Message | CallbackQuery, state: FSMC
                         category=category,
                         params=json.dumps(data),
                         input_photos=json.dumps(input_photos),
-                        result_photo_id=res_photo_id
+                        result_photo_id=res_photo_id,
+                        prompt=prompt_filled
                     )
                     
                     try: await process_msg.delete()
@@ -3794,7 +3795,8 @@ async def on_result_edit_text(message: Message, state: FSMContext, db: Database)
                 input_photos=json.dumps(input_photos),
                 result_photo_id=res_msg.photo[-1].file_id,
                 input_paths=json.dumps(local_input_paths),
-                result_path=local_result_path
+                result_path=local_result_path,
+                prompt=prompt_filled
             )
 
             try: os.remove(result_path)
@@ -3811,21 +3813,6 @@ async def on_result_edit_text(message: Message, state: FSMContext, db: Database)
         except: pass
         await message.answer(get_string("gen_error", lang))
 
-
-@router.callback_query(F.data == "result_show_prompt")
-async def on_result_show_prompt(callback: CallbackQuery, state: FSMContext) -> None:
-    data = await state.get_data()
-    prompt = data.get("last_sent_prompt")
-    if not prompt:
-        await callback.answer("Промпт не найден в текущей сессии.", show_alert=True)
-        return
-    
-    # Разбиваем длинный промпт если нужно
-    if len(prompt) > 4000:
-        prompt = prompt[:4000] + "..."
-    
-    await callback.message.answer(f"📝 **Отправленный промпт:**\n\n`{prompt}`", parse_mode="Markdown")
-    await callback.answer()
 
 @router.callback_query(F.data == "result_repeat")
 async def on_result_repeat(callback: CallbackQuery, state: FSMContext, db: Database) -> None:

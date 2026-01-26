@@ -19,6 +19,7 @@
                     <th class="text-center">До (Исходники)</th>
                     <th class="text-center">После (Результат)</th>
                     <th>Параметры</th>
+                    <th>Промпт</th>
                     <th>Дата</th>
                 </tr>
             </thead>
@@ -69,6 +70,20 @@
                                 <pre class="mb-0" style="font-size: 0.7rem; white-space: pre-wrap;">{{ item.params }}</pre>
                             </div>
                         </div>
+                    </td>
+                    <td>
+                        {% if item.prompt %}
+                        <button class="btn btn-sm btn-outline-info" type="button" data-bs-toggle="collapse" data-bs-target="#prompt-{{ item.pid }}">
+                            Промпт
+                        </button>
+                        <div class="collapse mt-2" id="prompt-{{ item.pid }}">
+                            <div class="card card-body p-2 bg-light shadow-none border" style="min-width: 200px;">
+                                <small class="text-break" style="font-size: 0.7rem;">{{ item.prompt }}</small>
+                            </div>
+                        </div>
+                        {% else %}
+                        <span class="text-muted small">—</span>
+                        {% endif %}
                     </td>
                     <td><small>{{ item.created_at }}</small></td>
                 </tr>

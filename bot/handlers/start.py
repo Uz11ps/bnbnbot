@@ -2902,10 +2902,41 @@ async def on_back_step(callback: CallbackQuery, state: FSMContext, db: Database)
                     gender = data.get("gender") or data.get("rand_gender") or data.get("info_gender") or data.get("child_gender")
                     
                     should_skip = False
+                    # 1. Возраст для детей
                     if s_key == "age" and gender in ("boy", "girl"):
                         should_skip = True
+                    # 2. Ключи пола, если они уже в данных (обычно это первый шаг)
                     elif s_key in ("gender", "rand_gender", "info_gender", "child_gender") and data.get(s_key):
-                        should_skip = True
+                        # Но если это единственный шаг или мы в самом начале, не скипаем его совсем
+                        if new_index > 0:
+                            should_skip = True
+                    
+                    # 3. Условия по локациям
+                    loc_group = data.get("rand_loc_group")
+                    if loc_group:
+                        if loc_group == "indoor" and s_key == "rand_location_outdoor":
+                            should_skip = True
+                        elif loc_group == "outdoor" and s_key == "rand_location_indoor":
+                            should_skip = True
+                        elif loc_group == "indoor" and "season" in s_key.lower():
+                            should_skip = True
+
+                    # 4. Отсутствие человека
+                    person_absent = False
+                    for k, v in data.items():
+                        if k.endswith("_label") and any(x in str(v).lower() for x in ("без человека", "without person", "нет", "no")):
+                            if any(x in k.lower() for x in ("person", "presence", "человек", "присутствие")):
+                                person_absent = True; break
+                        if isinstance(v, str) and v.lower() in ("person_no", "without_person", "no_person", "no", "нет"):
+                            if any(x in k.lower() for x in ("person", "presence", "человек", "присутствие")):
+                                person_absent = True; break
+                    
+                    if person_absent:
+                        low_s_key = s_key.lower()
+                        if any(x in low_s_key for x in ("age", "pose", "height", "size", "возраст", "поза", "рост", "телосложение")):
+                            # Для рандом прочее рост может быть важен, но в целом следуем логике _show_next_step
+                            if category not in ("random_other", "infographic_other") or not any(x in low_s_key for x in ("height", "рост")):
+                                should_skip = True
                         
                     if should_skip:
                         new_index -= 1

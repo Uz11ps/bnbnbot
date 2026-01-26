@@ -920,9 +920,6 @@ def admin_howto_edit_keyboard(lang="ru") -> InlineKeyboardMarkup:
 
 def dynamic_keyboard(options: list[tuple], is_optional: bool = False, lang="ru") -> InlineKeyboardMarkup:
     """Универсальная клавиатура для динамических шагов"""
-    import logging
-    logger = logging.getLogger(__name__)
-    
     rows = []
     # options: list of (id, text, value, order, custom_prompt)
     # Группируем по 2 кнопки в ряд
@@ -932,4 +929,12 @@ def dynamic_keyboard(options: list[tuple], is_optional: bool = False, lang="ru")
             # Используем ID опции для однозначной идентификации в колбэке
             row.append(InlineKeyboardButton(text=opt[1], callback_data=f"dyn_opt:{opt[0]}"))
         rows.append(row)
+    
+    # Добавляем кнопку пропустить, если шаг необязательный
+    if is_optional:
+        rows.append([InlineKeyboardButton(text=get_string("skip", lang), callback_data="dyn_opt:skip")])
+        
+    # Всегда добавляем кнопку назад
+    rows.append([InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")])
+    
     return InlineKeyboardMarkup(inline_keyboard=rows)

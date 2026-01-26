@@ -3080,255 +3080,235 @@ async def _build_final_prompt(data: dict, db: Database) -> str:
         else:
             size_text = f"athletic/average body, size {sz}"
         
+    # --- УНИВЕРСАЛЬНАЯ ЗАМЕНА ПЛЕЙСХОЛДЕРОВ ---
+    # Собираем все возможные значения для замены
+    view_key = data.get("view") or data.get("info_angle")
+    view_word = {"close": "близкий", "far": "дальний", "medium": "средний", "back": "сзади", "front": "спереди", "side": "сбоку"}.get(view_key, "спереди")
+    
+    dist_key = data.get("dist") or data.get("info_dist")
+    dist_word = {"far": "дальний", "medium": "средний", "close": "близкий"}.get(dist_key, "средний")
+    
+    gender_val = data.get("gender") or data.get("info_gender") or data.get("rand_gender")
+    gender_word = {"male": "мужчина", "female": "женщина", "boy": "мальчик", "girl": "девочка", "unisex": "унисекс"}.get(gender_val, "")
+    
+    replacements = {
+        "{размер}": size_text, "{Размер модели}": size_text, "{Размер тела модели}": size_text,
+        "{рост}": str(data.get("height") or data.get("height_cm") or ""), "{Рост модели}": str(data.get("height") or data.get("height_cm") or ""),
+        "{длина изделия}": str(data.get("length") or data.get("length_cm") or data.get("own_length") or ""), 
+        "{Длина изделия}": str(data.get("length") or data.get("length_cm") or data.get("own_length") or ""),
+        "{возраст}": age_text, "{Возраст модели}": age_text,
+        "{длина рукав}": sleeve_text, "{Тип рукава}": sleeve_text,
+        "{сзади/спереди}": view_word, "{Угол камеры}": view_word,
+        "{ракурс фотографии}": dist_word, "{Ракурс}": view_word, "{Дистанция}": dist_word,
+        "{Пол модели}": gender_word, "{пол}": gender_word,
+        "{Название товара}": str(data.get("product_name") or data.get("info_brand") or ""),
+        "{brand}": str(data.get("info_brand") or ""),
+        "{Нагруженность}": str(data.get("info_load") or ""),
+        "{Язык}": str(data.get("info_lang") or ""),
+        "{Стиль}": str(data.get("style") or ""),
+        "{Сезон}": str(data.get("season") or data.get("info_season") or ""),
+        "{Праздник}": str(data.get("holiday") or data.get("info_holiday") or ""),
+        "{Поза}": str(data.get("pose") or data.get("info_pose") or ""),
+        "{Тип кроя}": str(data.get("pants_style") or ""),
+    }
+    
+    # Добавляем преимущества для инфографики
+    advs = [data.get("info_adv1"), data.get("info_adv2"), data.get("info_adv3")]
+    replacements["{Преимущества}"] = ", ".join([a for a in advs if a])
+    replacements["{Доп информация}"] = str(data.get("info_extra") or "")
+
+    def apply_replacements(text: str) -> str:
+        if not text: return ""
+        res = text
+        for k, v in replacements.items():
+            if k in res:
+                res = res.replace(k, str(v))
+        return res
+
+    # Проверяем, какие параметры были использованы в промпте, чтобы не дублировать их в конце
+    used_placeholders = set()
+    for k in replacements.keys():
+        # Мы проверяем и prompt_text (базовый из БД) и prompt_filled (если он уже частично сформирован)
+        pass # Логика ниже
+
     prompt_filled = ""
     if data.get("own_mode"):
-        own_length = (data.get("own_length") or "")
-        own_sleeve = (data.get("own_sleeve") or "")
-        view_key = data.get("view")
-        view_word = {"close": "close shot", "far": "far shot", "medium": "medium shot"}.get(view_key, "medium shot")
-        
         base = await db.get_own_prompt() or await db.get_own_prompt3() or "Professional fashion photography. Place the product from the second image on the model from the first image, maintaining the same pose, lighting, and background style. High quality, realistic, natural lighting."
-        prompt_filled = base
-        if own_length: prompt_filled += f" Garment length: {own_length}."
-        if own_sleeve: prompt_filled += f" Sleeve length: {own_sleeve}."
-        if view_word: prompt_filled += f" Camera distance: {view_word}."
+        prompt_filled = apply_replacements(base)
+        
+        # Добавляем только то, чего нет в плейсхолдерах
+        if "{длина изделия}" not in base and "{Длина изделия}" not in base and data.get("own_length"):
+            prompt_filled += f" Garment length: {data.get('own_length')}."
+        if "{длина рукав}" not in base and "{Тип рукава}" not in base and data.get("own_sleeve"):
+            prompt_filled += f" Sleeve length: {data.get('own_sleeve')}."
+        if "{Угол камеры}" not in base and "{Ракурс}" not in base and view_word:
+            prompt_filled += f" Camera distance: {view_word}."
+            
     elif category == "own_variant":
-        own_length = (data.get("own_length") or "")
-        own_sleeve = (data.get("own_sleeve") or "")
-        prompt_filled = prompt_text
-        if own_length: prompt_filled += f" Garment length: {own_length}."
-        if own_sleeve: prompt_filled += f" Sleeve length: {own_sleeve}."
+        prompt_filled = apply_replacements(prompt_text)
+        if "{длина изделия}" not in prompt_text and "{Длина изделия}" not in prompt_text and data.get("own_length"):
+            prompt_filled += f" Garment length: {data.get('own_length')}."
+        if "{длина рукав}" not in prompt_text and "{Тип рукава}" not in prompt_text and data.get("own_sleeve"):
+            prompt_filled += f" Sleeve length: {data.get('own_sleeve')}."
+
     elif data.get("random_other_mode"):
-        has_person = data.get("has_person")
-        gender = data.get("gender")
-        load = data.get("info_load")
-        product_name = data.get("product_name")
-        view_key = data.get("view")
-        dist = data.get("dist")
-        h_cm = data.get("height_cm"); w_cm = data.get("width_cm"); l_cm = data.get("length_cm")
-        season = data.get("season")
-        style = data.get("style")
-        
-        view_word = {"close": "близкий", "far": "дальний", "medium": "средний", "back": "сзади", "front": "спереди", "side": "сбоку"}.get(view_key, "спереди")
-        dist_word = {"far": "дальний", "medium": "средний", "close": "близкий"}.get(dist, "средний")
-        gender_word = {"male": "Мужчина", "female": "Женщина", "boy": "Мальчик", "girl": "Девочка"}.get(gender, "")
-        
-        p_parts = ["Professional commercial product photography. High quality, ultra realistic lighting. "]
-        p_parts.append(f"Product: {product_name}. ")
-        if has_person: p_parts.append(f"A {gender_word} is in the scene with the product. ")
-        else: p_parts.append("No people in the shot, focus strictly on the product itself. ")
-        p_parts.append(f"Infographic load: {load}/10. ")
-        p_parts.append(f"Camera angle: {view_word}, Distance: {dist_word}. ")
-        dims = []
-        if h_cm: dims.append(f"height {h_cm}cm")
-        if w_cm: dims.append(f"width {w_cm}cm")
-        if l_cm: dims.append(f"length {l_cm}cm")
-        if dims: p_parts.append(f"Product dimensions: {', '.join(dims)}. ")
-        if season: p_parts.append(f"Season/Vibe: {season}. ")
-        if style: p_parts.append(f"Style: {style}. ")
-        p_parts.append("8k resolution, cinematic lighting, sharp focus on product.")
-        prompt_filled = "".join(p_parts)
+        # Для рандома часто промпт строится динамически, но если есть базовый — применяем
+        base_random_other = await db.get_random_other_prompt()
+        if base_random_other:
+            prompt_filled = apply_replacements(base_random_other)
+        else:
+            has_person = data.get("has_person")
+            load = data.get("info_load")
+            product_name = data.get("product_name")
+            h_cm = data.get("height_cm"); w_cm = data.get("width_cm"); l_cm = data.get("length_cm")
+            season = data.get("season")
+            style = data.get("style")
+            
+            p_parts = ["Professional commercial product photography. High quality, ultra realistic lighting. "]
+            p_parts.append(f"Product: {product_name}. ")
+            if has_person: p_parts.append(f"A {gender_word} is in the scene with the product. ")
+            else: p_parts.append("No people in the shot, focus strictly on the product itself. ")
+            p_parts.append(f"Infographic load: {load}/10. ")
+            p_parts.append(f"Camera angle: {view_word}, Distance: {dist_word}. ")
+            dims = []
+            if h_cm: dims.append(f"height {h_cm}cm")
+            if w_cm: dims.append(f"width {w_cm}cm")
+            if l_cm: dims.append(f"length {l_cm}cm")
+            if dims: p_parts.append(f"Product dimensions: {', '.join(dims)}. ")
+            if season: p_parts.append(f"Season/Vibe: {season}. ")
+            if style: p_parts.append(f"Style: {style}. ")
+            p_parts.append("8k resolution, cinematic lighting, sharp focus on product.")
+            prompt_filled = "".join(p_parts)
+
     elif data.get("normal_gen_mode"):
         prompt_filled = data.get("prompt") or ""
-    elif data.get("random_mode"):
-        # Рандом Одежда и Обувь (полный флоу)
-        gender = data.get("rand_gender")
-        gender_map = {"male":"мужчина","female":"женщина","boy":"мальчик","girl":"девочка"}
-        
-        loc = data.get("rand_location") or data.get("rand_location_indoor") or data.get("rand_location_outdoor")
-        loc_map = {
-            "inside_restaurant":"внутри ресторана",
-            "photo_studio":"в фотостудии",
-            "coffee_shop":"в кофейне",
-            "city":"в городе",
-            "building":"у здания",
-            "wall":"у стены",
-            "park":"в парке",
-            "coffee_shop_out":"у кофейни",
-            "forest":"в лесу",
-            "car":"у машины",
-            "restaurant": "в ресторане",
-            "room": "в комнате",
-            "office": "в офисе",
-            "mall": "в торговом центре",
-            "cafe": "у кофейни"
-        }
-        
-        p_parts = ["Professional commercial fashion photography. High quality, realistic lighting. "]
-        p_parts.append(f"Model: {gender_map.get(gender, 'person')}. ")
-        if data.get("age"): p_parts.append(f"Age: {data.get('age')}. ")
-        if size_text: p_parts.append(f"Body type: {size_text}. ")
-        h = data.get("height")
-        if h: p_parts.append(f"Height: {h}cm. ")
-        b_type = data.get("body_type")
-        if b_type: p_parts.append(f"Body density score: {b_type}/10. ")
-        
-        if loc:
-            if loc == 'custom':
-                custom = (data.get('rand_location_custom') or '').strip()
-                if custom: p_parts.append(f"Location: {custom}. ")
-            else:
-                p_parts.append(f"Location: {loc_map.get(loc, loc)}. ")
-        
-        pants = data.get("pants_style")
-        if pants: p_parts.append(f"Pants cut: {pants}. ")
-        sleeve = data.get("sleeve")
-        if sleeve: p_parts.append(f"Sleeve type: {sleeve}. ")
-        L = (data.get("length") or "").strip()
-        if L: p_parts.append(f"Garment length: {L}. ")
-        
-        pose = data.get("pose")
-        if pose: p_parts.append(f"Pose: {pose}. ")
-        
-        dist = data.get("dist")
-        view = data.get("view")
-        if dist: p_parts.append(f"Camera distance: {dist}. ")
-        if view: p_parts.append(f"View: {view}. ")
-        
-        season = data.get("season")
-        if season: p_parts.append(f"Season: {season}. ")
-        holiday = data.get("holiday")
-        if holiday: p_parts.append(f"Occasion/Holiday: {holiday}. ")
-        
-        p_parts.append("8k resolution, cinematic lighting, professional studio look.")
-        base_random = await db.get_random_other_prompt() or await db.get_random_prompt() or ""
-        prompt_filled = (base_random + "\n\n" + "".join(p_parts)).strip()
-    elif category == "whitebg":
-        prompt_filled = prompt_text or "Professional commercial product photography on a pure white background. High resolution, studio lighting, sharp focus on the product."
-    elif category == "storefront":
-        view_key = data.get("view")
-        view_word = {"front": "спереди", "back": "сзади"}.get(view_key, "спереди")
-        dist = data.get("dist") or "средний"
-        length = data.get("own_length") or ""
-        
-        replacements = {
-            "{Угол камеры}": view_word,
-            "{ракурс фотографии}": dist,
-            "{Длина изделия}": length,
-        }
-        base_storefront = await db.get_storefront_prompt()
-        prompt_filled = base_storefront or prompt_text or "Professional fashion photography. Model showing the product from {Угол камеры} at {ракурс фотографии} distance. {Длина изделия}"
-        for placeholder, value in replacements.items():
-            prompt_filled = prompt_filled.replace(placeholder, str(value))
-    elif data.get("infographic_mode"):
-        # Инфографика (Одежда и Прочее)
-        p_parts = ["Professional commercial product photography with infographic elements. High quality, 8k resolution. "]
-        
-        brand = data.get("info_brand")
-        if brand: p_parts.append(f"Product/Brand name: {brand}. ")
-        
-        load = data.get("info_load")
-        if load: p_parts.append(f"Infographic design complexity level: {load}/10. ")
-        
-        lang = data.get("info_lang")
-        if lang: p_parts.append(f"Text language: {lang}. ")
-        
-        advs = [data.get("info_adv1"), data.get("info_adv2"), data.get("info_adv3")]
-        advs = [a for a in advs if a]
-        if advs: p_parts.append(f"Key advantages to highlight: {', '.join(advs)}. ")
-        
-        extra = data.get("info_extra")
-        if extra: p_parts.append(f"Additional text: {extra}. ")
-        
-        angle = data.get("info_angle")
-        dist = data.get("info_dist")
-        if angle: p_parts.append(f"Camera angle: {angle}. ")
-        if dist: p_parts.append(f"Distance: {dist}. ")
-        
-        if data.get("has_person"):
-            gender = data.get("info_gender")
-            age = data.get("age")
-            pose = data.get("info_pose")
-            p_parts.append(f"Model: {gender or 'person'}, Age: {age or 'adult'}. Pose: {pose or 'natural'}. ")
-        else:
-            p_parts.append("No people in the shot, focus strictly on the product. ")
-            
-        season = data.get("info_season")
-        holiday = data.get("info_holiday")
-        if season: p_parts.append(f"Season/Atmosphere: {season}. ")
-        if holiday: p_parts.append(f"Occasion/Holiday: {holiday}. ")
-        
-        if category == "infographic_clothing":
-            # Доп. параметры для одежды
-            size = data.get("size")
-            height = data.get("height")
-            body_type = data.get("body_type")
-            cut = data.get("pants_style")
-            sleeve = data.get("sleeve")
-            length = data.get("length")
-            if size: p_parts.append(f"Clothing size: {size}. ")
-            if height: p_parts.append(f"Model height: {height}cm. ")
-            if body_type: p_parts.append(f"Model body type score: {body_type}/10. ")
-            if cut: p_parts.append(f"Pants cut: {cut}. ")
-            if sleeve: p_parts.append(f"Sleeve type: {sleeve}. ")
-            if length: p_parts.append(f"Garment length: {length}. ")
 
-        p_parts.append("Clean composition, commercial lighting, professional studio look.")
-        base_info = ""
-        if category == "infographic_clothing":
-            base_info = await db.get_infographic_clothing_prompt() or ""
-        elif category == "infographic_other":
-            base_info = await db.get_infographic_other_prompt() or ""
-        prompt_filled = (base_info + "\n\n" + "".join(p_parts)).strip() if base_info else "".join(p_parts)
-    else:
-        # Обычный режим (Пресеты)
-        model_id = data.get("model_id")
-        
-        if not model_id and (data.get("is_preset") or category == "presets"):
-            # ПРЕСЕТЫ БЕЗ МОДЕЛИ (п. 1)
-            gender_map = {"male":"мужчина","female":"женщина","boy":"мальчик","girl":"девочка"}
-            actual_gender = data.get("child_gender") or category
-            
+    elif data.get("random_mode"):
+        # Рандом Одежда и Обувь
+        base_random = await db.get_random_prompt()
+        if base_random and "{" in base_random:
+            prompt_filled = apply_replacements(base_random)
+        else:
+            # Старая логика сборки по частям
             p_parts = ["Professional commercial fashion photography. High quality, realistic lighting. "]
-            p_parts.append(f"Model: {gender_map.get(actual_gender, 'person')}. ")
-            if age_text: p_parts.append(f"Age: {age_text}. ")
+            p_parts.append(f"Model: {gender_word or 'person'}. ")
+            if data.get("age"): p_parts.append(f"Age: {data.get('age')}. ")
             if size_text: p_parts.append(f"Body type: {size_text}. ")
             h = data.get("height")
             if h: p_parts.append(f"Height: {h}cm. ")
+            b_type = data.get("body_type")
+            if b_type: p_parts.append(f"Body density score: {b_type}/10. ")
             
-            pants = data.get("pants_style")
-            if pants: p_parts.append(f"Pants cut: {pants}. ")
-            sleeve = data.get("sleeve")
-            if sleeve: p_parts.append(f"Sleeve type: {sleeve}. ")
+            loc = data.get("rand_location") or data.get("rand_location_indoor") or data.get("rand_location_outdoor")
+            loc_map = {
+                "inside_restaurant":"внутри ресторана", "photo_studio":"в фотостудии", "coffee_shop":"в кофейне",
+                "city":"в городе", "building":"у здания", "wall":"у стены", "park":"в парке",
+                "coffee_shop_out":"у кофейни", "forest":"в лесу", "car":"у машины", "restaurant": "в ресторане",
+                "room": "в комнате", "office": "в офисе", "mall": "в торговом центре", "cafe": "у кофейни"
+            }
+            if loc:
+                if loc == 'custom':
+                    custom = (data.get('rand_location_custom') or '').strip()
+                    if custom: p_parts.append(f"Location: {custom}. ")
+                else:
+                    p_parts.append(f"Location: {loc_map.get(loc, loc)}. ")
+            
+            if data.get("pants_style"): p_parts.append(f"Pants cut: {data.get('pants_style')}. ")
+            if data.get("sleeve"): p_parts.append(f"Sleeve type: {data.get('sleeve')}. ")
             L = (data.get("length") or "").strip()
             if L: p_parts.append(f"Garment length: {L}. ")
-            
-            pose = data.get("pose")
-            if pose: p_parts.append(f"Pose: {pose}. ")
-            
-            dist = data.get("dist")
-            view = data.get("view")
-            if dist: p_parts.append(f"Camera distance: {dist}. ")
-            if view: p_parts.append(f"View: {view}. ")
-            
-            season = data.get("season")
-            if season: p_parts.append(f"Season: {season}. ")
-            
+            if data.get("pose"): p_parts.append(f"Pose: {data.get('pose')}. ")
+            p_parts.append(f"Camera distance: {dist_word}. View: {view_word}. ")
+            if data.get("season"): p_parts.append(f"Season: {data.get('season')}. ")
+            if data.get("holiday"): p_parts.append(f"Occasion/Holiday: {data.get('holiday')}. ")
             p_parts.append("8k resolution, cinematic lighting, professional studio look.")
-            base_random = await db.get_random_prompt() or ""
-            prompt_filled = (base_random + "\n\n" + "".join(p_parts)).strip()
+            prompt_filled = ((base_random or "") + "\n\n" + "".join(p_parts)).strip()
+
+    elif category == "whitebg":
+        base_whitebg = await db.get_whitebg_prompt()
+        prompt_filled = apply_replacements(base_whitebg) if base_whitebg else "Professional commercial product photography on a pure white background. High resolution, studio lighting, sharp focus on the product."
+
+    elif category == "storefront":
+        base_storefront = await db.get_storefront_prompt()
+        prompt_filled = apply_replacements(base_storefront) if base_storefront else f"Professional fashion photography. Model showing the product from {view_word} at {dist_word} distance. {data.get('own_length','')}"
+
+    elif data.get("infographic_mode"):
+        # Инфографика
+        base_info = await db.get_infographic_clothing_prompt() if category == "infographic_clothing" else await db.get_infographic_other_prompt()
+        if base_info and "{" in base_info:
+            prompt_filled = apply_replacements(base_info)
         else:
-            # Обычная модель (если ID есть)
-            view_key = data.get("view")
-            view_word = {"close": "близкий", "far": "дальний", "medium": "средний", "back": "сзади", "front": "спереди", "side": "сбоку"}.get(view_key, "спереди")
+            p_parts = ["Professional commercial product photography with infographic elements. High quality, 8k resolution. "]
+            brand = data.get("info_brand")
+            if brand: p_parts.append(f"Product/Brand name: {brand}. ")
+            load = data.get("info_load")
+            if load: p_parts.append(f"Infographic design complexity level: {load}/10. ")
+            lang_val = data.get("info_lang")
+            if lang_val: p_parts.append(f"Text language: {lang_val}. ")
+            advs_clean = [a for a in advs if a]
+            if advs_clean: p_parts.append(f"Key advantages to highlight: {', '.join(advs_clean)}. ")
+            extra = data.get("info_extra")
+            if extra: p_parts.append(f"Additional text: {extra}. ")
+            p_parts.append(f"Camera angle: {view_word}, Distance: {dist_word}. ")
             
-            replacements = {
-                "{размер}": size_text, "{Размер модели}": size_text, "{Размер тела модели}": size_text,
-                "{рост}": str(data.get("height", "")), "{Рост модели}": str(data.get("height", "")),
-                "{длина изделия}": str(data.get("length", "")), "{Длина изделия}": str(data.get("length", "")),
-                "{возраст}": age_text, "{Возраст модели}": age_text,
-                "{длина рукав}": sleeve_text, "{Тип рукава}": sleeve_text,
-                "{сзади/спереди}": view_word, "{Угол камеры}": view_word,
-                "{Пол модели}": "мужчина" if category == "male" else "женщина" if category == "female" else "ребенок",
-            }
-            prompt_filled = prompt_text or ""
-            for placeholder, value in replacements.items():
-                prompt_filled = prompt_filled.replace(placeholder, str(value))
+            if data.get("has_person"):
+                pose = data.get("info_pose")
+                p_parts.append(f"Model: {gender_word or 'person'}, Age: {age_text or 'adult'}. Pose: {pose or 'natural'}. ")
+            else:
+                p_parts.append("No people in the shot, focus strictly on the product. ")
                 
-            if data.get("pants_style"): prompt_filled += f" Cut of pants: {data.get('pants_style')}."
-            if data.get("pose"): prompt_filled += f" Model pose: {data.get('pose')}."
-            if data.get("dist"): prompt_filled += f" Camera distance: {data.get('dist')}."
-            if data.get("season"): prompt_filled += f" Season: {data.get('season')}."
+            season = data.get("info_season")
+            holiday = data.get("info_holiday")
+            if season: p_parts.append(f"Season/Atmosphere: {season}. ")
+            if holiday: p_parts.append(f"Occasion/Holiday: {holiday}. ")
+            
+            if category == "infographic_clothing":
+                if size_text: p_parts.append(f"Clothing size: {size_text}. ")
+                if data.get("height"): p_parts.append(f"Model height: {data.get('height')}cm. ")
+                if data.get("body_type"): p_parts.append(f"Model body type score: {data.get('body_type')}/10. ")
+                if data.get("pants_style"): p_parts.append(f"Pants cut: {data.get('pants_style')}. ")
+                if sleeve_text: p_parts.append(f"Sleeve type: {sleeve_text}. ")
+                if data.get("length"): p_parts.append(f"Garment length: {data.get('length')}. ")
+
+            p_parts.append("Clean composition, commercial lighting, professional studio look.")
+            prompt_filled = (base_info + "\n\n" + "".join(p_parts)).strip() if base_info else "".join(p_parts)
+    else:
+        # Обычный режим / Пресеты
+        model_id = data.get("model_id")
+        if not model_id and (data.get("is_preset") or category == "presets"):
+            # ПРЕСЕТЫ БЕЗ МОДЕЛИ
+            base_random = await db.get_random_prompt()
+            if base_random and "{" in base_random:
+                prompt_filled = apply_replacements(base_random)
+            else:
+                p_parts = ["Professional commercial fashion photography. High quality, realistic lighting. "]
+                p_parts.append(f"Model: {gender_word or 'person'}. ")
+                if age_text: p_parts.append(f"Age: {age_text}. ")
+                if size_text: p_parts.append(f"Body type: {size_text}. ")
+                h = data.get("height")
+                if h: p_parts.append(f"Height: {h}cm. ")
+                if data.get("pants_style"): p_parts.append(f"Pants cut: {data.get('pants_style')}. ")
+                if sleeve_text: p_parts.append(f"Sleeve type: {sleeve_text}. ")
+                L = (data.get("length") or "").strip()
+                if L: p_parts.append(f"Garment length: {L}. ")
+                if data.get("pose"): p_parts.append(f"Pose: {data.get('pose')}. ")
+                p_parts.append(f"Camera distance: {dist_word}. View: {view_word}. ")
+                if data.get("season"): p_parts.append(f"Season: {data.get('season')}. ")
+                p_parts.append("8k resolution, cinematic lighting, professional studio look.")
+                prompt_filled = ((base_random or "") + "\n\n" + "".join(p_parts)).strip()
+        else:
+            # Обычная модель (из БД по prompt_id)
+            prompt_filled = apply_replacements(prompt_text)
+            
+            # Добавляем только то, чего нет в плейсхолдерах
+            if "{Тип кроя}" not in prompt_text and data.get("pants_style"):
+                prompt_filled += f" Cut of pants: {data.get('pants_style')}."
+            if "{Поза}" not in prompt_text and data.get("pose"):
+                prompt_filled += f" Model pose: {data.get('pose')}."
+            if "{ракурс фотографии}" not in prompt_text and "{Дистанция}" not in prompt_text and dist_word:
+                prompt_filled += f" Camera distance: {dist_word}."
+            if "{Сезон}" not in prompt_text and data.get("season"):
+                prompt_filled += f" Season: {data.get('season')}."
 
     # --- ДОБАВЛЯЕМ ДИНАМИЧЕСКИЕ ПАРАМЕТРЫ ---
     dynamic_parts = []

@@ -633,7 +633,7 @@ async def _show_next_step(message_or_callback: Message | CallbackQuery, state: F
         # [FIX] Если шаг необязательный или это текстовый ввод, добавляем кнопку "Пропустить"
         # Проверяем также по ключам для преимуществ и доп текста
         show_skip = bool(is_optional)
-        if any(x in step_key.lower() for x in ("adv_", "extra_info", "brand_name", "info_load", "преимущество", "доп_инфо")):
+        if any(x in step_key.lower() for x in ("adv_", "extra_info", "brand_name", "info_load", "преимущество", "доп_инфо", "доп_текст", "название", "бренд")):
             show_skip = True
             
         kb = dynamic_keyboard(options, show_skip, lang)
@@ -659,12 +659,12 @@ async def _show_next_step(message_or_callback: Message | CallbackQuery, state: F
     elif input_type == "photo":
         kb = back_step_keyboard(lang)
         show_skip = bool(is_optional)
-        if any(x in step_key.lower() for x in ("adv_", "extra_info", "brand_name", "info_load", "преимущество", "доп_инфо")):
+        if any(x in step_key.lower() for x in ("adv_", "extra_info", "brand_name", "info_load", "преимущество", "доп_инфо", "доп_текст", "название", "бренд")):
             show_skip = True
             
         if show_skip:
             from bot.keyboards import skip_step_keyboard
-            kb = skip_step_keyboard(step_key, lang)
+            kb = skip_step_keyboard("dyn_opt", lang)
             
         if isinstance(message_or_callback, Message):
             await message_or_callback.answer(question, reply_markup=kb)
@@ -690,12 +690,12 @@ async def _show_next_step(message_or_callback: Message | CallbackQuery, state: F
     else: # text
         kb = back_step_keyboard(lang)
         show_skip = bool(is_optional)
-        if any(x in step_key.lower() for x in ("adv_", "extra_info", "brand_name", "info_load", "преимущество", "доп_инфо")):
+        if any(x in step_key.lower() for x in ("adv_", "extra_info", "brand_name", "info_load", "преимущество", "доп_инфо", "доп_текст", "название", "бренд")):
             show_skip = True
             
         if show_skip:
             from bot.keyboards import skip_step_keyboard
-            kb = skip_step_keyboard(step_key, lang)
+            kb = skip_step_keyboard("dyn_opt", lang)
             
         if isinstance(message_or_callback, Message):
             await message_or_callback.answer(question, reply_markup=kb)
@@ -751,7 +751,7 @@ async def cmd_help(message: Message, db: Database) -> None:
         async def answer(self, *args, **kwargs): pass
     await on_menu_howto(FakeCallback(message, message.from_user), db)
 
-@router.callback_query(CreateForm.waiting_dynamic_step, F.data.startswith("dyn_opt:"))
+@router.callback_query(F.data.startswith("dyn_opt:"))
 async def on_dynamic_option(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
     val = callback.data.split(":", 1)[1]
     data = await state.get_data()
@@ -760,7 +760,9 @@ async def on_dynamic_option(callback: CallbackQuery, state: FSMContext, db: Data
     
     if val == "skip":
         # Пропускаем шаг
-        pass
+        if step_key:
+            await state.update_data({step_key: ""})
+            await state.update_data({f"{step_key}_label": "Пропущено"})
     else:
         # val - это ID опции (или skip)
         try:
@@ -824,6 +826,17 @@ async def on_dynamic_option(callback: CallbackQuery, state: FSMContext, db: Data
 async def on_dynamic_input(message: Message, state: FSMContext, db: Database) -> None:
     data = await state.get_data()
     
+    # 0. Проверка на "Пропустить"
+    if message.text and message.text.lower() in ("пропустить", "skip", "/skip"):
+        step_key = data.get("current_step_key")
+        if step_key:
+            await state.update_data({step_key: ""})
+            await state.update_data({f"{step_key}_label": "Пропущено"})
+        current_idx = data.get("current_step_index", 0)
+        await state.update_data(current_step_index=current_idx + 1)
+        await _show_next_step(message, state, db)
+        return
+
     # 1. Валидация текстового ввода
     if message.text:
         step_key = data.get("current_step_key")

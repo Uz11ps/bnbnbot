@@ -751,6 +751,611 @@ async def run_migrations(db: aiosqlite.Connection):
             except Exception as e:
                 print(f"Migration error (subscription_plans.{col_name}): {e}")
 
+    # --- МИГРАЦИЯ ПРОМПТОВ (FORCE UPDATE) ---
+    try:
+        # Проверяем, нужно ли обновлять инфографику
+        async with db.execute("SELECT value FROM app_settings WHERE key='infographic_clothing_prompt'") as cur:
+            row = await cur.fetchone()
+            if not row or "(ТУТ УКАЗЫВАЕМ" in row[0]:
+                infographic_prompt = r'''ROLE / TASK
+Generate ONE modern high-fashion advertising poster in a magazine cover style,
+derived from the uploaded product photo.
+for a marketplace using ONLY the uploaded product photo.
+
+Poster must be:
+– stylish
+– creative
+– informative
+– commercially strong
+
+PRODUCT FIDELITY ONLY (visual accuracy of the clothing item must be exact)
+All design, typography, layout and decorative elements are free, modern,
+fashion-forward and may be highly expressive.
+
+COLOR & SHADE LOCK
+Reproduce the product color EXACTLY as in the photo:
+– same hue, tone, temperature, saturation
+– no recolor, no tint, no warming/cooling
+– no harmonization with background or model
+All small elements (belt, cuffs, quilting zones) must match the exact color.
+Lighting changes must not shift product color.
+
+NO PHOTO INSERTION
+Do not insert or clip the original photo.
+Render a completely new editorial-style image.
+
+ADVANCED TYPOGRAPHY RANDOMIZATION (CRITICAL)
+
+The poster must use a RANDOM modern, stylish, visually expressive font
+that matches the product category and aesthetic.
+
+Allowed styles:
+– geometric modern sans
+– elegant fashion serif
+– high-contrast editorial serif
+– minimalist grotesk
+– soft rounded modern
+– stylish condensed typefaces
+– expressive display fonts (if still readable)
+
+The font must always look:
+– premium
+– modern
+– aesthetically strong
+– visually distinctive
+– not similar to default system fonts
+
+Forbidden:
+– generic system fonts (Arial, Roboto, Helvetica-like defaults)
+– plain or basic typographic styles
+– overly neutral, dull or standard typefaces
+– repeated typographic look across outputs
+
+The system must randomize typography selection every time, choosing
+a visually appealing, fashionable, marketplace-ready typeface.
+
+TYPOGRAPHY FREEDOM MODE
+
+The system must select a unique font style for every output, fully independent
+from previous generations.
+
+Allowed:
+– expressive display fonts
+– fashion editorial serifs
+– handwritten-like stylish fonts (if readable)
+– geometric, bold or condensed styles
+– decorative modern typography
+
+The style may vary freely:
+– weight
+– contrast
+– serif/sans serif
+– proportions
+– curves
+– terminals
+
+No limitation on baseline shape, stroke contrast or typographic geometry,
+as long as the text remains readable.
+
+LANGUAGE CONTROL (CRITICAL)
+Infographic Language: {Язык инфографики}
+ALL text must be written ONLY in this language.
+Fix grammar automatically.
+Professional marketplace copywriting.
+
+All text must be rendered with ZERO AI artifacts.
+
+The typography must be:
+– perfectly smooth and clean
+– free from distortions, glitches and warped geometry
+– free from broken, duplicated, or melted characters
+– free from random symbols or hallucinated glyphs
+– free from uneven thickness, inconsistent stroke weight or pixel noise
+– free from jagged or stair-stepped edges
+
+Letters must always appear:
+– with clean kerning and spacing
+
+Forbidden:
+– fragmented or half-rendered glyphs
+– “AI handwriting” effect
+– any visual signs of neural network generation
+
+VISIBLE = REAL, INVISIBLE = NON-EXISTENT
+Only features visible in the product photo may exist in the output.
+No invented hardware, seams, textures, structure or lining.
+
+TEXTURE & CONSTRUCTION RULE
+Textures and patterns appear only where visible.
+Construction, panels and quilting must match exactly.
+
+NO CUT–PASTE
+Render the product from scratch while preserving perfect fidelity.
+
+IMAGE QUALITY
+– high detail
+– sharp
+– clean
+– realistic texture
+– no blur or plastic effects
+
+STYLE MODE BY CATEGORY
+Product gender category: {Пол}
+
+If WOMEN: modern editorial, elegant, trendy.
+If MEN: строгий, геометричный, контрастный.
+If KIDS: мягкие формы, дружелюбные элементы.
+
+COLOR SYSTEM
+Use 1–3 main colors plus neutrals.
+
+TEXT CONTRAST
+Text must remain readable in all cases (light text on dark, dark text on light).
+
+INFOGRAPHIC COMPLEXITY LEVEL: {Нагруженность инфографики}
+
+Level 1–3:
+– 1 headline
+– 2 advantages
+– 1–2 icons
+– 0 insets
+
+Level 4–6:
+– 1 headline
+– 3 advantages
+– 3–5 icons
+– 1 inset
+– 1 micro-copy
+
+Level 7–8:
+– 1 headline
+– 3 advantages
+– 5–7 icons
+– 2 insets
+– 2–3 micro-copies
+– 1 extra block
+
+Level 9–10:
+– 1 headline + subheadline
+– 3 advantages + 1–2 extra claims
+– 7–10 icons
+– 3 insets
+– 3–5 micro-copies
+– rich layout (side columns, badges)
+
+INSET RULE
+Inset panels must show only visible real details:
+– seams
+– texture
+– quilting
+– cuffs
+– collar
+– material surface
+If insufficient unique zones exist, reuse a visible detail with different zoom.
+
+INSET FIDELITY LOCK (CRITICAL)
+
+Inset panels must reproduce the selected detail EXACTLY as it appears
+in the uploaded product photo, with zero modification of:
+
+– shape
+– geometry
+– fold direction
+– curvature
+– thickness
+– stitching pattern
+– quilting rhythm
+– collar/hood construction
+– material volume and texture
+– fabric tension and compression
+
+Inset details must look like a magnified crop of the REAL visible area from the
+uploaded photo, NOT a cleaner, smoother, more symmetrical or more standard version.
+
+INSET ANGLE LOCK (ABSOLUTE)
+
+Inset panels must always use the EXACT SAME viewing angle and geometry
+as the original product photo.
+
+Forbidden for insets:
+– rotating the detail to a different orientation
+– showing the detail from a “cleaner” or “more frontal” angle
+– changing perspective or projection
+– straightening or centering the detail
+– reconstructing hidden or obscured sides of the detail
+– showing the collar, belt, cuff or quilting from an angle that is NOT visible in the photo
+
+Insets must appear as if they are a magnified crop of the SAME camera angle,
+SAME perspective, SAME lighting direction, and SAME geometry as the original image.
+
+If the photo shows the detail partially, cut off, or at a shallow angle → the inset must
+repeat that same partial shape without reconstruction or correction.
+
+If the angle of a detail cannot be extracted without guessing → the inset MUST NOT be generated.
+
+STRICT INSET SOURCE RULE (ABSOLUTE)
+
+Inset panels must ALWAYS be a faithful magnified recreation ONLY of the EXACT
+visible fragment from the uploaded product photo.
+
+The inset must show:
+– the same shape
+– the same geometry
+– the same folds and curves
+– the same stitching and quilting
+– the same texture
+– the same lighting behavior
+– the same viewing angle
+– the same partial visibility if the detail is cropped
+
+Forbidden for insets:
+– inventing or adding any missing parts
+– rotating the detail to another angle
+– idealizing or beautifying the construction
+– reconstructing hidden areas
+– correcting asymmetry
+– smoothing folds or straightening lines
+– “guessing” how the detail should look
+– using category knowledge to complete the design
+
+If the exact detail cannot be reproduced WITHOUT INVENTION,
+the inset MUST NOT be generated.
+
+STRICTLY FORBIDDEN IN INSETS:
+– improving, beautifying or idealizing the detail
+– correcting asymmetry or irregularities
+– smoothing or refinishing the geometry
+– inventing missing parts
+– completing unclear edges
+– rounding or sharpening shapes
+– using category-typical details when visibility is low
+
+If the visible part of a detail is partially obscured, cropped or cut off in the
+photo → the inset MUST show it with the SAME partial visibility.
+No reconstruction or completion of the hidden zone.
+
+If the model cannot identify a unique detail clearly → the inset must be skipped
+or replaced with a zoom of another clearly visible area.
+
+LAYOUT
+
+VISUAL DESIGN RANDOMIZATION RULE (CRITICAL)
+
+The infographic design must vary each time within a modern editorial style.
+
+The system must randomly choose:
+– icon style (outline / filled / geometric / linear / minimalistic / artistic)
+– block styling (rounded cards, rectangles, shadows, strokes, layered panels)
+– connector lines (straight / curved / dotted / geometric)
+– accents (shapes, abstract forms, minimal patterns)
+– micro-decor elements (subtle backgrounds, geometric fragments)
+
+Allowed:
+– stylish modern icons
+– premium line-art
+– soft geometric abstract forms
+– editorial minimalism
+– fashion-style micro accents
+
+Forbidden:
+– default generic icons
+– basic pack icons
+– repeated icon style across outputs
+– outdated or overly simplistic visuals
+
+All variations must remain coherent, premium and marketplace-ready.
+
+ADVANCED ART DIRECTION RANDOMIZATION
+
+The visual style of the infographic must vary every time within
+the boundaries of modern fashion graphics.
+
+Allowed variations:
+– minimalistic, clean layouts
+– bold fashion magazine compositions
+– collage-style layering
+– abstract geometric shapes
+– soft pastel backgrounds
+– high-contrast editorial blocks
+– neon or vibrant accents
+– smooth gradients
+– artistic brush elements
+– cutout-style frames
+– modern big-typography compositions
+
+The system must select a coherent but unique combination of:
+– layout geometry
+– card shapes
+– panel layering
+– decorative elements
+– text placement logic
+– accents
+– visual hierarchy
+
+Design must always remain:
+– modern
+– premium
+– fashion-oriented
+– marketplace-ready
+
+Forbidden:
+– template-like repetitive structure
+– identical layout patterns across outputs
+– standard “neutral” or “corporate” infographic styles
+
+MICRO COPY
+Short, relevant, and derived strictly from real visible characteristics.
+
+PRODUCT INFO
+Product / Brand Name: {Название товара}
+Top 3 advantages: 
+1. {Преимущество 1}
+2. {Преимущество 2}
+3. {Преимущество 3}
+
+Дополнительная информация о продукте:
+{Доп информация}
+→ use as extra block when complexity >= 6
+
+MODEL LOGIC (ONLY WHEN PRODUCT NEEDS A MODEL)
+If product is одежда → model allowed.
+If product is обувь / аксессуар / small item → close-up product priority.
+
+MODEL USE GATE (CRITICAL)
+Use a model ONLY if the garment can be reproduced on the model with 100% construction fidelity.
+If there is any risk of invented elements → render the product without a model.
+
+
+GARMENT COMPLETION RULE
+If the uploaded product is:
+– outerwear or tops → model must wear pants
+– dress → model must not wear pants
+– pants → model must wear a top that does not match product color and does not create a set
+– footwear → model must wear neutral pants and neutral top
+Non-product clothing must never match product color.
+
+RANDOM MODEL APPEARANCE RULE
+
+The model’s appearance must be generated randomly within the allowed range
+for each output, without repeating a fixed look.
+
+Allowed:
+– European, Caucasian, Slavic, Mediterranean, Middle Eastern, Latin types
+– natural variations of jawline, nose shape, lips, eyes, eyebrows
+– natural variation of hairstyle, hair length, color (except unnatural colors)
+
+Forbidden:
+– Asian appearance
+– African or Afro-American appearance
+– unrealistic or stylized facial proportions
+– cartoon-like or AI-distorted faces
+
+The appearance must stay natural, realistic and human.
+Hair, facial features and styling must vary freely, without pattern repetition.
+
+MODEL ORIENTATION: {Угол камеры}
+
+Если Спереди:
+– фронтальный вид
+– допускается лёгкий наклон корпуса или головы
+
+Если Сзади:
+– вид со спины
+– допускается лёгкий поворот головы
+
+MODEL POSE
+{Поза}
+
+Обычный:
+– нейтральная коммерческая стойка
+– спокойное положение тела
+– руки в естественном положении
+
+Вульгарный:
+– выразительная, динамичная, провокационная поза
+– смелая, эффектная, но реалистичная
+
+Нестандартный:
+– момент движения
+– лёгкий шаг, поворот, наклон
+– живая натуральная динамика
+
+Любая поза не должна деформировать изделие или скрывать конструкцию.
+
+CAMERA & FRAMING
+Camera angle: {ракурс фотографии}
+
+Дальний:
+– модель в полный рост
+
+Средний:
+– от головы до середины бёдер
+– акцент на пропорции товара
+
+Близкий:
+– пояс–голова или крупный план изделия
+– максимальный акцент на товар
+
+Без смешения планов и перспективных искажений.
+
+MODEL PARAMETERS
+SERVICE DATA VISIBILITY LOCK (ABSOLUTE)
+
+The following parameters are service information ONLY and must NEVER appear
+as text or labels on the final poster:
+
+– model height
+– model age
+– model gender
+– model body size
+– garment parameters (length, sleeve type, pants cut)
+– camera angle
+– pose name
+– orientation (front/back)
+– any numeric or descriptive technical inputs
+
+These parameters are strictly for internal AI logic.
+Only the product name, brand name and product advantages may appear on the poster.
+No other info may be shown.
+
+Body size: {Размер модели}
+
+BODY SIZE FIDELITY RULE:
+
+Body size defines real physical body volume, mass and softness — NOT styling,
+posture, fitness, angle or artistic interpretation.
+
+Each size must show clear, realistic body differences:
+
+42–44 → very slim
+46–48 → slim
+50–52 → slim-curvy with visible softness, NO athletic appearance
+54–56 → curvy with clear belly volume and wide waist
+58–60 → heavy with substantial mass
+60+ → very large, massive body
+
+Strictly forbidden for sizes 50+:
+– flat abdomen
+– tight abdomen
+– athletic or fit body definition
+– visible toned muscles
+– narrow waist
+– “plus-size but slim” interpretations
+
+Pose, posture, camera angle, lighting and clothing must NOT hide, slim or compress
+body volume. Body size ALWAYS overrides pose, styling, age and camera angle.
+
+Height: {Рост модели}
+Age: {Возраст модели}
+Gender: {Пол}
+
+GARMENT PARAMETERS
+Product length: {Длина изделия}
+Sleeve type: {Тип рукава}
+Pants cut: {Тип кроя}
+If empty → use only what is visible.
+
+CATEGORY DETECTION
+Determine product category only from visible construction, without guessing.
+
+NO SHAPE MODIFICATION
+Garment must keep original fullness, silhouette, quilting, collar geometry, sleeve width and belt structure.
+Model pose must not distort the garment.
+
+FALLBACK RULE
+If a detail cannot be confidently detected → omit it.
+Never invent or assume.
+
+FINAL QUALITY CHECK
+– perfect text contrast
+– correct layout per complexity
+– insets only from visible zones
+– modern icons and callouts
+– 100% product fidelity
+– exact color match
+– zero invented details
+– model neutral and product unobstructed'''
+                await db.execute(
+                    "INSERT INTO app_settings (key, value) VALUES ('infographic_clothing_prompt', ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    (infographic_prompt.strip(),)
+                )
+                await db.commit()
+                print("Migration: Updated infographic_clothing_prompt")
+
+        async with db.execute("SELECT value FROM app_settings WHERE key='random_other_prompt'") as cur:
+            row = await cur.fetchone()
+            if not row or "(ТУТ УКАЗЫВАЕМ" in row[0]:
+                random_other_prompt = r'''You are a professional product stylist and commercial photographer.
+Analyze the uploaded image and identify the main product only.
+Treat the product as a finished commercial item with a final, approved design.
+Product Integrity (STRICT)
+The product must remain 100% unchanged.
+Do NOT:
+rotate, flip, mirror, or invert the product
+change orientation (front/back/side)
+modify, redraw, rearrange, stylize, or “improve” any graphics, text, logos, or illustrations
+alter colors, proportions, or layout of the product
+The product must look exactly like the original photo, as if photographed in real life.
+Scale & Reality (CRITICAL)
+Use the real dimensions below.
+The product must appear correctly sized relative to the environment and surrounding objects.
+Overscaling or unrealistic proportions are not allowed.
+Color & Visual Style (IMPORTANT)
+Select a color palette that complements and enhances the product.
+Rules:
+Base the palette on the product’s colors, materials, and mood
+Avoid default neutral-only palettes (plain white, beige, gray) unless clearly justified
+Use modern, tasteful, and creative color combinations
+Background and props may contrast with the product, but must not overpower it
+Colors should feel intentional, contemporary, and visually rich
+Safe, boring color choices are discouraged
+Controlled creativity is required.
+Scene & Complexity Control (VERY IMPORTANT)
+Build the scene around the product.
+Scene complexity level (1–10) is a hard limit, not a suggestion:
+1–2 → almost empty, studio-like, max 1–2 simple props
+3–4 → minimal lifestyle, few elements, lots of negative space
+5–6 → balanced lifestyle scene
+7–8 → rich but controlled environment
+9–10 → dense, detailed lifestyle scene
+Do NOT exceed the specified complexity level.
+Low values must stay visibly simple.
+The product must remain the clear focal point.
+Product Details
+Product type: {Название товара}
+Photo angle / shot type: {Угол камеры}
+Scene complexity level (1–10): {Нагруженность}
+Parameters:
+Width: {Ширина}
+Height: {Высота}
+Length: {Длина}
+Season: {Сезон}
+Style: {Стиль}
+
+
+Human Presence (NEW – REQUIRED)
+Human presence: {Присутствует ли человек на фото}
+If Human presence is Yes:
+Add one person interacting naturally with the product shown in the uploaded image
+The interaction must be realistic, functional, and relevant to the product
+The person must not distract from the product and must support its use or context
+Add the following required field:
+Gender: {Пол модели}
+The model must be well-dressed, stylish, and visually appropriate to:
+the product type
+the season
+the scene complexity
+the overall visual mood
+Natural Face Rendering (CRITICAL)
+If a human is present in the scene, the face must look natural and realistic.
+Rules:
+No heavy beauty retouching
+No “plastic”, “oily”, or overly smooth skin
+Skin texture must be visible and realistic
+Light natural wrinkles, fine lines, and pores are allowed and encouraged
+Natural facial asymmetry is acceptable
+Realistic skin imperfections are allowed
+Avoid artificial beauty filters or CGI-like skin
+The face should look like a real person photographed with professional lighting, not digitally polished.
+If Human presence is No:
+Do not add any people to the scene
+Skip the Gender field entirely
+Output Requirements
+Ultra-realistic
+Professional commercial photography
+Correct perspective and lighting
+No added text or watermarks'''
+                await db.execute(
+                    "INSERT INTO app_settings (key, value) VALUES ('random_other_prompt', ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    (random_other_prompt.strip(),)
+                )
+                await db.commit()
+                print("Migration: Updated random_other_prompt")
+    except Exception as e:
+        print(f"Migration error (prompts update): {e}")
+
 
 def _normalize_placeholder_label(text: str, fallback: str) -> str:
     if not text:

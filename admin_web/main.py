@@ -753,17 +753,29 @@ async def run_migrations(db: aiosqlite.Connection):
 
     # Миграция для support_messages
     try:
-        await db.execute("""
-        CREATE TABLE IF NOT EXISTS support_messages (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            message_text TEXT,
-            is_admin INTEGER NOT NULL DEFAULT 0,
-            is_read INTEGER NOT NULL DEFAULT 0,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(user_id) REFERENCES users(id)
-        )
-        """)
+        async with db.execute("PRAGMA table_info(support_messages)") as cur:
+            support_cols = [row[1] for row in await cur.fetchall()]
+        
+        if not support_cols:
+            await db.execute("""
+            CREATE TABLE IF NOT EXISTS support_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                message_text TEXT,
+                file_id TEXT,
+                file_type TEXT DEFAULT 'text',
+                is_admin INTEGER NOT NULL DEFAULT 0,
+                is_read INTEGER NOT NULL DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            )
+            """)
+        else:
+            if "file_id" not in support_cols:
+                await db.execute("ALTER TABLE support_messages ADD COLUMN file_id TEXT")
+            if "file_type" not in support_cols:
+                await db.execute("ALTER TABLE support_messages ADD COLUMN file_type TEXT DEFAULT 'text'")
+        
         await db.commit()
     except Exception as e:
         print(f"Migration error (support_messages): {e}")
@@ -3146,7 +3158,7 @@ async def get_support(request: Request, user_id: int = None, db: aiosqlite.Conne
         await db.execute("UPDATE support_messages SET is_read = 1 WHERE user_id = ? AND is_admin = 0", (user_id,))
         await db.commit()
         
-        async with db.execute("SELECT message_text, is_admin, created_at FROM support_messages WHERE user_id = ? ORDER BY created_at ASC", (user_id,)) as cur:
+        async with db.execute("SELECT message_text, is_admin, created_at, file_id, file_type FROM support_messages WHERE user_id = ? ORDER BY created_at ASC", (user_id,)) as cur:
             messages = await cur.fetchall()
         
         async with db.execute("SELECT id, username, first_name FROM users WHERE id = ?", (user_id,)) as cur:
@@ -3159,31 +3171,87 @@ async def get_support(request: Request, user_id: int = None, db: aiosqlite.Conne
         "current_user": current_user
     })
 
+@app.get("/support/file/{file_id}")
+async def proxy_telegram_file(file_id: str, user: str = Depends(get_current_username)):
+    """Проксирует файл из Telegram для отображения в админке"""
+    try:
+        settings = load_settings()
+        async with httpx.AsyncClient() as client:
+            # 1. Получаем путь к файлу
+            get_file_url = f"https://api.telegram.org/bot{settings.bot_token}/getFile?file_id={file_id}"
+            resp = await client.get(get_file_url)
+            file_data = resp.json()
+            if not file_data.get("ok"):
+                return Response(status_code=404)
+            
+            file_path = file_data["result"]["file_path"]
+            # 2. Скачиваем сам файл
+            download_url = f"https://api.telegram.org/file/bot{settings.bot_token}/{file_path}"
+            file_resp = await client.get(download_url)
+            
+            return Response(content=file_resp.content, media_type=file_resp.headers.get("content-type"))
+    except Exception as e:
+        print(f"Error proxying file {file_id}: {e}")
+        return Response(status_code=500)
+
 @app.post("/support/send")
 async def send_support_reply(
     user_id: int = Form(...),
-    message_text: str = Form(...),
+    message_text: str = Form(None),
+    file: UploadFile = File(None),
     db: aiosqlite.Connection = Depends(get_db),
     user: str = Depends(get_current_username)
 ):
     try:
-        # Сохраняем в БД
-        await db.execute(
-            "INSERT INTO support_messages (user_id, message_text, is_admin, is_read) VALUES (?, ?, 1, 1)",
-            (user_id, message_text)
-        )
-        await db.commit()
-
-        # Отправляем пользователю в Телеграм
         settings = load_settings()
+        file_id = None
+        file_type = 'text'
+        
         async with httpx.AsyncClient() as client:
-            url = f"https://api.telegram.org/bot{settings.bot_token}/sendMessage"
-            payload = {
-                "chat_id": user_id,
-                "text": f"👨‍💻 <b>Ответ поддержки:</b>\n\n{message_text}",
-                "parse_mode": "HTML"
-            }
-            await client.post(url, json=payload)
+            if file and file.filename:
+                # Читаем контент файла
+                file_content = await file.read()
+                files = {"photo" if "image" in file.content_type else "video": (file.filename, file_content, file.content_type)}
+                
+                method = "sendPhoto" if "image" in file.content_type else "sendVideo"
+                url = f"https://api.telegram.org/bot{settings.bot_token}/{method}"
+                
+                payload = {"chat_id": user_id}
+                if message_text:
+                    payload["caption"] = f"👨‍💻 <b>Ответ поддержки:</b>\n\n{message_text}"
+                    payload["parse_mode"] = "HTML"
+                else:
+                    payload["caption"] = "👨‍💻 <b>Ответ поддержки</b>"
+                    payload["parse_mode"] = "HTML"
+
+                resp = await client.post(url, data=payload, files=files)
+                result = resp.json()
+                
+                if result.get("ok"):
+                    msg = result["result"]
+                    if "photo" in msg:
+                        file_id = msg["photo"][-1]["file_id"]
+                        file_type = 'photo'
+                    elif "video" in msg:
+                        file_id = msg["video"]["file_id"]
+                        file_type = 'video'
+            
+            elif message_text:
+                url = f"https://api.telegram.org/bot{settings.bot_token}/sendMessage"
+                payload = {
+                    "chat_id": user_id,
+                    "text": f"👨‍💻 <b>Ответ поддержки:</b>\n\n{message_text}",
+                    "parse_mode": "HTML"
+                }
+                resp = await client.post(url, json=payload)
+                result = resp.json()
+
+            # Сохраняем в БД
+            await db.execute(
+                "INSERT INTO support_messages (user_id, message_text, file_id, file_type, is_admin, is_read) VALUES (?, ?, ?, ?, 1, 1)",
+                (user_id, message_text, file_id, file_type)
+            )
+            await db.commit()
 
         return RedirectResponse(url=f"/support?user_id={user_id}", status_code=303)
     except Exception as e:

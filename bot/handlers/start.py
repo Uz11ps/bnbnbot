@@ -634,7 +634,7 @@ async def _show_next_step(message_or_callback: Message | CallbackQuery, state: F
         # [FIX] Если шаг необязательный или это текстовый ввод, добавляем кнопку "Пропустить"
         # Проверяем также по ключам для преимуществ и доп текста
         show_skip = bool(is_optional)
-        if any(x in step_key.lower() for x in ("adv_", "extra_info", "brand_name", "info_load", "преимущество", "доп_инфо", "доп_текст", "название", "бренд")):
+        if any(x in step_key.lower() for x in ("adv_", "extra_info", "brand_name", "info_load", "преимущество", "доп_инфо", "доп_текст", "название", "бренд", "product_name")):
             show_skip = True
             
         kb = dynamic_keyboard(options, show_skip, lang)
@@ -660,7 +660,7 @@ async def _show_next_step(message_or_callback: Message | CallbackQuery, state: F
     elif input_type == "photo":
         kb = back_step_keyboard(lang)
         show_skip = bool(is_optional)
-        if any(x in step_key.lower() for x in ("adv_", "extra_info", "brand_name", "info_load", "преимущество", "доп_инфо", "доп_текст", "название", "бренд")):
+        if any(x in step_key.lower() for x in ("adv_", "extra_info", "brand_name", "info_load", "преимущество", "доп_инфо", "доп_текст", "название", "бренд", "product_name")):
             show_skip = True
             
         if show_skip:
@@ -691,7 +691,7 @@ async def _show_next_step(message_or_callback: Message | CallbackQuery, state: F
     else: # text
         kb = back_step_keyboard(lang)
         show_skip = bool(is_optional)
-        if any(x in step_key.lower() for x in ("adv_", "extra_info", "brand_name", "info_load", "преимущество", "доп_инфо", "доп_текст", "название", "бренд")):
+        if any(x in step_key.lower() for x in ("adv_", "extra_info", "brand_name", "info_load", "преимущество", "доп_инфо", "доп_текст", "название", "бренд", "product_name")):
             show_skip = True
             
         if show_skip:
@@ -712,13 +712,21 @@ async def on_menu_support(callback: CallbackQuery, state: FSMContext, db: Databa
     history_text = ""
     if chat_history:
         history_text = "\n\n<b>Последние сообщения:</b>\n"
-        for _, text, is_admin, _, _ in chat_history[-5:]:
+        for _, text, is_admin, _, _, f_id, f_type in chat_history[-5:]:
             prefix = "👤 Вы: " if not is_admin else "👨‍💻 Поддержка: "
-            history_text += f"{prefix}{text}\n"
+            if f_type == 'text':
+                content = text
+            elif f_type == 'photo':
+                content = "🖼 Фото"
+            elif f_type == 'video':
+                content = "🎥 Видео"
+            else:
+                content = "📎 Файл"
+            history_text += f"{prefix}{content}\n"
 
     text = (
         "👋 Добро пожаловать в тех.поддержку!\n\n"
-        "Опишите вашу проблему или задайте вопрос прямо здесь. "
+        "Опишите вашу проблему или отправьте фото/видео прямо здесь. "
         "Администратор ответит вам в ближайшее время."
         f"{history_text}"
     )
@@ -727,22 +735,28 @@ async def on_menu_support(callback: CallbackQuery, state: FSMContext, db: Databa
 
 @router.message(CreateForm.waiting_support_message)
 async def on_support_message(message: Message, state: FSMContext, db: Database) -> None:
-    if not message.text:
-        return
-    
-    if message.text.startswith("/"):
-        # Позволяем команды, но предупреждаем
+    if message.text and message.text.startswith("/"):
         return
 
-    await db.add_support_message(message.from_user.id, message.text, is_admin=False)
+    f_id = None
+    f_type = 'text'
+    text = message.text or message.caption
+
+    if message.photo:
+        f_id = message.photo[-1].file_id
+        f_type = 'photo'
+    elif message.video:
+        f_id = message.video.file_id
+        f_type = 'video'
+    elif not message.text:
+        return
+
+    await db.add_support_message(message.from_user.id, text=text, file_id=f_id, file_type=f_type, is_admin=False)
     lang = await db.get_user_language(message.from_user.id)
     
     await message.answer("✅ Ваше сообщение отправлено поддержке. Ожидайте ответа.")
-    # Возвращаем в главное меню через секунду или оставляем в стейте? 
-    # Лучше оставить в стейте, чтобы могли писать еще.
-    # Но дадим кнопку "В меню"
     from bot.keyboards import back_main_keyboard
-    await message.answer("Вы можете отправить ещё одно сообщение или вернуться в меню:", reply_markup=back_main_keyboard(lang))
+    await message.answer("Вы можете отправить ещё что-то или вернуться в меню:", reply_markup=back_main_keyboard(lang))
 
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext, db: Database) -> None:
@@ -863,6 +877,21 @@ async def on_dynamic_option(callback: CallbackQuery, state: FSMContext, db: Data
     await state.update_data(current_step_index=current_idx + 1)
     await _show_next_step(callback, state, db)
     await _safe_answer(callback)
+
+@router.message(CreateForm.waiting_dynamic_step, F.photo)
+async def on_dynamic_photo(message: Message, state: FSMContext, db: Database) -> None:
+    data = await state.get_data()
+    step_key = data.get("current_step_key")
+    if not step_key:
+        return
+    
+    photo_id = message.photo[-1].file_id
+    await state.update_data({step_key: photo_id, f"{step_key}_label": "Фото загружено"})
+    
+    # Идем к следующему шагу
+    current_idx = data.get("current_step_index", 0)
+    await state.update_data(current_step_index=current_idx + 1)
+    await _show_next_step(message, state, db)
 
 @router.message(CreateForm.waiting_dynamic_step)
 async def on_dynamic_input(message: Message, state: FSMContext, db: Database) -> None:
@@ -1120,8 +1149,8 @@ async def on_create_category_universal(callback: CallbackQuery, db: Database, st
     elif cat_key == "own": await on_create_own(callback, db, state)
     elif cat_key == "own_variant": await on_create_own_variant(callback, db, state)
     elif cat_key == "random": await on_create_random(callback, state, db)
-    elif cat_key == "random_other": await on_create_random_other(callback, state, db)
-    elif cat_key.startswith("infographic"): await on_infographic_category(callback, state, db)
+    elif cat_key == "random_other": await _show_next_step(callback, state, db)
+    elif cat_key.startswith("infographic"): await _show_next_step(callback, state, db)
     elif cat_key == "presets": await on_ready_presets(callback, db, state)
     
     await _safe_answer(callback)
@@ -3132,12 +3161,18 @@ async def _build_final_prompt(data: dict, db: Database) -> str:
     # Улучшаем описание размера для ИИ
     if size_text and str(size_text).isdigit():
         sz = int(size_text)
-        if sz >= 52:
-            size_text = f"plus size model, curvy body, size {sz}"
-        elif sz >= 48:
-            size_text = f"slightly curvy body, size {sz}"
-        elif sz <= 42:
+        if sz >= 60:
+            size_text = f"very large massive body, size {sz}"
+        elif sz >= 58:
+            size_text = f"heavy body with substantial mass, size {sz}"
+        elif sz >= 54:
+            size_text = f"curvy body with clear belly volume and wide waist, size {sz}"
+        elif sz >= 50:
+            size_text = f"slim-curvy body with visible softness, size {sz}"
+        elif sz >= 46:
             size_text = f"slim model, size {sz}"
+        elif sz <= 44:
+            size_text = f"very slim model, size {sz}"
         else:
             size_text = f"athletic/average body, size {sz}"
         
@@ -3685,6 +3720,7 @@ async def _do_generate(message_or_callback: Message | CallbackQuery, state: FSMC
                     # Для Windows/Linux совместимости путей в БД используем /
                     db_result_path = f"data/history/result_{pid}.jpg"
                     local_result_path = os.path.join(BASE_DIR, db_result_path)
+                    os.makedirs(os.path.dirname(local_result_path), exist_ok=True)
 
                     try:
                         # Качаем результат
@@ -3795,6 +3831,11 @@ async def on_result_edit_text(message: Message, state: FSMContext, db: Database)
         input_photos = [data.get("own_bg_photo_id"), data.get("own_product_photo_id")]
     elif data.get("own_mode"):
         input_photos = [data.get("own_product_photo_id")]
+        # Для "Свой вариант модели" нам нужно еще фото модели (референс)
+        # Оно должно быть в user_photo_id, если загружалось ранее
+        ref_photo = data.get("user_photo_id") or data.get("photo")
+        if ref_photo:
+            input_photos.insert(0, ref_photo)
     else:
         # Для пресетов и других динамических режимов
         input_photos = [data.get("user_photo_id") or data.get("photo")]
@@ -3928,6 +3969,7 @@ async def on_result_edit_text(message: Message, state: FSMContext, db: Database)
             local_input_paths = []
             db_result_path = f"data/history/result_{pid}.jpg"
             local_result_path = os.path.join(BASE_DIR, db_result_path)
+            os.makedirs(os.path.dirname(local_result_path), exist_ok=True)
 
             try:
                 # Качаем результат

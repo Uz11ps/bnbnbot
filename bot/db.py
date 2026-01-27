@@ -77,6 +77,8 @@ CREATE TABLE IF NOT EXISTS generation_history (
     params TEXT,                     -- JSON с параметрами
     input_photos TEXT,               -- JSON с file_id входящих фото
     result_photo_id TEXT,            -- file_id результата
+    input_paths TEXT,                -- JSON со списком локальных путей к исходникам
+    result_path TEXT,                -- Локальный путь к результату
     prompt TEXT,                     -- Текст отправленного промпта
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(user_id) REFERENCES users(id)
@@ -297,7 +299,9 @@ CREATE TABLE IF NOT EXISTS support_messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
     message_text TEXT,
-    is_admin INTEGER NOT NULL DEFAULT 0, -- 0 = от пользователя, 1 = от админа
+    file_id TEXT,                     -- ID файла в Telegram
+    file_type TEXT DEFAULT 'text',    -- 'text', 'photo', 'video'
+    is_admin INTEGER NOT NULL DEFAULT 0,
     is_read INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(user_id) REFERENCES users(id)
@@ -450,21 +454,28 @@ class Database:
             if "individual_api_key" not in cols:
                 await db.execute("ALTER TABLE subscriptions ADD COLUMN individual_api_key TEXT")
 
+            async with db.execute("PRAGMA table_info(support_messages)") as cur:
+                support_cols = [row[1] for row in await cur.fetchall()]
+            if support_cols and "file_id" not in support_cols:
+                await db.execute("ALTER TABLE support_messages ADD COLUMN file_id TEXT")
+            if support_cols and "file_type" not in support_cols:
+                await db.execute("ALTER TABLE support_messages ADD COLUMN file_type TEXT DEFAULT 'text'")
+
             await db.commit()
 
     # Support messages
-    async def add_support_message(self, user_id: int, text: str, is_admin: bool = False) -> None:
+    async def add_support_message(self, user_id: int, text: Optional[str] = None, file_id: Optional[str] = None, file_type: str = 'text', is_admin: bool = False) -> None:
         async with aiosqlite.connect(self._db_path) as db:
             await db.execute(
-                "INSERT INTO support_messages (user_id, message_text, is_admin) VALUES (?, ?, ?)",
-                (user_id, text, 1 if is_admin else 0)
+                "INSERT INTO support_messages (user_id, message_text, file_id, file_type, is_admin) VALUES (?, ?, ?, ?, ?)",
+                (user_id, text, file_id, file_type, 1 if is_admin else 0)
             )
             await db.commit()
 
     async def get_support_chat(self, user_id: int) -> list[tuple]:
         async with aiosqlite.connect(self._db_path) as db:
             async with db.execute(
-                "SELECT id, message_text, is_admin, is_read, created_at FROM support_messages WHERE user_id = ? ORDER BY created_at ASC",
+                "SELECT id, message_text, is_admin, is_read, created_at, file_id, file_type FROM support_messages WHERE user_id = ? ORDER BY created_at ASC",
                 (user_id,)
             ) as cur:
                 return await cur.fetchall()

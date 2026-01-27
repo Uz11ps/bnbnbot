@@ -42,10 +42,19 @@
             </div>
             
             <div class="card-body p-4" id="chat-box" style="flex-grow: 1; overflow-y: auto; background-color: #f0f2f5;">
-                {% for text, is_admin, created_at in messages %}
+                {% for text, is_admin, created_at, file_id, file_type in messages %}
                 <div class="d-flex mb-3 {% if is_admin %}justify-content-end{% else %}justify-content-start{% endif %}">
                     <div class="p-3 rounded-3 shadow-sm" style="max-width: 75%; {% if is_admin %}background-color: #007bff; color: white;{% else %}background-color: white;{% endif %}">
-                        <div>{{ text }}</div>
+                        {% if file_id %}
+                            {% if file_type == 'photo' %}
+                                <img src="/support/file/{{ file_id }}" class="img-fluid rounded mb-2" style="max-height: 300px; cursor: pointer;" onclick="window.open(this.src)">
+                            {% elif file_type == 'video' %}
+                                <video src="/support/file/{{ file_id }}" controls class="img-fluid rounded mb-2" style="max-height: 300px;"></video>
+                            {% endif %}
+                        {% endif %}
+                        {% if text %}
+                            <div style="white-space: pre-wrap;">{{ text }}</div>
+                        {% endif %}
                         <div class="text-end mt-1" style="font-size: 0.7rem; opacity: 0.8;">{{ created_at }}</div>
                     </div>
                 </div>
@@ -53,10 +62,15 @@
             </div>
 
             <div class="card-footer bg-white border-top-0 p-3">
-                <form action="/support/send" method="POST">
+                <form action="/support/send" method="POST" enctype="multipart/form-data">
                     <input type="hidden" name="user_id" value="{{ current_user[0] }}">
-                    <div class="input-group">
-                        <textarea name="message_text" class="form-control" rows="2" placeholder="Введите ответ..." required></textarea>
+                    <div class="mb-2">
+                        <textarea name="message_text" class="form-control" rows="2" placeholder="Введите ответ..."></textarea>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div class="input-group input-group-sm w-auto">
+                            <input type="file" name="file" class="form-control" id="supportFile" accept="image/*,video/*">
+                        </div>
                         <button class="btn btn-primary" type="submit">
                             <i class="bi bi-send"></i> Отправить
                         </button>

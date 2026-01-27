@@ -928,9 +928,11 @@ def dynamic_keyboard(options: list[tuple], is_optional: bool = False, lang="ru")
     for i in range(0, len(options), 2):
         row = []
         for opt in options[i:i+2]:
-            if opt[2] == "back":
+            low_val = str(opt[2]).lower()
+            low_text = str(opt[1]).lower()
+            if low_val == "back" or low_text in ("назад", "back", "quay lại"):
                 has_back = True
-            if opt[2] == "skip":
+            if low_val == "skip" or low_text in ("пропустить", "skip", "bỏ qua"):
                 has_skip = True
             # Используем ID опции для однозначной идентификации в колбэке
             row.append(InlineKeyboardButton(text=opt[1], callback_data=f"dyn_opt:{opt[0]}"))

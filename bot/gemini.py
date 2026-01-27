@@ -42,14 +42,11 @@ def _generate_sync(
     key_id: int | None = None,
     db_instance = None,
 ) -> Optional[bytes]:
-    # Используем gemini-3-pro-image-preview для всех категорий
-    if model_name == "gemini-3-pro-preview" or model_name == "gemini-3-pro-image-preview":
-        endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent?key={api_key}"
-    else:
-        endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key={api_key}"
+    # Используем gemini-3-pro-image-preview (NANO PRO) для всех категорий
+    endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent?key={api_key}"
     headers = {"Content-Type": "application/json"}
 
-    parts = [{"text": prompt}]
+    parts = []
     
     # Обработка основного изображения или списка изображений
     if isinstance(images, bytes):
@@ -57,14 +54,18 @@ def _generate_sync(
     else:
         img_list = images or []
         
-    for img_bytes in img_list:
+    for i, img_bytes in enumerate(img_list, 1):
         if img_bytes:
+            parts.append({"text": f"Input Photo {i}:"})
             parts.append({
                 "inlineData": {
                     "mimeType": "image/jpeg",
                     "data": base64.b64encode(img_bytes).decode("utf-8"),
                 }
             })
+            
+    # Промпт добавляем в конце
+    parts.append({"text": prompt})
             
     if ref_image_bytes:
         parts.append({
@@ -99,12 +100,11 @@ def _generate_sync(
     session.trust_env = False
 
     logger.info(
-        "[Gemini] v1beta generateContent start: prompt_len=%d, images_count=%d, ref_img=%s, proxy=%s, model=%s",
+        "[Gemini] NANO PRO (v1beta generateContent) start: prompt_len=%d, images_count=%d, ref_img=%s, proxy=%s, model=gemini-3-pro-image-preview",
         len(prompt or ""),
         len(img_list),
         bool(ref_image_bytes),
         proxies or "none",
-        model_name or "default",
     )
     # Логируем промт для отладки (первые и последние 500 символов)
     if prompt:
@@ -278,9 +278,8 @@ def _generate_text_sync(
     image_bytes: bytes,
 ) -> Optional[str]:
     """Получает текстовый ответ от Gemini на основе изображения и промта"""
-    # Используем ту же модель, что и для генерации изображений (gemini-2.5-flash-image)
-    # Эта модель поддерживает мультимодальность и может возвращать текстовые ответы
-    endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key={api_key}"
+    # Используем gemini-2.0-flash для быстрого анализа текста
+    endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
     headers = {"Content-Type": "application/json"}
 
     parts = [

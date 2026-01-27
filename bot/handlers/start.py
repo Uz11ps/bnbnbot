@@ -3299,7 +3299,7 @@ async def _build_final_prompt(data: dict, db: Database) -> str:
 
     prompt_filled = ""
     if data.get("own_mode"):
-        base = await db.get_own_prompt() or await db.get_own_prompt3() or "Professional fashion photography. Place the product from the second image on the model from the first image, maintaining the same pose, lighting, and background style. High quality, realistic, natural lighting."
+        base = await db.get_own_prompt() or await db.get_own_prompt3() or "Fashion photography. Input Photo 1 is the model. Input Photo 2 is the clothing. Place the clothing from Input Photo 2 onto the model from Input Photo 1. Maintain the model's face, body, and pose exactly as in Input Photo 1. High quality, realistic, natural lighting."
         prompt_filled = apply_replacements(base)
         
         # Добавляем только то, чего нет в плейсхолдерах
@@ -3311,10 +3311,11 @@ async def _build_final_prompt(data: dict, db: Database) -> str:
             prompt_filled += f" Camera distance: {view_word}."
             
     elif category == "own_variant":
-        prompt_filled = apply_replacements(prompt_text)
-        if "{длина изделия}" not in prompt_text and "{Длина изделия}" not in prompt_text and data.get("own_length"):
+        base = await db.get_own_variant_prompt() or "Professional fashion photography. Input Photo 1 is the background. Input Photo 2 is the product. Place the product from Input Photo 2 onto the background from Input Photo 1. Maintain natural lighting, shadows, and perspective. High quality, 8k resolution."
+        prompt_filled = apply_replacements(base)
+        if "{длина изделия}" not in base and "{Длина изделия}" not in base and data.get("own_length"):
             prompt_filled += f" Garment length: {data.get('own_length')}."
-        if "{длина рукав}" not in prompt_text and "{Тип рукава}" not in prompt_text and data.get("own_sleeve"):
+        if "{длина рукав}" not in base and "{Тип рукава}" not in base and data.get("own_sleeve"):
             prompt_filled += f" Sleeve length: {data.get('own_sleeve')}."
 
     elif data.get("random_other_mode"):
@@ -3540,16 +3541,15 @@ async def _do_generate(message_or_callback: Message | CallbackQuery, state: FSMC
         if not input_photos:
             input_photos = [data.get("user_photo_id") or data.get("photo")]
     elif category == "own_variant":
-        input_photos = [data.get("own_bg_photo_id"), data.get("own_product_photo_id")]
-        # Фолбэк если ключи потерялись но фото есть в стандартных местах
-        if not any(input_photos):
-            input_photos = [data.get("user_photo_id") or data.get("photo")]
+        # Фото 1 — фон, Фото 2 — товар
+        bg = data.get("own_bg_photo_id")
+        prod = data.get("own_product_photo_id") or data.get("photo")
+        input_photos = [bg, prod]
     elif data.get("own_mode"):
-        input_photos = [data.get("own_product_photo_id")]
-        # Для "Свой вариант модели" нам нужно еще фото модели (референс)
-        ref_photo = data.get("user_photo_id") or data.get("photo")
-        if ref_photo:
-            input_photos.insert(0, ref_photo)
+        # Фото 1 — модель, Фото 2 — товар
+        ref = data.get("own_ref_photo_id") or data.get("user_photo_id")
+        prod = data.get("own_product_photo_id") or data.get("photo")
+        input_photos = [ref, prod]
     else:
         input_photos = [data.get("user_photo_id") or data.get("photo")]
 

@@ -54,12 +54,25 @@ async def run_migrations(db: aiosqlite.Connection):
 
     async with db.execute("PRAGMA table_info(users)") as cur:
         cols = [row[1] for row in await cur.fetchall()]
-    if cols and "trial_used" not in cols:
-        try:
-            await db.execute("ALTER TABLE users ADD COLUMN trial_used INTEGER NOT NULL DEFAULT 0")
-            await db.commit()
-        except Exception as e:
-            print(f"Migration error (users.trial_used): {e}")
+    if cols:
+        if "trial_used" not in cols:
+            try:
+                await db.execute("ALTER TABLE users ADD COLUMN trial_used INTEGER NOT NULL DEFAULT 0")
+                await db.commit()
+            except Exception as e:
+                print(f"Migration error (users.trial_used): {e}")
+        if "balance" not in cols:
+            try:
+                await db.execute("ALTER TABLE users ADD COLUMN balance INTEGER NOT NULL DEFAULT 0")
+                await db.commit()
+            except Exception as e:
+                print(f"Migration error (users.balance): {e}")
+        if "created_at" not in cols:
+            try:
+                await db.execute("ALTER TABLE users ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+                await db.commit()
+            except Exception as e:
+                print(f"Migration error (users.created_at): {e}")
 
     # Миграция для step_options (custom_prompt)
     async with db.execute("PRAGMA table_info(step_options)") as cur:
@@ -2101,8 +2114,8 @@ async def index(request: Request, db: aiosqlite.Connection = Depends(get_db), us
         async with db.execute("SELECT COUNT(*) FROM generation_history WHERE date(created_at) = date('now')") as cur:
             today_gens = (await cur.fetchone())[0]
 
-        # Общий баланс лимитов (активные подписки)
-        async with db.execute("SELECT SUM(MAX(0, daily_limit - daily_usage)) FROM subscriptions WHERE expires_at > CURRENT_TIMESTAMP") as cur:
+        # Общий баланс рублей (всех пользователей)
+        async with db.execute("SELECT SUM(balance) FROM users") as cur:
             row = await cur.fetchone()
             total_balance = row[0] if row and row[0] else 0
             
@@ -2167,8 +2180,7 @@ async def list_users(request: Request, q: str = "", db: aiosqlite.Connection = D
     return templates.TemplateResponse("users.html", {
         "request": request, 
         "users": users, 
-        "q": q,
-        "now": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        "q": q
     })
 
 @app.post("/users/edit_balance")
@@ -2179,6 +2191,17 @@ async def edit_balance(
     user: str = Depends(get_current_username)
 ):
     await db.execute("UPDATE users SET balance = ? WHERE id = ?", (amount, user_id))
+    await db.commit()
+    return RedirectResponse(url=f"/users?q={user_id}", status_code=303)
+
+@app.post("/admin/block_user")
+async def admin_block_user_route(
+    user_id: int = Form(...),
+    block: int = Form(...),
+    db: aiosqlite.Connection = Depends(get_db),
+    user: str = Depends(get_current_username)
+):
+    await db.execute("UPDATE users SET blocked = ? WHERE id = ?", (block, user_id))
     await db.commit()
     return RedirectResponse(url=f"/users?q={user_id}", status_code=303)
 

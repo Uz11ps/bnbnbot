@@ -94,7 +94,7 @@ STRINGS = {
         "cat_random": "👕 Одежда и Обувь РАНДОМ",
         "cat_random_other": "📦 Рандом для остальных видов товара",
         "cat_own": "💃 Свой вариант МОДЕЛИ",
-        "cat_own_variant": "🖼️ Свой вариант ФОНА (2 токена)",
+        "cat_own_variant": "🖼️ Свой вариант ФОНА",
         "cat_infographics": "📊 Инфографика",
         "cat_infographic_clothing": "👕 Инфогр: Одежда и обувь",
         "cat_infographic_other": "📦 Инфогр: Остальные товары",

@@ -226,7 +226,7 @@ async def on_own_sleeve(callback: CallbackQuery, state: FSMContext, db: Database
         # Для "Свой вариант модели" после рукавов просим ФОТО ТОВАРА (п. 8.3)
         back_kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")]])
         await _replace_with_text(callback, get_string("upload_product", lang), reply_markup=back_kb)
-        await state.set_state(CreateForm.waiting_view)
+        await state.set_state(CreateForm.waiting_own_product_photo)
         await _safe_answer(callback)
         return
 
@@ -1855,6 +1855,11 @@ async def on_own_bg_photo(message: Message, state: FSMContext, db: Database) -> 
 async def on_own_variant_product_photo(message: Message, state: FSMContext, db: Database) -> None:
     photo_id = message.photo[-1].file_id
     await state.update_data(own_product_photo_id=photo_id)
+    data = await state.get_data()
+    if data.get("own_mode"):
+        # Для "Свой вариант модели" после фото сразу на генерацию
+        await _do_generate(message, state, db)
+        return
     # 3. Длина рукава (п. 9.3)
     await _ask_sleeve_length(message, state, db)
 

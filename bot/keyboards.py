@@ -33,6 +33,7 @@ def main_menu_keyboard(lang="ru") -> InlineKeyboardMarkup:
 def profile_keyboard(lang="ru") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
+            [InlineKeyboardButton(text=get_string("buy_plan", lang), callback_data="menu_subscription")],
             [InlineKeyboardButton(text=get_string("menu_history", lang), callback_data="menu_history")],
             [InlineKeyboardButton(text=get_string("back_main", lang), callback_data="back_main")]
         ]

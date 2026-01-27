@@ -1065,6 +1065,11 @@ class Database:
             await db.execute("UPDATE users SET balance = balance + ? WHERE id=?", (amount, user_id))
             await db.commit()
 
+    async def subtract_user_balance(self, user_id: int, amount: int) -> None:
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute("UPDATE users SET balance = balance - ? WHERE id=?", (amount, user_id))
+            await db.commit()
+
     async def add_generation_history(self, pid: str, user_id: int, category: str, params: str, input_photos: str, result_photo_id: str, input_paths: str = None, result_path: str = None, prompt: str = None) -> None:
         async with aiosqlite.connect(self._db_path) as db:
             await db.execute(

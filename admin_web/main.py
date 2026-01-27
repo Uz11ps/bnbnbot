@@ -2148,13 +2148,8 @@ async def index(request: Request, db: aiosqlite.Connection = Depends(get_db), us
 async def list_users(request: Request, q: str = "", db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
     if q:
         query = """
-            SELECT u.id, u.username, u.blocked, s.plan_id, s.plan_type, s.expires_at, s.daily_limit, s.daily_usage, s.individual_api_key
+            SELECT u.id, u.username, u.blocked, u.balance
             FROM users u 
-            LEFT JOIN (
-                SELECT * FROM subscriptions 
-                GROUP BY user_id 
-                HAVING MAX(expires_at)
-            ) s ON u.id = s.user_id 
             WHERE u.id LIKE ? OR u.username LIKE ? 
             ORDER BY u.created_at DESC LIMIT 100
         """
@@ -2162,28 +2157,30 @@ async def list_users(request: Request, q: str = "", db: aiosqlite.Connection = D
             users = await cur.fetchall()
     else:
         query = """
-            SELECT u.id, u.username, u.blocked, s.plan_id, s.plan_type, s.expires_at, s.daily_limit, s.daily_usage, s.individual_api_key
+            SELECT u.id, u.username, u.blocked, u.balance
             FROM users u 
-            LEFT JOIN (
-                SELECT * FROM subscriptions 
-                GROUP BY user_id 
-                HAVING MAX(expires_at)
-            ) s ON u.id = s.user_id 
             ORDER BY u.created_at DESC LIMIT 50
         """
         async with db.execute(query) as cur:
             users = await cur.fetchall()
             
-    async with db.execute("SELECT id, name_ru, duration_days, daily_limit FROM subscription_plans WHERE is_active=1") as cur:
-        plans = await cur.fetchall()
-        
     return templates.TemplateResponse("users.html", {
         "request": request, 
         "users": users, 
-        "q": q, 
-        "plans": plans,
+        "q": q,
         "now": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
     })
+
+@app.post("/users/edit_balance")
+async def edit_balance(
+    user_id: int = Form(...),
+    amount: int = Form(...),
+    db: aiosqlite.Connection = Depends(get_db),
+    user: str = Depends(get_current_username)
+):
+    await db.execute("UPDATE users SET balance = ? WHERE id = ?", (amount, user_id))
+    await db.commit()
+    return RedirectResponse(url=f"/users?q={user_id}", status_code=303)
 
 @app.post("/cancel_subscription")
 async def cancel_subscription(user_id: int = Form(...), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):

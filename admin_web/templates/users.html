@@ -16,92 +16,33 @@
                     <h5 class="mb-0">ID: {{ user.id }}</h5>
                     <div class="text-muted">@{{ user.username or "нет" }}</div>
                 </div>
+                <div class="badge bg-primary fs-6">Баланс: {{ user.balance }} ₽</div>
             </div>
+            
             <hr class="my-2">
-            <div class="mb-3">
-                <h6 class="small fw-bold">Текущая подписка:</h6>
-                {% if user.plan_type and user.expires_at > now %}
-                    <div class="alert alert-success p-2 mb-0 small">
-                        <div><strong>План:</strong> {{ user.plan_type }}</div>
-                        <div><strong>Истекает:</strong> {{ user.expires_at[:16].replace('T', ' ') }}</div>
-                        <div><strong>Лимит:</strong> {{ user.daily_usage }}/{{ user.daily_limit }}</div>
-                        {% if user.individual_api_key %}
-                            <div class="text-truncate"><strong>Key:</strong> <code>{{ user.individual_api_key }}</code></div>
-                        {% endif %}
-                    </div>
-                    <form action="/users/add_requests" method="post" class="mt-2 d-flex gap-2">
-                        <input type="hidden" name="user_id" value="{{ user.id }}">
-                        <input type="number" name="extra" class="form-control form-control-sm" min="1" placeholder="Доп. запросы">
-                        <button type="submit" class="btn btn-sm btn-outline-primary">Добавить</button>
-                    </form>
-                    <form action="/cancel_subscription" method="post" class="mt-2" onsubmit="return confirm('Вы уверены, что хотите полностью отменить подписку этого пользователя? Все дни и лимиты будут удалены.')">
-                        <input type="hidden" name="user_id" value="{{ user.id }}">
-                        <button type="submit" class="btn btn-sm btn-outline-danger w-100">Отменить подписку</button>
-                    </form>
-                {% else %}
-                    <div class="alert alert-secondary p-2 mb-0 small text-center">
-                        Нет активной подписки
-                    </div>
-                {% endif %}
-            </div>
-
-            <hr class="my-2">
-            <h6 class="small fw-bold">Выдать/Изменить подписку:</h6>
-            <form action="/edit_subscription" method="post" class="row g-2 sub-form" data-has-active="{% if user.plan_type and user.expires_at > now %}true{% else %}false{% endif %}">
+            <h6 class="small fw-bold">Изменить баланс:</h6>
+            <form action="/users/edit_balance" method="post" class="d-flex gap-2">
                 <input type="hidden" name="user_id" value="{{ user.id }}">
-                <div class="col-12">
-                    <select name="plan_id" class="form-select form-select-sm mb-2" onchange="updateFields(this)">
-                        <option value="">-- Выберите план --</option>
-                        {% for plan in plans %}
-                        <option value="{{ plan.id }}" data-days="{{ plan.duration_days }}" data-limit="{{ plan.daily_limit }}" {% if user.plan_id == plan.id %}selected{% endif %}>{{ plan.name_ru }}</option>
-                        {% endfor %}
-                        <option value="custom">Свой вариант</option>
-                    </select>
-                </div>
-                <div class="col-6">
-                    <input type="number" name="days" class="form-control form-control-sm" placeholder="Дни" required id="days_{{ user.id }}">
-                </div>
-                <div class="col-6">
-                    <input type="number" name="limit" class="form-control form-control-sm" placeholder="Лимит/день" value="20" required id="limit_{{ user.id }}">
-                </div>
-                <div class="col-12">
-                    <input type="text" name="api_key" class="form-control form-control-sm" placeholder="Индивидуальный API Key (для 4K)" value="{{ user.individual_api_key or '' }}">
-                </div>
-                <div class="col-12">
-                    <button class="btn btn-sm btn-success w-100" type="submit">Сохранить подписку</button>
-                </div>
+                <input type="number" name="amount" class="form-control" value="{{ user.balance }}" required>
+                <button type="submit" class="btn btn-success">Сохранить</button>
             </form>
+
+            <div class="mt-3">
+                <form action="/admin/block_user" method="post">
+                    <input type="hidden" name="user_id" value="{{ user.id }}">
+                    <input type="hidden" name="block" value="{{ 0 if user.blocked else 1 }}">
+                    {% if user.blocked %}
+                        <button type="submit" class="btn btn-sm btn-outline-success w-100">Разблокировать</button>
+                    {% else %}
+                        <button type="submit" class="btn btn-sm btn-outline-danger w-100">Заблокировать</button>
+                    {% endif %}
+                </form>
+            </div>
         </div>
     </div>
     {% endfor %}
 </div>
-
-<script>
-function updateFields(select) {
-    const card = select.closest('.card');
-    const daysInput = card.querySelector('input[name="days"]');
-    const limitInput = card.querySelector('input[name="limit"]');
-    
-    if (select.value === 'custom' || select.value === '') {
-        return;
-    }
-    
-    const option = select.options[select.selectedIndex];
-    daysInput.value = option.getAttribute('data-days');
-    limitInput.value = option.getAttribute('data-limit');
-}
-
-document.querySelectorAll('.sub-form').forEach(form => {
-    form.addEventListener('submit', function(e) {
-        const hasActive = this.getAttribute('data-has-active') === 'true';
-        if (hasActive) {
-            if (!confirm('У пользователя уже есть активная подписка. Если вы выдадите новую, старая подписка полностью обнулится. Продолжить?')) {
-                e.preventDefault();
-            }
-        }
-    });
-});
-</script>
+{% endblock %}
 {% endblock %}
 
 

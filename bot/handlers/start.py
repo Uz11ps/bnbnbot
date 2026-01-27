@@ -3566,38 +3566,17 @@ async def _do_generate(message_or_callback: Message | CallbackQuery, state: FSMC
         return
 
     try:
-        sub = await db.get_user_subscription(user_id)
-        if not sub:
-            # Проверяем, может подписка просто истекла
-            last_exp_str = None
-            async with aiosqlite.connect(db._db_path) as conn:
-                async with conn.execute("SELECT expires_at FROM subscriptions WHERE user_id=? ORDER BY expires_at DESC LIMIT 1", (user_id,)) as cur:
-                    row = await cur.fetchone()
-                    if row: last_exp_str = row[0]
-            
-            if last_exp_str:
-                msg = f"❌ Срок действия вашей подписки истек ({last_exp_str}).\nПожалуйста, продлите её в профиле."
-            else:
-                msg = "❌ У вас нет активной подписки.\nОформите подписку в главном меню или профиле."
-            
+        balance = await db.get_user_balance(user_id)
+        if balance < 20:
+            msg = f"❌ Недостаточно средств на балансе.\n\nСтоимость 1 генерации = 20 руб.\nВаш баланс: {balance} руб.\n\nПожалуйста, пополните баланс в профиле."
             if isinstance(message_or_callback, CallbackQuery):
                 await _safe_answer(message_or_callback, msg, show_alert=True)
             else:
                 await ans_obj.answer(msg)
             return
         
-        # sub structure: (plan_type, expires_at, daily_limit, daily_usage, ind_key)
-        plan_type, expires_at, daily_limit, daily_usage, ind_key = sub
-        if daily_usage >= daily_limit:
-            msg = f"❌ Лимит генераций на сегодня исчерпан ({daily_usage}/{daily_limit}).\nЛимиты обновляются каждый день в 00:00 UTC."
-            if isinstance(message_or_callback, CallbackQuery):
-                await _safe_answer(message_or_callback, msg, show_alert=True)
-            else:
-                await ans_obj.answer(msg)
-            return
+        quality = 'HD' # По умолчанию HD, так как подписки убрали
         
-        quality = '4K' if '4K' in plan_type.upper() else 'HD'
-
         if not data:
             logger.error(f"[_do_generate] КРИТИЧЕСКАЯ ОШИБКА: Данные сессии пусты для пользователя {user_id}")
             if isinstance(message_or_callback, CallbackQuery):
@@ -3705,16 +3684,8 @@ async def _do_generate(message_or_callback: Message | CallbackQuery, state: FSMC
                 if result_path:
                     await db.record_api_usage(kid)
                     
-                    await db.update_daily_usage(user_id)
-                    await db.increment_user_balance(user_id, -(price_tenths // 10))
-                    rem = price_tenths % 10
-                    if rem > 0:
-                        cur_frac = await db.get_user_fraction(user_id)
-                        new_frac = cur_frac - rem
-                        if new_frac < 0:
-                            await db.increment_user_balance(user_id, -1)
-                            new_frac += 10
-                        await db.set_user_fraction(user_id, new_frac)
+                    # Списываем 20 руб за генерацию
+                    await db.subtract_user_balance(user_id, 20)
                     
                     anim_task.cancel()
                     from aiogram.types import FSInputFile
@@ -4150,23 +4121,11 @@ async def on_model_search_input(message: Message, state: FSMContext, db: Databas
 
 
 @router.callback_query(F.data == "menu_profile")
+@router.callback_query(F.data == "menu_profile")
 async def on_menu_profile(callback: CallbackQuery, db: Database) -> None:
     lang = await db.get_user_language(callback.from_user.id)
-    sub = await db.get_user_subscription(callback.from_user.id)
-    if sub:
-        # sub structure: (plan_type, expires_at, daily_limit, daily_usage, ind_key)
-        plan, expires, limit, usage, _indiv_key = sub
-        # Форматируем дату (expires может быть строкой или объектом datetime)
-        if isinstance(expires, str):
-            # Если в БД хранится 'YYYY-MM-DD HH:MM:SS'
-            expires_dt = expires[:16].replace('T', ' ')
-        else:
-            expires_dt = expires.strftime("%Y-%m-%d %H:%M")
-            
-        daily_rem = max(0, limit - usage)
-        text = get_string("profile_info", lang, id=callback.from_user.id, sub=plan, expires=expires_dt, daily_rem=daily_rem)
-    else:
-        text = get_string("profile_info", lang, id=callback.from_user.id, sub=get_string("sub_none", lang), expires="—", daily_rem=0)
+    balance = await db.get_user_balance(callback.from_user.id)
+    text = get_string("profile_info", lang, id=callback.from_user.id, balance=balance)
     
     await _replace_with_text(callback, text, reply_markup=profile_keyboard(lang))
     await _safe_answer(callback)
@@ -4174,9 +4133,15 @@ async def on_menu_profile(callback: CallbackQuery, db: Database) -> None:
 @router.callback_query(F.data == "menu_subscription")
 async def on_sub_menu(callback: CallbackQuery, db: Database) -> None:
     lang = await db.get_user_language(callback.from_user.id)
-    plans = await db.list_subscription_plans()
-    text = "Выберите план подписки:"
-    await _replace_with_text(callback, text, reply_markup=plans_keyboard(plans, lang))
+    balance = await db.get_user_balance(callback.from_user.id)
+    text = get_string("top_up_info", lang, id=callback.from_user.id, balance=balance)
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=get_string("contact_admin", lang), url="https://t.me/bnbslow")],
+        [InlineKeyboardButton(text=get_string("back", lang), callback_data="menu_profile")]
+    ])
+    
+    await _replace_with_text(callback, text, reply_markup=kb)
     await _safe_answer(callback)
 
 @router.callback_query(F.data == "menu_history")

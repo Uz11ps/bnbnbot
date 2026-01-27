@@ -1949,7 +1949,21 @@ async def get_db():
     finally:
         await db.close()
 
-CATEGORIES = ["presets", "female", "male", "child", "storefront", "whitebg", "random", "random_other", "own", "own_variant", "infographic_clothing", "infographic_other"]
+CATEGORIES = ["presets", "female", "male", "child", "boy", "girl", "storefront", "whitebg", "random", "random_other", "own", "own_variant", "infographic_clothing", "infographic_other"]
+
+@app.get("/models/toggle/{model_id}")
+async def toggle_model_status(model_id: int, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    """Включает/выключает модель (пресет)"""
+    async with db.execute("SELECT is_active FROM models WHERE id=?", (model_id,)) as cur:
+        row = await cur.fetchone()
+        if not row:
+            return RedirectResponse(url="/prompts", status_code=303)
+        current = row[0]
+    
+    new_val = 0 if current == 1 else 1
+    await db.execute("UPDATE models SET is_active=? WHERE id=?", (new_val, model_id))
+    await db.commit()
+    return RedirectResponse(url="/prompts", status_code=303)
 
 @app.get("/models/delete/{model_id}")
 async def delete_model(model_id: int, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):

@@ -193,6 +193,7 @@ def admin_categories_keyboard(status: dict[str, bool], lang="ru") -> InlineKeybo
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text=label("female", "cat_female"), callback_data="admin_toggle_cat:female"), InlineKeyboardButton(text=label("male", "cat_male"), callback_data="admin_toggle_cat:male")],
+            [InlineKeyboardButton(text=label("boy", "gender_boy"), callback_data="admin_toggle_cat:boy"), InlineKeyboardButton(text=label("girl", "gender_girl"), callback_data="admin_toggle_cat:girl")],
             [InlineKeyboardButton(text=label("child", "cat_child"), callback_data="admin_toggle_cat:child")],
             [InlineKeyboardButton(text=label("storefront", "cat_storefront"), callback_data="admin_toggle_cat:storefront"), InlineKeyboardButton(text=label("whitebg", "cat_whitebg"), callback_data="admin_toggle_cat:whitebg")],
             [InlineKeyboardButton(text=label("random", "cat_random"), callback_data="admin_toggle_cat:random"), InlineKeyboardButton(text=label("random_other", "cat_random_other"), callback_data="admin_toggle_cat:random_other")],
@@ -215,15 +216,23 @@ def ready_presets_keyboard(enabled: dict[str, bool], lang="ru") -> InlineKeyboar
     """Клавиатура выбора пола внутри готовых пресетов"""
     rows: list[list[InlineKeyboardButton]] = []
 
-    rows.append([
-        InlineKeyboardButton(text=get_string("cat_female", lang), callback_data="preset_gender:female"),
-        InlineKeyboardButton(text=get_string("cat_male", lang), callback_data="preset_gender:male")
-    ])
+    # Женский/Мужской
+    row1 = []
+    if enabled.get("female", True):
+        row1.append(InlineKeyboardButton(text=get_string("cat_female", lang), callback_data="preset_gender:female"))
+    if enabled.get("male", True):
+        row1.append(InlineKeyboardButton(text=get_string("cat_male", lang), callback_data="preset_gender:male"))
+    if row1:
+        rows.append(row1)
 
-    rows.append([
-        InlineKeyboardButton(text=get_string("gender_boy", lang), callback_data="preset_gender:boy"),
-        InlineKeyboardButton(text=get_string("gender_girl", lang), callback_data="preset_gender:girl")
-    ])
+    # Мальчик/Девочка
+    row2 = []
+    if enabled.get("boy", True):
+        row2.append(InlineKeyboardButton(text=get_string("gender_boy", lang), callback_data="preset_gender:boy"))
+    if enabled.get("girl", True):
+        row2.append(InlineKeyboardButton(text=get_string("gender_girl", lang), callback_data="preset_gender:girl"))
+    if row2:
+        rows.append(row2)
 
     rows.append([InlineKeyboardButton(text="⬅️ Назад в маркет", callback_data="menu_market")])
     return InlineKeyboardMarkup(inline_keyboard=rows)

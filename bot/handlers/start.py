@@ -3541,36 +3541,59 @@ async def _do_generate(message_or_callback: Message | CallbackQuery, state: FSMC
             input_photos = [data.get("user_photo_id") or data.get("photo")]
     elif category == "own_variant":
         input_photos = [data.get("own_bg_photo_id"), data.get("own_product_photo_id")]
+        # Фолбэк если ключи потерялись но фото есть в стандартных местах
+        if not any(input_photos):
+            input_photos = [data.get("user_photo_id") or data.get("photo")]
     elif data.get("own_mode"):
         input_photos = [data.get("own_product_photo_id")]
+        # Для "Свой вариант модели" нам нужно еще фото модели (референс)
+        ref_photo = data.get("user_photo_id") or data.get("photo")
+        if ref_photo:
+            input_photos.insert(0, ref_photo)
     else:
         input_photos = [data.get("user_photo_id") or data.get("photo")]
 
     input_photos = [fid for fid in input_photos if fid]
     if not input_photos:
+        logger.error(f"[_do_generate] Нет фото для генерации. Category: {category}, Data keys: {list(data.keys())}")
         text = get_string("upload_product", lang)
         await state.set_state(CreateForm.waiting_view)
-        await ans_obj.answer(text)
         if isinstance(message_or_callback, CallbackQuery):
+            await message_or_callback.message.answer(text)
             await _safe_answer(message_or_callback)
+        else:
+            await message_or_callback.answer(text)
         return
 
     try:
         sub = await db.get_user_subscription(user_id)
         if not sub:
-            if isinstance(message_or_callback, CallbackQuery):
-                await _safe_answer(message_or_callback, get_string("limit_rem_zero", lang), show_alert=True)
+            # Проверяем, может подписка просто истекла
+            last_exp_str = None
+            async with aiosqlite.connect(db._db_path) as conn:
+                async with conn.execute("SELECT expires_at FROM subscriptions WHERE user_id=? ORDER BY expires_at DESC LIMIT 1", (user_id,)) as cur:
+                    row = await cur.fetchone()
+                    if row: last_exp_str = row[0]
+            
+            if last_exp_str:
+                msg = f"❌ Срок действия вашей подписки истек ({last_exp_str}).\nПожалуйста, продлите её в профиле."
             else:
-                await ans_obj.answer(get_string("limit_rem_zero", lang))
+                msg = "❌ У вас нет активной подписки.\nОформите подписку в главном меню или профиле."
+            
+            if isinstance(message_or_callback, CallbackQuery):
+                await _safe_answer(message_or_callback, msg, show_alert=True)
+            else:
+                await ans_obj.answer(msg)
             return
         
         # sub structure: (plan_type, expires_at, daily_limit, daily_usage, ind_key)
         plan_type, expires_at, daily_limit, daily_usage, ind_key = sub
         if daily_usage >= daily_limit:
+            msg = f"❌ Лимит генераций на сегодня исчерпан ({daily_usage}/{daily_limit}).\nЛимиты обновляются каждый день в 00:00 UTC."
             if isinstance(message_or_callback, CallbackQuery):
-                await _safe_answer(message_or_callback, get_string("limit_rem_zero", lang), show_alert=True)
+                await _safe_answer(message_or_callback, msg, show_alert=True)
             else:
-                await ans_obj.answer(get_string("limit_rem_zero", lang))
+                await ans_obj.answer(msg)
             return
         
         quality = '4K' if '4K' in plan_type.upper() else 'HD'

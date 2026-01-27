@@ -196,7 +196,12 @@
                                     <div class="col-8">
                                         <div class="mb-2 d-flex justify-content-between align-items-center">
                                             <input type="text" name="name" class="form-control form-control-sm fw-bold" value="{{ m.name }}">
-                                            <span class="badge bg-light text-dark ms-2">#{{ m.id }}</span>
+                                            <div class="d-flex align-items-center gap-2">
+                                                <a href="/models/toggle/{{ m.id }}" class="btn btn-sm {% if m.is_active %}btn-success{% else %}btn-secondary{% endif %}" title="Вкл/Выкл">
+                                                    <i class="bi {% if m.is_active %}bi-toggle-on{% else %}bi-toggle-off{% endif %}"></i>
+                                                </a>
+                                                <span class="badge bg-light text-dark">#{{ m.id }}</span>
+                                            </div>
                                         </div>
                                         <textarea name="prompt_text" class="form-control mb-2" rows="4" style="font-size: 0.85rem;">{{ m.prompt_text }}</textarea>
                                         <div class="d-flex justify-content-between align-items-center">

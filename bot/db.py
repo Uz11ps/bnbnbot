@@ -292,6 +292,18 @@ CREATE TABLE IF NOT EXISTS library_step_options (
 """
 
 
+CREATE_SUPPORT_MESSAGES_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS support_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    message_text TEXT,
+    is_admin INTEGER NOT NULL DEFAULT 0, -- 0 = от пользователя, 1 = от админа
+    is_read INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(user_id) REFERENCES users(id)
+);
+"""
+
 class Database:
     def __init__(self, db_path: str = "bot.db") -> None:
         self._db_path = db_path
@@ -323,6 +335,7 @@ class Database:
             await db.execute(CREATE_BUTTON_CATEGORIES_TABLE_SQL)
             await db.execute(CREATE_LIBRARY_OPTIONS_TABLE_SQL)
             await db.execute(CREATE_LIBRARY_STEP_OPTIONS_TABLE_SQL)
+            await db.execute(CREATE_SUPPORT_MESSAGES_TABLE_SQL)
             await db.commit()
         
         # Миграция для описаний планов
@@ -437,6 +450,46 @@ class Database:
             if "individual_api_key" not in cols:
                 await db.execute("ALTER TABLE subscriptions ADD COLUMN individual_api_key TEXT")
 
+            await db.commit()
+
+    # Support messages
+    async def add_support_message(self, user_id: int, text: str, is_admin: bool = False) -> None:
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute(
+                "INSERT INTO support_messages (user_id, message_text, is_admin) VALUES (?, ?, ?)",
+                (user_id, text, 1 if is_admin else 0)
+            )
+            await db.commit()
+
+    async def get_support_chat(self, user_id: int) -> list[tuple]:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute(
+                "SELECT id, message_text, is_admin, is_read, created_at FROM support_messages WHERE user_id = ? ORDER BY created_at ASC",
+                (user_id,)
+            ) as cur:
+                return await cur.fetchall()
+
+    async def get_support_users(self) -> list[tuple]:
+        """Возвращает список пользователей, у которых есть сообщения в поддержке, с информацией о непрочитанных"""
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute(
+                """
+                SELECT u.id, u.username, u.first_name, 
+                       (SELECT COUNT(*) FROM support_messages WHERE user_id = u.id AND is_admin = 0 AND is_read = 0) as unread_count,
+                       (SELECT MAX(created_at) FROM support_messages WHERE user_id = u.id) as last_msg_at
+                FROM users u
+                WHERE EXISTS (SELECT 1 FROM support_messages WHERE user_id = u.id)
+                ORDER BY last_msg_at DESC
+                """
+            ) as cur:
+                return await cur.fetchall()
+
+    async def mark_support_read(self, user_id: int) -> None:
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute(
+                "UPDATE support_messages SET is_read = 1 WHERE user_id = ? AND is_admin = 0",
+                (user_id,)
+            )
             await db.commit()
 
     # API keys management

@@ -82,6 +82,7 @@ class CreateForm(StatesGroup):
     waiting_view = State()
     waiting_prompt = State()
     waiting_aspect = State()
+    waiting_support_message = State()
     waiting_sleeve = State()
     waiting_foot = State()
     waiting_pants_style = State()
@@ -702,6 +703,47 @@ async def _show_next_step(message_or_callback: Message | CallbackQuery, state: F
         else:
             await _replace_with_text(message_or_callback, question, reply_markup=kb)
 
+@router.callback_query(F.data == "menu_support")
+async def on_menu_support(callback: CallbackQuery, state: FSMContext, db: Database) -> None:
+    lang = await db.get_user_language(callback.from_user.id)
+    await state.set_state(CreateForm.waiting_support_message)
+    
+    chat_history = await db.get_support_chat(callback.from_user.id)
+    history_text = ""
+    if chat_history:
+        history_text = "\n\n<b>Последние сообщения:</b>\n"
+        for _, text, is_admin, _, _ in chat_history[-5:]:
+            prefix = "👤 Вы: " if not is_admin else "👨‍💻 Поддержка: "
+            history_text += f"{prefix}{text}\n"
+
+    text = (
+        "👋 Добро пожаловать в тех.поддержку!\n\n"
+        "Опишите вашу проблему или задайте вопрос прямо здесь. "
+        "Администратор ответит вам в ближайшее время."
+        f"{history_text}"
+    )
+    await _replace_with_text(callback, text, reply_markup=back_main_keyboard(lang))
+    await _safe_answer(callback)
+
+@router.message(CreateForm.waiting_support_message)
+async def on_support_message(message: Message, state: FSMContext, db: Database) -> None:
+    if not message.text:
+        return
+    
+    if message.text.startswith("/"):
+        # Позволяем команды, но предупреждаем
+        return
+
+    await db.add_support_message(message.from_user.id, message.text, is_admin=False)
+    lang = await db.get_user_language(message.from_user.id)
+    
+    await message.answer("✅ Ваше сообщение отправлено поддержке. Ожидайте ответа.")
+    # Возвращаем в главное меню через секунду или оставляем в стейте? 
+    # Лучше оставить в стейте, чтобы могли писать еще.
+    # Но дадим кнопку "В меню"
+    from bot.keyboards import back_main_keyboard
+    await message.answer("Вы можете отправить ещё одно сообщение или вернуться в меню:", reply_markup=back_main_keyboard(lang))
+
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext, db: Database) -> None:
     await state.clear()
@@ -948,7 +990,7 @@ async def on_create_photo(callback: CallbackQuery, db: Database, state: FSMConte
     await state.clear()
     await state.update_data(category="normal", normal_gen_mode=True, aspect="auto", photos=[])
     
-    text = "📸 Пришлите до 4 фото товара (можно по одному или серией)."
+    text = "📸 Пришлите до 4 фото (можно по одному или серией)."
     await _replace_with_text(callback, text, reply_markup=back_main_keyboard(lang))
     await state.set_state(CreateForm.waiting_view)
 
@@ -2775,14 +2817,15 @@ async def handle_user_photo(message: Message, state: FSMContext, db: Database) -
         photos = photos[:4]
         await state.update_data(photos=photos)
         if len(photos) < 4:
-            from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-            kb = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="Далее", callback_data="normal_photos_done")],
-                [InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")]
-            ])
-            await message.answer(f"Фото {len(photos)}/4 получено. Отправьте ещё или нажмите «Далее».", reply_markup=kb)
+            if not message.media_group_id:
+                from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+                kb = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="Далее", callback_data="normal_photos_done")],
+                    [InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")]
+                ])
+                await message.answer(f"Фото {len(photos)}/4 получено. Отправьте ещё или нажмите «Далее».", reply_markup=kb)
             return
-        await message.answer("✍️ Теперь отправьте промпт (до 1000 символов).", reply_markup=back_step_keyboard(lang))
+        await message.answer("✅ Получено 4/4 фото. Теперь отправьте промпт (до 1000 символов).", reply_markup=back_step_keyboard(lang))
         await state.set_state(CreateForm.waiting_prompt)
         return
 
@@ -4171,7 +4214,7 @@ async def on_buy_plan(callback: CallbackQuery, db: Database) -> None:
     text = get_string("buy_sub_text", lang, name=name, desc=desc, price=price, id=callback.from_user.id)
     
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=get_string("contact_admin", lang), url="https://t.me/Gbox_admin")],
+        [InlineKeyboardButton(text=get_string("contact_admin", lang), url="https://t.me/bnbslow")],
         [InlineKeyboardButton(text=get_string("back", lang), callback_data="menu_subscription")]
     ])
     

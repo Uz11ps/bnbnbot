@@ -751,6 +751,23 @@ async def run_migrations(db: aiosqlite.Connection):
             except Exception as e:
                 print(f"Migration error (subscription_plans.{col_name}): {e}")
 
+    # Миграция для support_messages
+    try:
+        await db.execute("""
+        CREATE TABLE IF NOT EXISTS support_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            message_text TEXT,
+            is_admin INTEGER NOT NULL DEFAULT 0,
+            is_read INTEGER NOT NULL DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        )
+        """)
+        await db.commit()
+    except Exception as e:
+        print(f"Migration error (support_messages): {e}")
+
     # --- МИГРАЦИЯ ПРОМПТОВ (FORCE UPDATE) ---
     try:
         # Функция для проверки, содержит ли текст старые метки
@@ -3106,3 +3123,75 @@ async def admin_add_library_category(request: Request, name: str = Form(...), db
     await db.execute("INSERT OR IGNORE INTO button_categories (name) VALUES (?)", (name,))
     await db.commit()
     return RedirectResponse(request.headers.get("referer", "/constructor"), status_code=303)
+
+# --- Техподдержка ---
+
+@app.get("/support", response_class=HTMLResponse)
+async def get_support(request: Request, user_id: int = None, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    # Список пользователей, писавших в поддержку
+    async with db.execute("""
+        SELECT u.id, u.username, u.first_name, 
+               (SELECT COUNT(*) FROM support_messages WHERE user_id = u.id AND is_admin = 0 AND is_read = 0) as unread_count,
+               (SELECT MAX(created_at) FROM support_messages WHERE user_id = u.id) as last_msg_at
+        FROM users u
+        WHERE EXISTS (SELECT 1 FROM support_messages WHERE user_id = u.id)
+        ORDER BY last_msg_at DESC
+    """) as cur:
+        support_users = await cur.fetchall()
+
+    messages = []
+    current_user = None
+    if user_id:
+        # Помечаем как прочитанные
+        await db.execute("UPDATE support_messages SET is_read = 1 WHERE user_id = ? AND is_admin = 0", (user_id,))
+        await db.commit()
+        
+        async with db.execute("SELECT message_text, is_admin, created_at FROM support_messages WHERE user_id = ? ORDER BY created_at ASC", (user_id,)) as cur:
+            messages = await cur.fetchall()
+        
+        async with db.execute("SELECT id, username, first_name FROM users WHERE id = ?", (user_id,)) as cur:
+            current_user = await cur.fetchone()
+
+    return templates.TemplateResponse("support.html", {
+        "request": request, 
+        "support_users": support_users, 
+        "messages": messages, 
+        "current_user": current_user
+    })
+
+@app.post("/support/send")
+async def send_support_reply(
+    user_id: int = Form(...),
+    message_text: str = Form(...),
+    db: aiosqlite.Connection = Depends(get_db),
+    user: str = Depends(get_current_username)
+):
+    try:
+        # Сохраняем в БД
+        await db.execute(
+            "INSERT INTO support_messages (user_id, message_text, is_admin, is_read) VALUES (?, ?, 1, 1)",
+            (user_id, message_text)
+        )
+        await db.commit()
+
+        # Отправляем пользователю в Телеграм
+        settings = load_settings()
+        async with httpx.AsyncClient() as client:
+            url = f"https://api.telegram.org/bot{settings.bot_token}/sendMessage"
+            payload = {
+                "chat_id": user_id,
+                "text": f"👨‍💻 <b>Ответ поддержки:</b>\n\n{message_text}",
+                "parse_mode": "HTML"
+            }
+            await client.post(url, json=payload)
+
+        return RedirectResponse(url=f"/support?user_id={user_id}", status_code=303)
+    except Exception as e:
+        print(f"Error sending support reply: {e}")
+        return JSONResponse(status_code=500, content={"detail": str(e)})
+
+@app.post("/support/mark_read")
+async def mark_read(user_id: int = Form(...), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    await db.execute("UPDATE support_messages SET is_read = 1 WHERE user_id = ? AND is_admin = 0", (user_id,))
+    await db.commit()
+    return {"status": "ok"}

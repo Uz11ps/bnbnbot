@@ -2382,8 +2382,8 @@ async def settings_page(request: Request, db: aiosqlite.Connection = Depends(get
 
 @app.post("/settings/update")
 async def update_app_settings(
-    agreement: str = Form(...), 
-    howto: str = Form(...), 
+    agreement: str = Form(""), 
+    howto: str = Form(""), 
     channel_id: str = Form(None),
     channel_url: str = Form(None),
     db: aiosqlite.Connection = Depends(get_db), 

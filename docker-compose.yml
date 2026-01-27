@@ -5,6 +5,8 @@ services:
     build: .
     volumes:
       - ./data:/app/data
+      - ./scripts:/app/scripts
+      - ./staraya bd:/app/staraya bd
     env_file:
       - .env
     restart: always
@@ -19,6 +21,8 @@ services:
       - .env
     volumes:
       - ./data:/app/data
+      - ./scripts:/app/scripts
+      - ./staraya bd:/app/staraya bd
     depends_on:
       - bot
     restart: always

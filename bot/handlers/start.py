@@ -3299,7 +3299,9 @@ async def _build_final_prompt(data: dict, db: Database) -> str:
 
     prompt_filled = ""
     if data.get("own_mode"):
-        base = await db.get_own_prompt() or await db.get_own_prompt3() or "Fashion photography. Input Photo 1 is the model. Input Photo 2 is the clothing. Place the clothing from Input Photo 2 onto the model from Input Photo 1. Maintain the model's face, body, and pose exactly as in Input Photo 1. High quality, realistic, natural lighting."
+        base = await db.get_own_prompt() or await db.get_own_prompt3()
+        if not base or "Input Photo" not in base:
+            base = "Fashion photography. Input Photo 1 is the model. Input Photo 2 is the clothing. Place the clothing from Input Photo 2 onto the model from Input Photo 1. Maintain the model's face, body, and pose exactly as in Input Photo 1. High quality, realistic, natural lighting."
         prompt_filled = apply_replacements(base)
         
         # Добавляем только то, чего нет в плейсхолдерах
@@ -3311,7 +3313,9 @@ async def _build_final_prompt(data: dict, db: Database) -> str:
             prompt_filled += f" Camera distance: {view_word}."
             
     elif category == "own_variant":
-        base = await db.get_own_variant_prompt() or "Professional fashion photography. Input Photo 1 is the background. Input Photo 2 is the product. Place the product from Input Photo 2 onto the background from Input Photo 1. Maintain natural lighting, shadows, and perspective. High quality, 8k resolution."
+        base = await db.get_own_variant_prompt()
+        if not base or "Input Photo" not in base:
+            base = "Professional fashion photography. Input Photo 1 is the background. Input Photo 2 is the product. Place the product from Input Photo 2 onto the background from Input Photo 1. Maintain natural lighting, shadows, and perspective. High quality, 8k resolution."
         prompt_filled = apply_replacements(base)
         if "{длина изделия}" not in base and "{Длина изделия}" not in base and data.get("own_length"):
             prompt_filled += f" Garment length: {data.get('own_length')}."

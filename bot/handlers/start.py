@@ -2828,20 +2828,37 @@ from collections import defaultdict
 
 # Словар замков для каждого пользователя, чтобы избежать race condition
 user_locks = defaultdict(asyncio.Lock)
+# Кэш обработанных сообщений, чтобы не считать одно фото дважды (race condition на стороне TG)
+processed_msg_ids = set()
 
 @router.message(CreateForm.waiting_view, F.photo)
 async def handle_user_photo(message: Message, state: FSMContext, db: Database) -> None:
     user_id = message.from_user.id
+    msg_id = message.message_id
+    
+    # 1. Быстрая проверка на дубликат сообщения (вне лока для скорости)
+    if msg_id in processed_msg_ids:
+        return
     
     # Используем индивидуальный замок для каждого пользователя
     async with user_locks[user_id]:
-        # Получаем самые свежие данные СРАЗУ после захвата замка
-        data = await state.get_data()
-        if not data:
+        # Повторная проверка внутри замка
+        if msg_id in processed_msg_ids:
             return
-            
+        processed_msg_ids.add(msg_id)
+        # Очищаем старые ID (держим последние 100)
+        if len(processed_msg_ids) > 100:
+            list(processed_msg_ids)[:50] 
+
+        # Даем микро-паузу для MemoryStorage (aiogram 3 sync)
+        await asyncio.sleep(0.05)
+        
+        data = await state.get_data()
         current_state = await state.get_state()
-        if current_state != CreateForm.waiting_view.state:
+        
+        logger.info(f"[handle_user_photo] User {user_id}, State: {current_state}, Photos in data: {len(data.get('photos', [])) if data else 'N/A'}")
+        
+        if not data or current_state != CreateForm.waiting_view.state:
             return
 
         photo_id = message.photo[-1].file_id
@@ -2850,16 +2867,18 @@ async def handle_user_photo(message: Message, state: FSMContext, db: Database) -
 
         # --- ОБЫЧНАЯ ГЕНЕРАЦИЯ ---
         if data.get("normal_gen_mode"):
-            # Получаем актуальный список фото
             photos = data.get("photos") or []
             
-            # Добавляем фото, если его еще нет (защита от дублей TG)
+            # Добавляем фото, если его еще нет в списке
             if photo_id not in photos:
                 photos.append(photo_id)
-                photos = photos[:4] # Лимит 4
+                photos = photos[:4]
+                # ВАЖНО: Сначала обновляем данные в state
                 await state.update_data(photos=photos)
+                # И сразу же обновляем локальную переменную data для консистентности
+                data["photos"] = photos
             
-            # Формируем клавиатуру и текст на основе актуального количества
+            # Формируем клавиатуру и текст
             from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
             kb = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="Далее" if len(photos) < 4 else "Перейти к промпту", callback_data="normal_photos_done")],
@@ -2882,11 +2901,11 @@ async def handle_user_photo(message: Message, state: FSMContext, db: Database) -
                         text=text,
                         reply_markup=kb
                     )
-                    return # Успешно отредактировали - выходим
-                except:
-                    pass # Если не удалось (удалено или старое), отправим новое ниже
+                    return 
+                except Exception as e:
+                    logger.debug(f"Could not edit counter message: {e}")
 
-            # Если старого сообщения нет или ошибка — отправляем новое
+            # Отправляем новое, если не удалось редактировать
             msg = await message.answer(text, reply_markup=kb)
             await state.update_data(last_photos_msg_id=msg.message_id)
             return

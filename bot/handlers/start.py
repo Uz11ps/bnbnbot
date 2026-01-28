@@ -3676,15 +3676,22 @@ async def _do_generate(message_or_callback: Message | CallbackQuery, state: FSMC
 
         anim_task = asyncio.create_task(animate_gen(process_msg, lang))
     
-        # Всегда используем основные API ключи (Pro версия)
+        # Объединяем основные и специальные ключи для режима "Свой вариант"
         api_keys = await db.list_api_keys()
+        if category == "own_variant" or data.get("own_mode") or category == "own":
+            own_keys = await db.list_own_variant_api_keys()
+            # Добавляем только уникальные токены
+            existing_tokens = {k[1] for k in api_keys}
+            for ok in own_keys:
+                if ok[1] not in existing_tokens:
+                    api_keys.append(ok)
             
         active_keys = [k for k in api_keys if k[2]] # is_active
         if not active_keys:
             anim_task.cancel()
             try: await process_msg.delete()
             except: pass
-            err_text = get_string("api_error_user", lang)
+            err_text = get_string("api_error_user", lang) + " (нет активных ключей)"
             if isinstance(message_or_callback, CallbackQuery):
                 await _replace_with_text(message_or_callback, err_text)
             else:
@@ -3694,6 +3701,7 @@ async def _do_generate(message_or_callback: Message | CallbackQuery, state: FSMC
         import random
         random.shuffle(active_keys)
         
+        last_error_msg = ""
         for key_tuple in active_keys:
             kid = key_tuple[0]
             token = key_tuple[1]
@@ -3703,17 +3711,22 @@ async def _do_generate(message_or_callback: Message | CallbackQuery, state: FSMC
             try:
                 downloaded_paths = []
                 import uuid
+                logger.info(f"[_do_generate] Подготовка фото: {input_photos}")
                 for fid in input_photos:
                     if not fid: continue
-                    f_info = await bot.get_file(fid)
-                    ext = f_info.file_path.split('.')[-1]
-                    p = f"data/temp_{uuid.uuid4()}.{ext}"
-                    await bot.download_file(f_info.file_path, p)
-                    downloaded_paths.append(p)
+                    try:
+                        f_info = await bot.get_file(fid)
+                        ext = f_info.file_path.split('.')[-1]
+                        p = f"data/temp_{uuid.uuid4()}.{ext}"
+                        await bot.download_file(f_info.file_path, p)
+                        downloaded_paths.append(p)
+                    except Exception as e:
+                        logger.error(f"Ошибка загрузки фото {fid}: {e}")
                 
+                logger.info(f"[_do_generate] Запуск генерации (ключ {kid}, фото: {len(downloaded_paths)})")
                 from bot.gemini import generate_image
                 aspect = (data.get("aspect") or "1:1").replace(":", "x")
-                result_path = await generate_image(api_key=token, prompt=prompt_filled, image_paths=downloaded_paths, aspect_ratio=aspect, quality=quality)
+                result_path = await generate_image(api_key=token, prompt=prompt_filled, image_paths=downloaded_paths, aspect_ratio=aspect, quality=quality, key_id=kid, db_instance=db)
                 
                 import os
                 for p in downloaded_paths:
@@ -3795,13 +3808,20 @@ async def _do_generate(message_or_callback: Message | CallbackQuery, state: FSMC
                     await db.record_api_error(kid, token[:10], "EmptyResult", "Empty result from API", is_proxy_error=False)
             except Exception as e:
                 logger.error(f"Ошибка генерации на ключе {kid}: {e}")
+                last_error_msg = str(e)
                 from bot.gemini import is_proxy_error
                 await db.record_api_error(kid, token[:10], type(e).__name__, str(e), is_proxy_error=is_proxy_error(e))
         
         anim_task.cancel()
         try: await process_msg.delete()
         except: pass
-        err_text = get_string("api_error_user", lang)
+        
+        # Если была конкретная ошибка (например, фильтры безопасности), показываем её
+        if last_error_msg and ("safety" in last_error_msg.lower() or "blocked" in last_error_msg.lower()):
+            err_text = f"⚠️ Запрос отклонен нейросетью по соображениям безопасности или из-за содержимого фото."
+        else:
+            err_text = get_string("api_error_user", lang)
+            
         if isinstance(message_or_callback, CallbackQuery): await _replace_with_text(message_or_callback, err_text)
         else: await ans_obj.answer(err_text)
             

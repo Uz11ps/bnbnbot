@@ -3301,7 +3301,7 @@ async def _build_final_prompt(data: dict, db: Database) -> str:
     if data.get("own_mode"):
         base = await db.get_own_prompt() or await db.get_own_prompt3()
         if not base or "Input Photo" not in base:
-            base = "Fashion photography. Input Photo 1 is the model. Input Photo 2 is the clothing. Place the clothing from Input Photo 2 onto the model from Input Photo 1. Maintain the model's face, body, and pose exactly as in Input Photo 1. High quality, realistic, natural lighting."
+            base = "Professional fashion photography. Input Photo 1 is the reference model. Input Photo 2 is the clothing/product. YOUR TASK: Take the clothing from Input Photo 2 and place it onto the model from Input Photo 1. The model's face, body shape, hair, and pose from Input Photo 1 MUST remain exactly the same. Only the clothing should be changed to match Input Photo 2. High resolution, realistic textures, natural lighting."
         prompt_filled = apply_replacements(base)
         
         # Добавляем только то, чего нет в плейсхолдерах
@@ -3315,7 +3315,7 @@ async def _build_final_prompt(data: dict, db: Database) -> str:
     elif category == "own_variant":
         base = await db.get_own_variant_prompt()
         if not base or "Input Photo" not in base:
-            base = "Professional fashion photography. Input Photo 1 is the background. Input Photo 2 is the product. Place the product from Input Photo 2 onto the background from Input Photo 1. Maintain natural lighting, shadows, and perspective. High quality, 8k resolution."
+            base = "Professional commercial photography. Input Photo 1 is the background. Input Photo 2 is the product. YOUR TASK: Place the product from Input Photo 2 into the scene from Input Photo 1. Maintain the background's lighting, shadows, and perspective from Input Photo 1. The product must look like it was originally photographed in that background. High quality, 8k resolution, sharp focus."
         prompt_filled = apply_replacements(base)
         if "{длина изделия}" not in base and "{Длина изделия}" not in base and data.get("own_length"):
             prompt_filled += f" Garment length: {data.get('own_length')}."
@@ -3689,8 +3689,8 @@ async def _do_generate(message_or_callback: Message | CallbackQuery, state: FSMC
                     # Определяем клавиатуру ЗАРАНЕЕ
                     kb_res = result_actions_own_keyboard(lang) if (data.get("own_mode") or category == "own_variant") else result_actions_keyboard(lang)
                     
-                    res_msg = await ans_obj.answer_photo(
-                        photo=FSInputFile(result_path), 
+                    res_msg = await ans_obj.answer_document(
+                        document=FSInputFile(result_path, filename=f"result_{uuid.uuid4().hex[:8]}.jpg"), 
                         caption=get_string("gen_success", lang),
                         reply_markup=kb_res
                     )
@@ -3698,7 +3698,7 @@ async def _do_generate(message_or_callback: Message | CallbackQuery, state: FSMC
                     try: os.remove(result_path)
                     except: pass
                     
-                    res_photo_id = res_msg.photo[-1].file_id
+                    res_photo_id = res_msg.document.file_id
                     await state.update_data(result_photo_id=res_photo_id)
                     
                     history_dir = os.path.join("data", "history")
@@ -3713,7 +3713,7 @@ async def _do_generate(message_or_callback: Message | CallbackQuery, state: FSMC
 
                     try:
                         # Качаем результат
-                        file_info = await bot.get_file(res_msg.photo[-1].file_id)
+                        file_info = await bot.get_file(res_photo_id)
                         await bot.download_file(file_info.file_path, local_result_path)
                         
                         # Качаем входные фото
@@ -3735,7 +3735,7 @@ async def _do_generate(message_or_callback: Message | CallbackQuery, state: FSMC
                         category=category,
                         params=json.dumps(data),
                         input_photos=json.dumps(input_photos),
-                        result_photo_id=res_msg.photo[-1].file_id,
+                        result_photo_id=res_photo_id,
                         input_paths=json.dumps(local_input_paths),
                         result_path=db_result_path,
                         prompt=prompt_filled
@@ -3944,8 +3944,8 @@ async def on_result_edit_text(message: Message, state: FSMContext, db: Database)
             if category == "own_variant" or data.get("own_mode"):
                 kb = result_actions_own_keyboard(lang)
                 
-            res_msg = await message.answer_photo(
-                photo=FSInputFile(result_path),
+            res_msg = await message.answer_document(
+                document=FSInputFile(result_path, filename=f"edited_{uuid.uuid4().hex[:8]}.jpg"),
                 caption=f"✅ Правки применены!\n\nТекст правок: {edit_text}",
                 reply_markup=kb
             )
@@ -3962,7 +3962,8 @@ async def on_result_edit_text(message: Message, state: FSMContext, db: Database)
 
             try:
                 # Качаем результат
-                file_info = await message.bot.get_file(res_msg.photo[-1].file_id)
+                res_photo_id = res_msg.document.file_id
+                file_info = await message.bot.get_file(res_photo_id)
                 await message.bot.download_file(file_info.file_path, local_result_path)
                 
                 # Качаем входные фото
@@ -3984,7 +3985,7 @@ async def on_result_edit_text(message: Message, state: FSMContext, db: Database)
                 category=category,
                 params=json.dumps(data),
                 input_photos=json.dumps(input_photos),
-                result_photo_id=res_msg.photo[-1].file_id,
+                result_photo_id=res_photo_id,
                 input_paths=json.dumps(local_input_paths),
                 result_path=db_result_path,
                 prompt=prompt_filled
@@ -4159,15 +4160,17 @@ async def on_history(callback: CallbackQuery, db: Database) -> None:
         
         caption = get_string("history_item", lang, num=i, pid=pid, date=date_str)
         try:
-            if result_photo_id.startswith("AgAC"): # Telegram file_id
+            if result_photo_id.startswith("AgAC"): # Telegram file_id (photo)
                 await callback.message.answer_photo(photo=result_photo_id, caption=caption, parse_mode="Markdown")
+            elif result_photo_id.startswith("BQAC"): # Telegram file_id (document)
+                await callback.message.answer_document(document=result_photo_id, caption=caption, parse_mode="Markdown")
             else:
                 # Если это путь к файлу
                 from aiogram.types import FSInputFile
                 import os
                 file_path = result_photo_id if os.path.exists(result_photo_id) else os.path.join("/app", result_photo_id)
                 if os.path.exists(file_path):
-                    await callback.message.answer_photo(photo=FSInputFile(file_path), caption=caption, parse_mode="Markdown")
+                    await callback.message.answer_document(document=FSInputFile(file_path), caption=caption, parse_mode="Markdown")
                 else:
                     await callback.message.answer(caption, parse_mode="Markdown")
         except Exception as e:

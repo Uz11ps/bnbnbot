@@ -1436,7 +1436,9 @@ async def admin_api_key_toggle(callback: CallbackQuery, db: Database, settings: 
     key_id = int(callback.data.split(":", 1)[1])
     keys = await db.list_api_keys()
     status = 1
-    for kid, _tok, is_active in keys:
+    for k_row in keys:
+        kid = k_row[0]
+        is_active = k_row[2]
         if kid == key_id:
             status = 0 if is_active else 1
             break
@@ -1469,7 +1471,10 @@ async def admin_api_key_show(callback: CallbackQuery, db: Database, settings: Se
     keys = await db.list_api_keys()
     token = None
     state_txt = ""
-    for kid, tok, is_active in keys:
+    for k_row in keys:
+        kid = k_row[0]
+        tok = k_row[1]
+        is_active = k_row[2]
         if kid == key_id:
             token = tok
             state_txt = get_string("admin_maint_enabled", lang) if is_active else get_string("admin_maint_disabled", lang)

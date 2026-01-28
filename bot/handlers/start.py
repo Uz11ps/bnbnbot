@@ -3772,12 +3772,17 @@ async def _do_generate(message_or_callback: Message | CallbackQuery, state: FSMC
         random.shuffle(active_keys)
         
         last_error_msg = ""
+        keys_tried = 0
         for key_tuple in active_keys:
+            if keys_tried >= 3: # Пробуем не более 3-х ключей, чтобы не затягивать ожидание
+                break
+            
             kid = key_tuple[0]
             token = key_tuple[1]
             ok, limit_err = await db.check_api_key_limits(kid)
             if not ok: continue
             
+            keys_tried += 1
             try:
                 downloaded_paths = []
                 import uuid

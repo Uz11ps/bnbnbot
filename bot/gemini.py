@@ -120,15 +120,17 @@ def _generate_sync(
     last_text = None
     last_exception = None
     is_network_error = False
-    for attempt in range(1, 4):
+    # Уменьшаем количество попыток до 2 для ускорения
+    for attempt in range(1, 3):
         try:
             is_network_error = False
-            resp = session.post(endpoint, headers=headers, json=payload, timeout=90, proxies=proxies or None)
+            # Уменьшаем таймаут до 50 секунд
+            resp = session.post(endpoint, headers=headers, json=payload, timeout=50, proxies=proxies or None)
             if resp.status_code >= 500:
                 last_text = resp.text
                 logger.warning("[Gemini] 5xx on attempt %d: %s", attempt, (resp.text or '')[:200])
                 import time as _t
-                _t.sleep(2 * attempt)
+                _t.sleep(1) 
                 continue
             break
         except (requests.exceptions.ProxyError, requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
@@ -137,14 +139,14 @@ def _generate_sync(
             is_network_error = True
             logger.warning("[Gemini] proxy/network error on attempt %d: %s", attempt, e)
             import time as _t
-            _t.sleep(2 * attempt)
+            _t.sleep(1)
         except requests.RequestException as e:
             last_exception = e
             last_text = str(e)
             is_network_error = True
             logger.warning("[Gemini] network error on attempt %d: %s", attempt, e)
             import time as _t
-            _t.sleep(2 * attempt)
+            _t.sleep(1)
     
     if resp is None or resp.status_code != 200:
         # Detailed diagnostics for non-200 responses

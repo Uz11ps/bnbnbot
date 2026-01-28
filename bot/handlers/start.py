@@ -3489,7 +3489,7 @@ async def _build_final_prompt(data: dict, db: Database) -> str:
         "is_preset", "random_mode", "random_other_mode", "normal_gen_mode",
         "infographic_mode", "own_mode", "storefront_mode",
         "photos", "downloaded_paths", "own_bg_photo_id", "own_product_photo_id",
-        "user_photo_id", "result_photo_id", "has_person", "age", "size", "height", "body_type",
+        "bg_photo", "photo", "user_photo_id", "result_photo_id", "has_person", "age", "size", "height", "body_type",
         "pants_style", "sleeve", "length", "pose", "dist", "view", "season", "holiday",
         "info_gender", "info_load", "info_lang", "info_brand", "info_extra", "info_angle", "info_pose",
         "info_season", "info_holiday"
@@ -3546,12 +3546,12 @@ async def _do_generate(message_or_callback: Message | CallbackQuery, state: FSMC
             input_photos = [data.get("user_photo_id") or data.get("photo")]
     elif category == "own_variant":
         # Фото 1 — фон, Фото 2 — товар
-        bg = data.get("own_bg_photo_id")
+        bg = data.get("own_bg_photo_id") or data.get("bg_photo") or data.get("user_photo_id")
         prod = data.get("own_product_photo_id") or data.get("photo")
         input_photos = [bg, prod]
-    elif data.get("own_mode"):
+    elif data.get("own_mode") or category == "own":
         # Фото 1 — модель, Фото 2 — товар
-        ref = data.get("own_ref_photo_id") or data.get("user_photo_id")
+        ref = data.get("own_ref_photo_id") or data.get("bg_photo") or data.get("user_photo_id")
         prod = data.get("own_product_photo_id") or data.get("photo")
         input_photos = [ref, prod]
     else:

@@ -67,6 +67,12 @@ async def run_migrations(db: aiosqlite.Connection):
                 await db.commit()
             except Exception as e:
                 print(f"Migration error (users.balance): {e}")
+        if "generation_price" not in cols:
+            try:
+                await db.execute("ALTER TABLE users ADD COLUMN generation_price INTEGER NOT NULL DEFAULT 20")
+                await db.commit()
+            except Exception as e:
+                print(f"Migration error (users.generation_price): {e}")
         if "created_at" not in cols:
             try:
                 await db.execute("ALTER TABLE users ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
@@ -2161,7 +2167,7 @@ async def index(request: Request, db: aiosqlite.Connection = Depends(get_db), us
 async def list_users(request: Request, q: str = "", db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
     if q:
         query = """
-            SELECT u.id, u.username, u.blocked, u.balance
+            SELECT u.id, u.username, u.blocked, u.balance, u.generation_price
             FROM users u 
             WHERE u.id LIKE ? OR u.username LIKE ? 
             ORDER BY u.created_at DESC LIMIT 100
@@ -2170,7 +2176,7 @@ async def list_users(request: Request, q: str = "", db: aiosqlite.Connection = D
             users = await cur.fetchall()
     else:
         query = """
-            SELECT u.id, u.username, u.blocked, u.balance
+            SELECT u.id, u.username, u.blocked, u.balance, u.generation_price
             FROM users u 
             ORDER BY u.created_at DESC LIMIT 50
         """
@@ -2187,10 +2193,11 @@ async def list_users(request: Request, q: str = "", db: aiosqlite.Connection = D
 async def edit_balance(
     user_id: int = Form(...),
     amount: int = Form(...),
+    price: int = Form(...),
     db: aiosqlite.Connection = Depends(get_db),
     user: str = Depends(get_current_username)
 ):
-    await db.execute("UPDATE users SET balance = ? WHERE id = ?", (amount, user_id))
+    await db.execute("UPDATE users SET balance = ?, generation_price = ? WHERE id = ?", (amount, price, user_id))
     await db.commit()
     return RedirectResponse(url=f"/users?q={user_id}", status_code=303)
 

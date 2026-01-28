@@ -79,7 +79,7 @@ def _generate_sync(
     # Примечание: thinking_level не поддерживается для gemini-3-pro-image-preview
     # Модель сама использует глубокое рассуждение для генерации изображений
     generation_config = {
-        "temperature": 0.4,
+        "temperature": 0.3,
         "topK": 32,
         "topP": 1,
         "maxOutputTokens": 4096,
@@ -87,7 +87,7 @@ def _generate_sync(
     
     # В текущей версии API Gemini Image Preview мы управляем качеством через промпт
     if "4k" in (prompt or "").lower() or "ultra" in (prompt or "").lower():
-        generation_config["temperature"] = 0.2
+        generation_config["temperature"] = 0.1
     
     payload = {
         "contents": [{"parts": parts}],

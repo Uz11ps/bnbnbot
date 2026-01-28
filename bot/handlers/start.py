@@ -3567,8 +3567,10 @@ async def _do_generate(message_or_callback: Message | CallbackQuery, state: FSMC
 
     try:
         balance = await db.get_user_balance(user_id)
-        if balance < 20:
-            msg = f"❌ Недостаточно средств на балансе.\n\nСтоимость 1 генерации = 20 руб.\nВаш баланс: {balance} руб.\n\nПожалуйста, пополните баланс в профиле."
+        price = await db.get_user_generation_price(user_id)
+        
+        if balance < price:
+            msg = f"❌ Недостаточно средств на балансе.\n\nСтоимость 1 генерации = {price} руб.\nВаш баланс: {balance} руб.\n\nПожалуйста, пополните баланс в профиле."
             if isinstance(message_or_callback, CallbackQuery):
                 await _safe_answer(message_or_callback, msg, show_alert=True)
             else:
@@ -3583,18 +3585,6 @@ async def _do_generate(message_or_callback: Message | CallbackQuery, state: FSMC
                 await _safe_answer(message_or_callback, get_string("session_not_found", lang) + " (пустые данные)", show_alert=True)
             else:
                 await ans_obj.answer(get_string("session_not_found", lang) + " (пустые данные)")
-            return
-
-        balance = await db.get_user_balance(user_id)
-        frac = await db.get_user_fraction(user_id)
-        total_tenths = balance * 10 + frac
-        price_tenths = await db.get_category_price(category)
-        
-        if total_tenths < price_tenths:
-            if isinstance(message_or_callback, CallbackQuery):
-                await _safe_answer(message_or_callback, "Недостаточно средств на балансе.", show_alert=True)
-            else:
-                await ans_obj.answer("Недостаточно средств на балансе.")
             return
 
         prompt_filled = await _build_final_prompt(data, db)
@@ -3684,8 +3674,9 @@ async def _do_generate(message_or_callback: Message | CallbackQuery, state: FSMC
                 if result_path:
                     await db.record_api_usage(kid)
                     
-                    # Списываем 20 руб за генерацию
-                    await db.subtract_user_balance(user_id, 20)
+                    # Списываем стоимость генерации (индивидуальную для юзера)
+                    price = await db.get_user_generation_price(user_id)
+                    await db.subtract_user_balance(user_id, price)
                     
                     anim_task.cancel()
                     from aiogram.types import FSInputFile
@@ -4121,11 +4112,11 @@ async def on_model_search_input(message: Message, state: FSMContext, db: Databas
 
 
 @router.callback_query(F.data == "menu_profile")
-@router.callback_query(F.data == "menu_profile")
 async def on_menu_profile(callback: CallbackQuery, db: Database) -> None:
     lang = await db.get_user_language(callback.from_user.id)
     balance = await db.get_user_balance(callback.from_user.id)
-    text = get_string("profile_info", lang, id=callback.from_user.id, balance=balance)
+    price = await db.get_user_generation_price(callback.from_user.id)
+    text = get_string("profile_info", lang, id=callback.from_user.id, balance=balance, price=price)
     
     await _replace_with_text(callback, text, reply_markup=profile_keyboard(lang))
     await _safe_answer(callback)
@@ -4134,7 +4125,8 @@ async def on_menu_profile(callback: CallbackQuery, db: Database) -> None:
 async def on_sub_menu(callback: CallbackQuery, db: Database) -> None:
     lang = await db.get_user_language(callback.from_user.id)
     balance = await db.get_user_balance(callback.from_user.id)
-    text = get_string("top_up_info", lang, id=callback.from_user.id, balance=balance)
+    price = await db.get_user_generation_price(callback.from_user.id)
+    text = get_string("top_up_info", lang, id=callback.from_user.id, balance=balance, price=price)
     
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=get_string("contact_admin", lang), url="https://t.me/bnbslow")],

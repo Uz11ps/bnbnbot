@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS users (
     language TEXT NOT NULL DEFAULT 'ru',
     trial_used INTEGER NOT NULL DEFAULT 0,
     balance INTEGER NOT NULL DEFAULT 0,
+    generation_price INTEGER NOT NULL DEFAULT 20,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -435,6 +436,8 @@ class Database:
                 await db.execute("ALTER TABLE users ADD COLUMN trial_used INTEGER NOT NULL DEFAULT 1")
             if "balance" not in cols:
                 await db.execute("ALTER TABLE users ADD COLUMN balance INTEGER NOT NULL DEFAULT 0")
+            if "generation_price" not in cols:
+                await db.execute("ALTER TABLE users ADD COLUMN generation_price INTEGER NOT NULL DEFAULT 20")
             
             async with db.execute("PRAGMA table_info(api_keys)") as cur:
                 cols = [row[1] for row in await cur.fetchall()]
@@ -1059,6 +1062,12 @@ class Database:
             async with db.execute("SELECT balance FROM users WHERE id=?", (user_id,)) as cur:
                 row = await cur.fetchone()
                 return int(row[0]) if row else 0
+
+    async def get_user_generation_price(self, user_id: int) -> int:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT generation_price FROM users WHERE id=?", (user_id,)) as cur:
+                row = await cur.fetchone()
+                return int(row[0]) if row and row[0] is not None else 20
 
     async def increment_user_balance(self, user_id: int, amount: int) -> None:
         async with aiosqlite.connect(self._db_path) as db:

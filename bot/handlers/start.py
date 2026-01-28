@@ -2826,87 +2826,76 @@ async def on_info_pose(callback: CallbackQuery, state: FSMContext, db: Database)
 
 @router.message(CreateForm.waiting_view, F.photo)
 async def handle_user_photo(message: Message, state: FSMContext, db: Database) -> None:
-    # Защита от двойного срабатывания при отправке альбомов
-    data = await state.get_data()
-    if not data:
-        return
-    
-    category = data.get("category")
-    # Проверяем, не перешли ли мы уже в другое состояние
+    # Базовая проверка состояния
     current_state = await state.get_state()
     if current_state != CreateForm.waiting_view.state:
         return
             
     photo_id = message.photo[-1].file_id
-    lang = await db.get_user_language(message.from_user.id)
-
-    # Обычная генерация: после фото просим промпт
-    if data.get("normal_gen_mode"):
-        async with state_lock:
-            # ПЕРЕЧИТЫВАЕМ ДАННЫЕ ВНУТРИ ЗАМКА
-            current_data = await state.get_data()
-            photos = current_data.get("photos") or []
+    user_id = message.from_user.id
+    
+    # Сначала всегда получаем актуальные данные сессии
+    async with state_lock:
+        data = await state.get_data()
+        if not data:
+            return
             
+        category = data.get("category")
+        lang = await db.get_user_language(user_id)
+
+        # Обычная генерация: собираем до 4-х фото
+        if data.get("normal_gen_mode"):
+            photos = data.get("photos") or []
             if photo_id not in photos:
                 photos.append(photo_id)
                 photos = photos[:4]
                 await state.update_data(photos=photos)
-        
-        # Если это альбом, ждем завершения загрузки всех фото
-        if message.media_group_id:
-            await asyncio.sleep(1.5) # Ждем, пока все фото альбома придут
             
-            # Перечитываем данные после ожидания
-            current_data = await state.get_data()
-            photos = current_data.get("photos", [])
+            # Для альбомов и быстрой серии фото делаем паузу, чтобы собрать их вместе
+            # Если это одиночное фото, пауза меньше, если альбом — больше
+            wait_time = 1.5 if message.media_group_id else 0.5
+            await asyncio.sleep(wait_time)
             
-            # Отвечает только тот процесс, чье фото оказалось последним в списке на момент проверки
-            if not photos or photos[-1] != photo_id:
-                return
-        else:
-            # Для одиночного фото перечитываем актуальный список
+            # Перечитываем данные ПОСЛЕ ожидания, чтобы увидеть все добавленные фото
             current_data = await state.get_data()
-            photos = current_data.get("photos", [])
-
-        # Формируем клавиатуру
-        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="Далее" if len(photos) < 4 else "Перейти к промпту", callback_data="normal_photos_done")],
-            [InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")]
-        ])
-
-        if len(photos) < 4:
-            text = f"📸 Фото {len(photos)}/4 получено.\n\nВы можете отправить еще до {4 - len(photos)} фото или нажмите «Далее», чтобы продолжить."
-        else:
-            text = "✅ Получено 4/4 фото. Теперь нажмите «Далее», чтобы отправить промпт."
-
-        # Пытаемся редактировать предыдущее сообщение счетчика
-        current_data = await state.get_data()
-        last_msg_id = current_data.get("last_photos_msg_id")
-        
-        if last_msg_id:
-            try:
-                await message.bot.edit_message_text(
-                    chat_id=message.chat.id,
-                    message_id=last_msg_id,
-                    text=text,
-                    reply_markup=kb
-                )
-                # Если это было 4-е фото, переводим состояние
-                if len(photos) >= 4:
-                    await state.set_state(CreateForm.waiting_prompt)
+            current_photos = current_data.get("photos", [])
+            
+            # ВАЖНО: Отвечает только тот процесс, чье фото последнее в актуальном списке.
+            # Остальные (параллельные) процессы просто завершаются здесь.
+            if not current_photos or current_photos[-1] != photo_id:
                 return
-            except:
-                pass
+            
+            # Мы — "последний" процесс, берем на себя ответ пользователю
+            from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="Далее" if len(current_photos) < 4 else "Перейти к промпту", callback_data="normal_photos_done")],
+                [InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")]
+            ])
 
-        msg = await message.answer(text, reply_markup=kb)
-        await state.update_data(last_photos_msg_id=msg.message_id)
-        
-        if len(photos) >= 4:
-            await state.set_state(CreateForm.waiting_prompt)
-        return
+            if len(current_photos) < 4:
+                text = f"📸 Фото {len(current_photos)}/4 получено.\n\nВы можете отправить еще до {4 - len(current_photos)} фото или нажмите «Далее», чтобы продолжить."
+            else:
+                text = "✅ Получено 4/4 фото. Теперь нажмите «Далее», чтобы отправить промпт."
+                await state.set_state(CreateForm.waiting_prompt)
 
-    # Для остальных режимов сохраняем как обычно
+            last_msg_id = current_data.get("last_photos_msg_id")
+            if last_msg_id:
+                try:
+                    await message.bot.edit_message_text(
+                        chat_id=message.chat.id,
+                        message_id=last_msg_id,
+                        text=text,
+                        reply_markup=kb
+                    )
+                    return
+                except:
+                    pass # Если не удалось отредактировать, отправим новое
+
+            msg = await message.answer(text, reply_markup=kb)
+            await state.update_data(last_photos_msg_id=msg.message_id)
+            return
+
+    # Для остальных режимов (не обычная генерация) сохраняем одно фото и идем дальше
     await state.update_data(user_photo_id=photo_id)
 
     # Если мы в режиме "Повторить" — запускаем генерацию сразу

@@ -80,6 +80,21 @@ async def run_migrations(db: aiosqlite.Connection):
             except Exception as e:
                 print(f"Migration error (users.created_at): {e}")
 
+    # Миграция для balance_history
+    await db.execute("""
+    CREATE TABLE IF NOT EXISTS balance_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        amount INTEGER NOT NULL,
+        new_balance INTEGER NOT NULL,
+        reason TEXT NOT NULL,
+        admin_id TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(user_id) REFERENCES users(id)
+    );
+    """)
+    await db.commit()
+
     # Миграция для step_options (custom_prompt)
     async with db.execute("PRAGMA table_info(step_options)") as cur:
         cols = [row[1] for row in await cur.fetchall()]
@@ -2197,7 +2212,21 @@ async def edit_balance(
     db: aiosqlite.Connection = Depends(get_db),
     user: str = Depends(get_current_username)
 ):
+    # Получаем текущий баланс для лога
+    async with db.execute("SELECT balance FROM users WHERE id = ?", (user_id,)) as cur:
+        row = await cur.fetchone()
+        old_balance = row[0] if row else 0
+    
+    change = amount - old_balance
+    
     await db.execute("UPDATE users SET balance = ?, generation_price = ? WHERE id = ?", (amount, price, user_id))
+    
+    # Записываем историю изменения
+    await db.execute(
+        "INSERT INTO balance_history (user_id, amount, new_balance, reason, admin_id) VALUES (?, ?, ?, ?, ?)",
+        (user_id, change, amount, "admin_edit", user)
+    )
+    
     await db.commit()
     return RedirectResponse(url=f"/users?q={user_id}", status_code=303)
 
@@ -2237,6 +2266,58 @@ async def add_requests(
 @app.get("/mailing", response_class=HTMLResponse)
 async def mailing_page(request: Request, user: str = Depends(get_current_username)):
     return templates.TemplateResponse("mailing.html", {"request": request})
+
+@app.get("/balance_history", response_class=HTMLResponse)
+async def balance_history_page(
+    request: Request, 
+    db: aiosqlite.Connection = Depends(get_db), 
+    user: str = Depends(get_current_username)
+):
+    # Получаем историю за последние 30 дней
+    history_query = """
+        SELECT bh.*, u.username 
+        FROM balance_history bh
+        JOIN users u ON bh.user_id = u.id
+        ORDER BY bh.created_at DESC
+        LIMIT 1000
+    """
+    async with db.execute(history_query) as cur:
+        history = await cur.fetchall()
+
+    # Данные для графиков (пополнения по дням за месяц)
+    stats_query = """
+        SELECT date(created_at) as day, SUM(amount) as total
+        FROM balance_history
+        WHERE reason IN ('recharge', 'admin_edit') AND amount > 0
+        AND created_at >= date('now', '-30 days')
+        GROUP BY day
+        ORDER BY day
+    """
+    async with db.execute(stats_query) as cur:
+        stats = await cur.fetchall()
+    
+    chart_labels = [row[0] for row in stats]
+    chart_values = [row[1] for row in stats]
+
+    # Отчет за месяц
+    report_query = """
+        SELECT 
+            SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END) as total_in,
+            SUM(CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END) as total_out,
+            COUNT(*) as total_changes
+        FROM balance_history
+        WHERE created_at >= date('now', 'start of month')
+    """
+    async with db.execute(report_query) as cur:
+        report = await cur.fetchone()
+
+    return templates.TemplateResponse("balance_history.html", {
+        "request": request, 
+        "history": history,
+        "chart_labels": chart_labels,
+        "chart_values": chart_values,
+        "report": report
+    })
 
 @app.post("/mailing/send")
 async def send_mailing(background_tasks: BackgroundTasks, text: str = Form(...), user: str = Depends(get_current_username)):

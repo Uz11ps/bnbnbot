@@ -86,6 +86,19 @@ CREATE TABLE IF NOT EXISTS generation_history (
 );
 """
 
+CREATE_BALANCE_HISTORY_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS balance_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    amount INTEGER NOT NULL,         -- Изменение (например, +100 или -20)
+    new_balance INTEGER NOT NULL,    -- Баланс после изменения
+    reason TEXT NOT NULL,            -- "recharge", "generation", "admin_edit"
+    admin_id TEXT,                   -- Кто изменил (если админ)
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(user_id) REFERENCES users(id)
+);
+"""
+
 UPDATE_TRIGGER_SQL = """
 CREATE TRIGGER IF NOT EXISTS users_updated_at
 AFTER UPDATE ON users
@@ -341,6 +354,7 @@ class Database:
             await db.execute(CREATE_LIBRARY_OPTIONS_TABLE_SQL)
             await db.execute(CREATE_LIBRARY_STEP_OPTIONS_TABLE_SQL)
             await db.execute(CREATE_SUPPORT_MESSAGES_TABLE_SQL)
+            await db.execute(CREATE_BALANCE_HISTORY_TABLE_SQL)
             await db.commit()
         
         # Миграция для описаний планов
@@ -1069,14 +1083,28 @@ class Database:
                 row = await cur.fetchone()
                 return int(row[0]) if row and row[0] is not None else 20
 
-    async def increment_user_balance(self, user_id: int, amount: int) -> None:
+    async def increment_user_balance(self, user_id: int, amount: int, reason: str = "recharge", admin_id: str = None) -> None:
         async with aiosqlite.connect(self._db_path) as db:
             await db.execute("UPDATE users SET balance = balance + ? WHERE id=?", (amount, user_id))
+            async with db.execute("SELECT balance FROM users WHERE id=?", (user_id,)) as cur:
+                row = await cur.fetchone()
+                new_balance = row[0] if row else 0
+            await db.execute(
+                "INSERT INTO balance_history (user_id, amount, new_balance, reason, admin_id) VALUES (?, ?, ?, ?, ?)",
+                (user_id, amount, new_balance, reason, admin_id)
+            )
             await db.commit()
 
-    async def subtract_user_balance(self, user_id: int, amount: int) -> None:
+    async def subtract_user_balance(self, user_id: int, amount: int, reason: str = "generation") -> None:
         async with aiosqlite.connect(self._db_path) as db:
             await db.execute("UPDATE users SET balance = MAX(0, balance - ?) WHERE id=?", (amount, user_id))
+            async with db.execute("SELECT balance FROM users WHERE id=?", (user_id,)) as cur:
+                row = await cur.fetchone()
+                new_balance = row[0] if row else 0
+            await db.execute(
+                "INSERT INTO balance_history (user_id, amount, new_balance, reason) VALUES (?, ?, ?, ?, ?)",
+                (user_id, -amount, new_balance, reason, None)
+            )
             await db.commit()
 
     async def add_generation_history(self, pid: str, user_id: int, category: str, params: str, input_photos: str, result_photo_id: str, input_paths: str = None, result_path: str = None, prompt: str = None) -> None:

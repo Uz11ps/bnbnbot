@@ -1010,11 +1010,12 @@ async def on_create_photo(callback: CallbackQuery, db: Database, state: FSMConte
             await _safe_answer(callback, get_string("maintenance_alert", lang), show_alert=True)
             return
     balance = await db.get_user_balance(callback.from_user.id)
+    price = await db.get_user_generation_price(callback.from_user.id)
     # Блокировка пользователя
     if await db.get_user_blocked(callback.from_user.id):
         await _safe_answer(callback, get_string("maintenance_alert", lang), show_alert=True)
         return
-    if balance <= 0:
+    if balance < price:
         await _safe_answer(callback, get_string("limit_rem_zero", lang), show_alert=True)
         return
     
@@ -1037,7 +1038,8 @@ async def on_marketplace_menu(callback: CallbackQuery, db: Database) -> None:
             await _safe_answer(callback, get_string("maintenance_alert", lang), show_alert=True)
             return
     balance = await db.get_user_balance(callback.from_user.id)
-    if balance <= 0:
+    price = await db.get_user_generation_price(callback.from_user.id)
+    if balance < price:
         await _safe_answer(callback, get_string("limit_rem_zero", lang), show_alert=True)
         return
     

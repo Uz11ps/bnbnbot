@@ -1019,8 +1019,8 @@ async def on_create_photo(callback: CallbackQuery, db: Database, state: FSMConte
         return
     
     # Обычная генерация: фото (до 4) -> промпт -> генерация
-    await state.clear()
-    await state.update_data(category="normal", normal_gen_mode=True, aspect="auto", photos=[])
+    # НЕ ОЧИЩАЕМ ВЕСЬ state, чтобы не сбить параллельные загрузки, а обновляем ключи
+    await state.update_data(category="normal", normal_gen_mode=True, aspect="auto", photos=[], last_photos_msg_id=None)
     
     text = "📸 Пришлите до 4 фото (можно по одному или серией)."
     await _replace_with_text(callback, text, reply_markup=back_main_keyboard(lang))
@@ -2824,36 +2824,42 @@ async def on_info_pose(callback: CallbackQuery, state: FSMContext, db: Database)
 
 
 
+from collections import defaultdict
+
+# Словар замков для каждого пользователя, чтобы избежать race condition
+user_locks = defaultdict(asyncio.Lock)
+
 @router.message(CreateForm.waiting_view, F.photo)
 async def handle_user_photo(message: Message, state: FSMContext, db: Database) -> None:
-    # Базовая проверка состояния
-    current_state = await state.get_state()
-    if current_state != CreateForm.waiting_view.state:
-        return
-            
-    photo_id = message.photo[-1].file_id
     user_id = message.from_user.id
-    lang = await db.get_user_language(user_id)
     
-    # Используем Lock на ВЕСЬ процесс обработки фото для текущего пользователя
-    async with state_lock:
+    # Используем индивидуальный замок для каждого пользователя
+    async with user_locks[user_id]:
+        # Получаем самые свежие данные СРАЗУ после захвата замка
         data = await state.get_data()
         if not data:
             return
             
+        current_state = await state.get_state()
+        if current_state != CreateForm.waiting_view.state:
+            return
+
+        photo_id = message.photo[-1].file_id
+        lang = await db.get_user_language(user_id)
         category = data.get("category")
-        
+
         # --- ОБЫЧНАЯ ГЕНЕРАЦИЯ ---
         if data.get("normal_gen_mode"):
+            # Получаем актуальный список фото
             photos = data.get("photos") or []
+            
+            # Добавляем фото, если его еще нет (защита от дублей TG)
             if photo_id not in photos:
                 photos.append(photo_id)
-                photos = photos[:4]
-                # Сохраняем обновленный список через set_data для надежности
-                data["photos"] = photos
-                await state.set_data(data)
+                photos = photos[:4] # Лимит 4
+                await state.update_data(photos=photos)
             
-            # Формируем клавиатуру и текст
+            # Формируем клавиатуру и текст на основе актуального количества
             from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
             kb = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="Далее" if len(photos) < 4 else "Перейти к промпту", callback_data="normal_photos_done")],
@@ -2866,7 +2872,7 @@ async def handle_user_photo(message: Message, state: FSMContext, db: Database) -
                 text = "✅ Получено 4/4 фото. Теперь нажмите «Далее», чтобы отправить промпт."
                 await state.set_state(CreateForm.waiting_prompt)
 
-            # Пытаемся редактировать старое сообщение
+            # Пытаемся редактировать старое сообщение счетчика
             last_msg_id = data.get("last_photos_msg_id")
             if last_msg_id:
                 try:
@@ -2876,16 +2882,16 @@ async def handle_user_photo(message: Message, state: FSMContext, db: Database) -
                         text=text,
                         reply_markup=kb
                     )
-                    return
+                    return # Успешно отредактировали - выходим
                 except:
-                    pass 
+                    pass # Если не удалось (удалено или старое), отправим новое ниже
 
+            # Если старого сообщения нет или ошибка — отправляем новое
             msg = await message.answer(text, reply_markup=kb)
-            data["last_photos_msg_id"] = msg.message_id
-            await state.set_data(data)
+            await state.update_data(last_photos_msg_id=msg.message_id)
             return
 
-        # --- ОСТАЛЬНЫЕ РЕЖИМЫ ---
+        # --- ОСТАЛЬНЫЕ РЕЖИМЫ (Свой вариант и т.д.) ---
         await state.update_data(user_photo_id=photo_id)
         if data.get("repeat_mode"):
             await state.update_data(repeat_mode=False)

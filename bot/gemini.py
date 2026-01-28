@@ -56,8 +56,7 @@ def _generate_sync(
         
     for i, img_bytes in enumerate(img_list, 1):
         if img_bytes:
-            label = "REFERENCE_MODEL_OR_BACKGROUND" if i == 1 else "CLOTHING_OR_PRODUCT"
-            parts.append({"text": f"image_{i} ({label}):"})
+            parts.append({"text": f"Photo {i}:"})
             parts.append({
                 "inlineData": {
                     "mimeType": "image/jpeg",

@@ -2841,56 +2841,56 @@ async def handle_user_photo(message: Message, state: FSMContext, db: Database) -
     # Обычная генерация: после фото просим промпт
     if data.get("normal_gen_mode"):
         photos = data.get("photos") or []
-        # Если это альбом (media_group_id), проверяем не обрабатывали ли мы его уже в этом цикле событий
-        if message.media_group_id:
-            # Предотвращаем повторное добавление одного и того же photo_id, если aiogram дублирует
-            if photo_id not in photos:
-                photos.append(photo_id)
-        else:
-            # Обычное одиночное фото
-            if photo_id not in photos:
-                photos.append(photo_id)
-                
-        # Ограничиваем до 4 фото
-        photos = photos[:4]
-        await state.update_data(photos=photos)
         
-        # Если пришел альбом, не отправляем сообщение на каждое фото, а ждем немного
+        if photo_id not in photos:
+            photos.append(photo_id)
+            photos = photos[:4]
+            await state.update_data(photos=photos)
+
+        # Если это альбом, ждем завершения загрузки всех фото
         if message.media_group_id:
-            # Для альбомов мы просто копим фото. Пользователь нажмет "Далее" или мы перейдем по лимиту
-            if len(photos) >= 4:
-                await message.answer("✅ Получено 4/4 фото. Теперь отправьте промпт (до 1000 символов).", reply_markup=back_step_keyboard(lang))
-                await state.set_state(CreateForm.waiting_prompt)
-            else:
-                # Показываем кнопку "Далее" после небольшого ожидания или на последнем фото альбома
-                # В aiogram 3.x нет встроенного сборщика альбомов в простом хендлере, 
-                # поэтому кнопка "Далее" — самый надежный способ.
-                from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-                kb = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="Далее", callback_data="normal_photos_done")],
-                    [InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")]
-                ])
-                # Отправляем сообщение только один раз (можно использовать кэш в state)
-                last_msg_id = data.get("last_photos_msg_id")
-                try:
-                    if last_msg_id:
-                        await message.bot.delete_message(message.chat.id, last_msg_id)
-                except: pass
-                
-                msg = await message.answer(f"Фото {len(photos)}/4 получено. Отправьте ещё или нажмите «Далее».", reply_markup=kb)
-                await state.update_data(last_photos_msg_id=msg.message_id)
-            return
+            await asyncio.sleep(1.5) # Ждем, пока все фото альбома придут и запишутся в state
             
+            # Перечитываем данные после ожидания
+            data = await state.get_data()
+            photos = data.get("photos", [])
+            
+            # Чтобы ответить только ОДИН раз на весь альбом:
+            # Отвечает только тот процесс, чье фото оказалось последним в списке
+            if photos and photos[-1] != photo_id:
+                return
+
+        # Формируем клавиатуру
+        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Далее" if len(photos) < 4 else "Перейти к промпту", callback_data="normal_photos_done")],
+            [InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")]
+        ])
+
         if len(photos) < 4:
-            from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-            kb = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="Далее", callback_data="normal_photos_done")],
-                [InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")]
-            ])
-            await message.answer(f"Фото {len(photos)}/4 получено. Отправьте ещё или нажмите «Далее».", reply_markup=kb)
-            return
-        await message.answer("✅ Получено 4/4 фото. Теперь отправьте промпт (до 1000 символов).", reply_markup=back_step_keyboard(lang))
-        await state.set_state(CreateForm.waiting_prompt)
+            text = f"📸 Фото {len(photos)}/4 получено.\n\nВы можете отправить еще до {4 - len(photos)} фото или нажмите «Далее», чтобы продолжить."
+        else:
+            text = "✅ Получено 4/4 фото. Теперь нажмите «Далее», чтобы отправить промпт."
+
+        # Пытаемся редактировать предыдущее сообщение счетчика, если оно было
+        last_msg_id = data.get("last_photos_msg_id")
+        if last_msg_id:
+            try:
+                await message.bot.edit_message_text(
+                    chat_id=message.chat.id,
+                    message_id=last_msg_id,
+                    text=text,
+                    reply_markup=kb
+                )
+                return
+            except:
+                pass # Если не удалось отредактировать (например, сообщение удалено), отправим новое
+
+        msg = await message.answer(text, reply_markup=kb)
+        await state.update_data(last_photos_msg_id=msg.message_id)
+        
+        if len(photos) >= 4:
+            await state.set_state(CreateForm.waiting_prompt)
         return
 
     # Если мы в режиме "Повторить" — запускаем генерацию сразу

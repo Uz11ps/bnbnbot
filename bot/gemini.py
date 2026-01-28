@@ -54,32 +54,22 @@ def _generate_sync(
     else:
         img_list = images or []
         
-    if len(img_list) > 1:
-        for i, img_bytes in enumerate(img_list, 1):
-            if img_bytes:
+    # Промпт добавляем первым (некоторые модели требуют текст перед медиа)
+    parts.append({"text": prompt})
+    
+    for i, img_bytes in enumerate(img_list, 1):
+        if img_bytes:
+            if len(img_list) > 1:
                 parts.append({"text": f"Photo {i}:"})
-                parts.append({
-                    "inlineData": {
-                        "mimeType": "image/jpeg",
-                        "data": base64.b64encode(img_bytes).decode("utf-8"),
-                    }
-                })
-        # Промпт добавляем в конце
-        parts.append({"text": prompt})
-    elif len(img_list) == 1:
-        # Для одного фото используем простую структуру [image, text]
-        parts.append({
-            "inlineData": {
-                "mimeType": "image/jpeg",
-                "data": base64.b64encode(img_list[0]).decode("utf-8"),
-            }
-        })
-        parts.append({"text": prompt})
-    else:
-        # Если фото нет (хотя для этой модели они обычно нужны)
-        parts.append({"text": prompt})
+            parts.append({
+                "inlineData": {
+                    "mimeType": "image/jpeg",
+                    "data": base64.b64encode(img_bytes).decode("utf-8"),
+                }
+            })
             
     if ref_image_bytes:
+        parts.append({"text": "Reference image:"})
         parts.append({
             "inlineData": {
                 "mimeType": "image/jpeg",
@@ -87,8 +77,8 @@ def _generate_sync(
             }
         })
 
-    # Для Gemini 3 Pro Image используем стандартную конфигурацию
-    # Примечание: Модель сама управляет параметрами генерации
+    # Для Gemini 3 Pro Image (Imagen 3) используем минимальный конфиг
+    # Избыточные параметры часто вызывают INVALID_ARGUMENT
     generation_config = {
         "temperature": 0.1,
     }
@@ -252,7 +242,7 @@ async def generate_image(
     
     # Модифицируем промпт под качество и аспект если нужно
     final_prompt = prompt
-    if aspect_ratio:
+    if aspect_ratio and aspect_ratio != "auto":
         final_prompt += f" Aspect ratio: {aspect_ratio}."
         
     if quality == '4K':

@@ -5,19 +5,20 @@
     <div class="row mb-4">
         <div class="col-12 d-flex justify-content-between align-items-center">
             <h2 class="h3 mb-0 text-gray-800"><i class="bi bi-cash-stack me-2"></i>История баланса</h2>
-            <div class="text-muted">Отчет за текущий месяц</div>
+            <div class="text-muted">Аналитика пополнений и списаний</div>
         </div>
     </div>
 
     <!-- Monthly Summary -->
     <div class="row mb-4">
-        <div class="col-md-4">
+        <div class="col-md-3">
             <div class="card border-left-success shadow h-100 py-2">
                 <div class="card-body">
                     <div class="row no-gutters align-items-center">
                         <div class="col mr-2">
-                            <div class="text-xs font-weight-bold text-success text-uppercase mb-1">Пополнения (мес)</div>
+                            <div class="text-xs font-weight-bold text-success text-uppercase mb-1">Пополнения (текущий мес)</div>
                             <div class="h5 mb-0 font-weight-bold text-gray-800">+{{ report[0] or 0 }} ₽</div>
+                            <div class="text-muted small mt-1">Прошлый месяц: +{{ prev_report[0] or 0 }} ₽</div>
                         </div>
                         <div class="col-auto">
                             <i class="bi bi-arrow-up-circle fs-2 text-success"></i>
@@ -26,13 +27,14 @@
                 </div>
             </div>
         </div>
-        <div class="col-md-4">
+        <div class="col-md-3">
             <div class="card border-left-danger shadow h-100 py-2">
                 <div class="card-body">
                     <div class="row no-gutters align-items-center">
                         <div class="col mr-2">
-                            <div class="text-xs font-weight-bold text-danger text-uppercase mb-1">Списания (мес)</div>
+                            <div class="text-xs font-weight-bold text-danger text-uppercase mb-1">Списания (текущий мес)</div>
                             <div class="h5 mb-0 font-weight-bold text-gray-800">-{{ report[1] or 0 }} ₽</div>
+                            <div class="text-muted small mt-1">Прошлый месяц: -{{ prev_report[1] or 0 }} ₽</div>
                         </div>
                         <div class="col-auto">
                             <i class="bi bi-arrow-down-circle fs-2 text-danger"></i>
@@ -41,16 +43,35 @@
                 </div>
             </div>
         </div>
-        <div class="col-md-4">
+        <div class="col-md-3">
             <div class="card border-left-primary shadow h-100 py-2">
                 <div class="card-body">
                     <div class="row no-gutters align-items-center">
                         <div class="col mr-2">
-                            <div class="text-xs font-weight-bold text-primary text-uppercase mb-1">Всего операций</div>
+                            <div class="text-xs font-weight-bold text-primary text-uppercase mb-1">Всего операций (мес)</div>
                             <div class="h5 mb-0 font-weight-bold text-gray-800">{{ report[2] or 0 }}</div>
                         </div>
                         <div class="col-auto">
                             <i class="bi bi-journal-text fs-2 text-primary"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-left-info shadow h-100 py-2">
+                <div class="card-body">
+                    <div class="row no-gutters align-items-center">
+                        <div class="col mr-2">
+                            <div class="text-xs font-weight-bold text-info text-uppercase mb-1">Выручка по месяцам</div>
+                            <div class="mt-1">
+                                {% for m_row in monthly_stats[:3] %}
+                                <div class="small d-flex justify-content-between">
+                                    <span>{{ m_row[0] }}:</span>
+                                    <span class="fw-bold">{{ m_row[1] or 0 }} ₽</span>
+                                </div>
+                                {% endfor %}
+                            </div>
                         </div>
                     </div>
                 </div>

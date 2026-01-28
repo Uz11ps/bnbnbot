@@ -2299,10 +2299,10 @@ async def balance_history_page(
     chart_labels = [row[0] for row in stats]
     chart_values = [row[1] for row in stats]
 
-    # Отчет за месяц
+    # Отчет за текущий месяц
     report_query = """
         SELECT 
-            SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END) as total_in,
+            SUM(CASE WHEN amount > 0 AND reason IN ('recharge', 'admin_edit') THEN amount ELSE 0 END) as total_in,
             SUM(CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END) as total_out,
             COUNT(*) as total_changes
         FROM balance_history
@@ -2311,12 +2311,38 @@ async def balance_history_page(
     async with db.execute(report_query) as cur:
         report = await cur.fetchone()
 
+    # Отчет за прошлый месяц
+    prev_report_query = """
+        SELECT 
+            SUM(CASE WHEN amount > 0 AND reason IN ('recharge', 'admin_edit') THEN amount ELSE 0 END) as total_in,
+            SUM(CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END) as total_out
+        FROM balance_history
+        WHERE created_at >= date('now', 'start of month', '-1 month')
+          AND created_at < date('now', 'start of month')
+    """
+    async with db.execute(prev_report_query) as cur:
+        prev_report = await cur.fetchone()
+
+    # Выручка по месяцам (за последние 6 месяцев)
+    monthly_stats_query = """
+        SELECT strftime('%Y-%m', created_at) as month, 
+               SUM(CASE WHEN amount > 0 AND reason IN ('recharge', 'admin_edit') THEN amount ELSE 0 END) as total
+        FROM balance_history
+        WHERE created_at >= date('now', 'start of month', '-6 months')
+        GROUP BY month
+        ORDER BY month DESC
+    """
+    async with db.execute(monthly_stats_query) as cur:
+        monthly_stats = await cur.fetchall()
+
     return templates.TemplateResponse("balance_history.html", {
         "request": request, 
         "history": history,
         "chart_labels": chart_labels,
         "chart_values": chart_values,
-        "report": report
+        "report": report,
+        "prev_report": prev_report,
+        "monthly_stats": monthly_stats
     })
 
 @app.post("/mailing/send")

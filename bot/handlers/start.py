@@ -2834,69 +2834,80 @@ async def handle_user_photo(message: Message, state: FSMContext, db: Database) -
     photo_id = message.photo[-1].file_id
     user_id = message.from_user.id
     
-    # Сначала всегда получаем актуальные данные сессии
+    # 1. Атомарно добавляем фото в список
     async with state_lock:
         data = await state.get_data()
         if not data:
             return
-            
-        category = data.get("category")
-        lang = await db.get_user_language(user_id)
-
-        # Обычная генерация: собираем до 4-х фото
+        
         if data.get("normal_gen_mode"):
             photos = data.get("photos") or []
             if photo_id not in photos:
                 photos.append(photo_id)
                 photos = photos[:4]
                 await state.update_data(photos=photos)
-            
-            # Для альбомов и быстрой серии фото делаем паузу, чтобы собрать их вместе
-            # Если это одиночное фото, пауза меньше, если альбом — больше
-            wait_time = 1.5 if message.media_group_id else 0.5
-            await asyncio.sleep(wait_time)
-            
-            # Перечитываем данные ПОСЛЕ ожидания, чтобы увидеть все добавленные фото
-            current_data = await state.get_data()
-            current_photos = current_data.get("photos", [])
-            
-            # ВАЖНО: Отвечает только тот процесс, чье фото последнее в актуальном списке.
-            # Остальные (параллельные) процессы просто завершаются здесь.
-            if not current_photos or current_photos[-1] != photo_id:
-                return
-            
-            # Мы — "последний" процесс, берем на себя ответ пользователю
-            from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-            kb = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="Далее" if len(current_photos) < 4 else "Перейти к промпту", callback_data="normal_photos_done")],
-                [InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")]
-            ])
-
-            if len(current_photos) < 4:
-                text = f"📸 Фото {len(current_photos)}/4 получено.\n\nВы можете отправить еще до {4 - len(current_photos)} фото или нажмите «Далее», чтобы продолжить."
+        else:
+            # Для остальных режимов просто сохраняем фото и выходим из лока
+            await state.update_data(user_photo_id=photo_id)
+            # Если не обычная генерация, идем дальше по флоу
+            category = data.get("category")
+            lang = await db.get_user_language(user_id)
+            if data.get("repeat_mode"):
+                await state.update_data(repeat_mode=False)
+                await _do_generate(message, state, db)
+            elif category == "infographic_clothing":
+                dummy_callback = CallbackQuery(
+                    id="0", from_user=message.from_user, chat_instance="0",
+                    message=message, data=f"form_aspect:{data.get('aspect', '1:1')}"
+                ).as_(message.bot)
+                await on_aspect_selected(dummy_callback, state, db)
+            elif data.get("random_other_mode"):
+                await _show_confirmation(message, state, db)
             else:
-                text = "✅ Получено 4/4 фото. Теперь нажмите «Далее», чтобы отправить промпт."
-                await state.set_state(CreateForm.waiting_prompt)
-
-            last_msg_id = current_data.get("last_photos_msg_id")
-            if last_msg_id:
-                try:
-                    await message.bot.edit_message_text(
-                        chat_id=message.chat.id,
-                        message_id=last_msg_id,
-                        text=text,
-                        reply_markup=kb
-                    )
-                    return
-                except:
-                    pass # Если не удалось отредактировать, отправим новое
-
-            msg = await message.answer(text, reply_markup=kb)
-            await state.update_data(last_photos_msg_id=msg.message_id)
+                await _show_next_step(message, state, db)
             return
 
-    # Для остальных режимов (не обычная генерация) сохраняем одно фото и идем дальше
-    await state.update_data(user_photo_id=photo_id)
+    # 2. Ожидание (СНАРУЖИ лока), чтобы собрать пачку фото
+    wait_time = 1.5 if message.media_group_id else 0.5
+    await asyncio.sleep(wait_time)
+    
+    # 3. Проверяем, кто из параллельных процессов "последний"
+    current_data = await state.get_data()
+    current_photos = current_data.get("photos", [])
+    lang = await db.get_user_language(user_id)
+    
+    if not current_photos or current_photos[-1] != photo_id:
+        # Мы не последние, кто-то другой ответит за эту пачку фото
+        return
+
+    # 4. Мы — "последний" процесс, формируем ответ
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Далее" if len(current_photos) < 4 else "Перейти к промпту", callback_data="normal_photos_done")],
+        [InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")]
+    ])
+
+    if len(current_photos) < 4:
+        text = f"📸 Фото {len(current_photos)}/4 получено.\n\nВы можете отправить еще до {4 - len(current_photos)} фото или нажмите «Далее», чтобы продолжить."
+    else:
+        text = "✅ Получено 4/4 фото. Теперь нажмите «Далее», чтобы отправить промпт."
+        await state.set_state(CreateForm.waiting_prompt)
+
+    last_msg_id = current_data.get("last_photos_msg_id")
+    if last_msg_id:
+        try:
+            await message.bot.edit_message_text(
+                chat_id=message.chat.id,
+                message_id=last_msg_id,
+                text=text,
+                reply_markup=kb
+            )
+            return
+        except:
+            pass 
+
+    msg = await message.answer(text, reply_markup=kb)
+    await state.update_data(last_photos_msg_id=msg.message_id)
 
     # Если мы в режиме "Повторить" — запускаем генерацию сразу
     if data.get("repeat_mode"):

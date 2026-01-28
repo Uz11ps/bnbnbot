@@ -59,7 +59,10 @@ from bot.config import load_settings
 from bot.gemini import generate_image, generate_text
 import asyncio
 import time
+from asyncio import Lock
 from aiogram.enums import ChatAction
+
+state_lock = Lock()
 import logging
 import os
 import json
@@ -2835,30 +2838,35 @@ async def handle_user_photo(message: Message, state: FSMContext, db: Database) -
         return
             
     photo_id = message.photo[-1].file_id
-    await state.update_data(user_photo_id=photo_id)
     lang = await db.get_user_language(message.from_user.id)
 
     # Обычная генерация: после фото просим промпт
     if data.get("normal_gen_mode"):
-        photos = data.get("photos") or []
+        async with state_lock:
+            # ПЕРЕЧИТЫВАЕМ ДАННЫЕ ВНУТРИ ЗАМКА
+            current_data = await state.get_data()
+            photos = current_data.get("photos") or []
+            
+            if photo_id not in photos:
+                photos.append(photo_id)
+                photos = photos[:4]
+                await state.update_data(photos=photos)
         
-        if photo_id not in photos:
-            photos.append(photo_id)
-            photos = photos[:4]
-            await state.update_data(photos=photos)
-
         # Если это альбом, ждем завершения загрузки всех фото
         if message.media_group_id:
-            await asyncio.sleep(1.5) # Ждем, пока все фото альбома придут и запишутся в state
+            await asyncio.sleep(1.5) # Ждем, пока все фото альбома придут
             
             # Перечитываем данные после ожидания
-            data = await state.get_data()
-            photos = data.get("photos", [])
+            current_data = await state.get_data()
+            photos = current_data.get("photos", [])
             
-            # Чтобы ответить только ОДИН раз на весь альбом:
-            # Отвечает только тот процесс, чье фото оказалось последним в списке
-            if photos and photos[-1] != photo_id:
+            # Отвечает только тот процесс, чье фото оказалось последним в списке на момент проверки
+            if not photos or photos[-1] != photo_id:
                 return
+        else:
+            # Для одиночного фото перечитываем актуальный список
+            current_data = await state.get_data()
+            photos = current_data.get("photos", [])
 
         # Формируем клавиатуру
         from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -2872,8 +2880,10 @@ async def handle_user_photo(message: Message, state: FSMContext, db: Database) -
         else:
             text = "✅ Получено 4/4 фото. Теперь нажмите «Далее», чтобы отправить промпт."
 
-        # Пытаемся редактировать предыдущее сообщение счетчика, если оно было
-        last_msg_id = data.get("last_photos_msg_id")
+        # Пытаемся редактировать предыдущее сообщение счетчика
+        current_data = await state.get_data()
+        last_msg_id = current_data.get("last_photos_msg_id")
+        
         if last_msg_id:
             try:
                 await message.bot.edit_message_text(
@@ -2882,9 +2892,12 @@ async def handle_user_photo(message: Message, state: FSMContext, db: Database) -
                     text=text,
                     reply_markup=kb
                 )
+                # Если это было 4-е фото, переводим состояние
+                if len(photos) >= 4:
+                    await state.set_state(CreateForm.waiting_prompt)
                 return
             except:
-                pass # Если не удалось отредактировать (например, сообщение удалено), отправим новое
+                pass
 
         msg = await message.answer(text, reply_markup=kb)
         await state.update_data(last_photos_msg_id=msg.message_id)
@@ -2892,6 +2905,9 @@ async def handle_user_photo(message: Message, state: FSMContext, db: Database) -
         if len(photos) >= 4:
             await state.set_state(CreateForm.waiting_prompt)
         return
+
+    # Для остальных режимов сохраняем как обычно
+    await state.update_data(user_photo_id=photo_id)
 
     # Если мы в режиме "Повторить" — запускаем генерацию сразу
     if data.get("repeat_mode"):

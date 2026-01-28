@@ -2834,12 +2834,16 @@ async def handle_user_photo(message: Message, state: FSMContext, db: Database) -
     photo_id = message.photo[-1].file_id
     user_id = message.from_user.id
     
-    # 1. Атомарно добавляем фото в список
+    # Сначала всегда получаем актуальные данные сессии
     async with state_lock:
         data = await state.get_data()
         if not data:
             return
-        
+            
+        category = data.get("category")
+        lang = await db.get_user_language(user_id)
+
+        # Обычная генерация: собираем до 4-х фото
         if data.get("normal_gen_mode"):
             photos = data.get("photos") or []
             if photo_id not in photos:
@@ -2850,8 +2854,6 @@ async def handle_user_photo(message: Message, state: FSMContext, db: Database) -
             # Для остальных режимов просто сохраняем фото и выходим из лока
             await state.update_data(user_photo_id=photo_id)
             # Если не обычная генерация, идем дальше по флоу
-            category = data.get("category")
-            lang = await db.get_user_language(user_id)
             if data.get("repeat_mode"):
                 await state.update_data(repeat_mode=False)
                 await _do_generate(message, state, db)

@@ -56,8 +56,8 @@ def _generate_sync(
         
     for i, img_bytes in enumerate(img_list, 1):
         if img_bytes:
-            label = "MODEL/BACKGROUND REFERENCE" if i == 1 else "PRODUCT/CLOTHING TO APPLY"
-            parts.append({"text": f"--- INPUT PHOTO {i} ({label}) ---"})
+            label = "REFERENCE_MODEL_OR_BACKGROUND" if i == 1 else "CLOTHING_OR_PRODUCT"
+            parts.append({"text": f"image_{i} ({label}):"})
             parts.append({
                 "inlineData": {
                     "mimeType": "image/jpeg",
@@ -80,7 +80,7 @@ def _generate_sync(
     # Примечание: thinking_level не поддерживается для gemini-3-pro-image-preview
     # Модель сама использует глубокое рассуждение для генерации изображений
     generation_config = {
-        "temperature": 0.3,
+        "temperature": 0.1,
         "topK": 32,
         "topP": 1,
         "maxOutputTokens": 4096,

@@ -3300,27 +3300,27 @@ async def _build_final_prompt(data: dict, db: Database) -> str:
     prompt_filled = ""
     if data.get("own_mode"):
         base = await db.get_own_prompt() or await db.get_own_prompt3()
-        if not base or "Input Photo" not in base:
-            base = "Professional fashion photography. Input Photo 1 is the reference model. Input Photo 2 is the clothing/product. YOUR TASK: Take the clothing from Input Photo 2 and place it onto the model from Input Photo 1. The model's face, body shape, hair, and pose from Input Photo 1 MUST remain exactly the same. Only the clothing should be changed to match Input Photo 2. High resolution, realistic textures, natural lighting."
+        if not base or "image_1" not in base:
+            base = "COMPOSITION TASK: Use image_1 as the base model. Use image_2 as the source of clothing. Take the clothing from image_2 and realistically place it onto the person in image_1. CRITICAL: You MUST keep the model's face, hair, body shape, and pose from image_1 EXACTLY as they are. DO NOT generate a random person. The only change should be the clothing, which must match image_2. High resolution, professional fashion photography, natural lighting."
         prompt_filled = apply_replacements(base)
         
         # Добавляем только то, чего нет в плейсхолдерах
         if "{длина изделия}" not in base and "{Длина изделия}" not in base and data.get("own_length"):
-            prompt_filled += f" Garment length: {data.get('own_length')}."
+            prompt_filled += f" Use garment length: {data.get('own_length')}."
         if "{длина рукав}" not in base and "{Тип рукава}" not in base and data.get("own_sleeve"):
-            prompt_filled += f" Sleeve length: {data.get('own_sleeve')}."
+            prompt_filled += f" Use sleeve length: {data.get('own_sleeve')}."
         if "{Угол камеры}" not in base and "{Ракурс}" not in base and view_word:
-            prompt_filled += f" Camera distance: {view_word}."
+            prompt_filled += f" Camera perspective: {view_word}."
             
     elif category == "own_variant":
         base = await db.get_own_variant_prompt()
-        if not base or "Input Photo" not in base:
-            base = "Professional commercial photography. Input Photo 1 is the background. Input Photo 2 is the product. YOUR TASK: Place the product from Input Photo 2 into the scene from Input Photo 1. Maintain the background's lighting, shadows, and perspective from Input Photo 1. The product must look like it was originally photographed in that background. High quality, 8k resolution, sharp focus."
+        if not base or "image_1" not in base:
+            base = "COMPOSITION TASK: Use image_1 as the background scene. Use image_2 as the product. Place the product from image_2 into the background from image_1. Match the lighting, perspective, and shadows of image_1. The product must look naturally integrated into the scene. High quality, 8k resolution, sharp detail."
         prompt_filled = apply_replacements(base)
         if "{длина изделия}" not in base and "{Длина изделия}" not in base and data.get("own_length"):
-            prompt_filled += f" Garment length: {data.get('own_length')}."
+            prompt_filled += f" Product length: {data.get('own_length')}."
         if "{длина рукав}" not in base and "{Тип рукава}" not in base and data.get("own_sleeve"):
-            prompt_filled += f" Sleeve length: {data.get('own_sleeve')}."
+            prompt_filled += f" Sleeve style: {data.get('own_sleeve')}."
 
     elif data.get("random_other_mode"):
         # Для рандома часто промпт строится динамически, но если есть базовый — применяем

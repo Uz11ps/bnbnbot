@@ -3537,7 +3537,7 @@ Reproduce EXACTLY: shape, silhouette, neckline, seams, stitching, texture, and v
         "bg_photo", "photo", "user_photo_id", "result_photo_id", "has_person", "age", "size", "height", "body_type",
         "pants_style", "sleeve", "length", "pose", "dist", "view", "season", "holiday",
         "info_gender", "info_load", "info_lang", "info_brand", "info_extra", "info_angle", "info_pose",
-        "info_season", "info_holiday"
+        "info_season", "info_holiday", "aspect", "prompt"
     }
     for k, v in data.items():
         if k not in exclude_keys and v and isinstance(v, str):

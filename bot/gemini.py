@@ -54,9 +54,7 @@ def _generate_sync(
     else:
         img_list = images or []
         
-    # Промпт добавляем первым (некоторые модели требуют текст перед медиа)
-    parts.append({"text": prompt})
-    
+    # Сначала изображения
     for i, img_bytes in enumerate(img_list, 1):
         if img_bytes:
             if len(img_list) > 1:
@@ -67,6 +65,9 @@ def _generate_sync(
                     "data": base64.b64encode(img_bytes).decode("utf-8"),
                 }
             })
+            
+    # Промпт в самом конце
+    parts.append({"text": prompt})
             
     if ref_image_bytes:
         parts.append({"text": "Reference image:"})
@@ -88,9 +89,14 @@ def _generate_sync(
         generation_config["temperature"] = 0.1
     
     payload = {
-        "contents": [{"parts": parts}],
+        "contents": [{"role": "user", "parts": parts}],
         "generationConfig": generation_config,
-        # safetySettings можно добавить при необходимости
+        "safetySettings": [
+            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+        ]
     }
 
     proxies = _build_proxies_from_env()

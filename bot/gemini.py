@@ -54,18 +54,30 @@ def _generate_sync(
     else:
         img_list = images or []
         
-    for i, img_bytes in enumerate(img_list, 1):
-        if img_bytes:
-            parts.append({"text": f"Photo {i}:"})
-            parts.append({
-                "inlineData": {
-                    "mimeType": "image/jpeg",
-                    "data": base64.b64encode(img_bytes).decode("utf-8"),
-                }
-            })
-            
-    # Промпт добавляем в конце
-    parts.append({"text": prompt})
+    if len(img_list) > 1:
+        for i, img_bytes in enumerate(img_list, 1):
+            if img_bytes:
+                parts.append({"text": f"Photo {i}:"})
+                parts.append({
+                    "inlineData": {
+                        "mimeType": "image/jpeg",
+                        "data": base64.b64encode(img_bytes).decode("utf-8"),
+                    }
+                })
+        # Промпт добавляем в конце
+        parts.append({"text": prompt})
+    elif len(img_list) == 1:
+        # Для одного фото используем простую структуру [image, text]
+        parts.append({
+            "inlineData": {
+                "mimeType": "image/jpeg",
+                "data": base64.b64encode(img_list[0]).decode("utf-8"),
+            }
+        })
+        parts.append({"text": prompt})
+    else:
+        # Если фото нет (хотя для этой модели они обычно нужны)
+        parts.append({"text": prompt})
             
     if ref_image_bytes:
         parts.append({
@@ -76,13 +88,9 @@ def _generate_sync(
         })
 
     # Для Gemini 3 Pro Image используем стандартную конфигурацию
-    # Примечание: thinking_level не поддерживается для gemini-3-pro-image-preview
-    # Модель сама использует глубокое рассуждение для генерации изображений
+    # Примечание: Модель сама управляет параметрами генерации
     generation_config = {
         "temperature": 0.1,
-        "topK": 32,
-        "topP": 1,
-        "maxOutputTokens": 4096,
     }
     
     # В текущей версии API Gemini Image Preview мы управляем качеством через промпт
@@ -115,9 +123,10 @@ def _generate_sync(
     resp = None
     last_text = None
     last_exception = None
-    is_proxy_error = False
+    is_network_error = False
     for attempt in range(1, 4):
         try:
+            is_network_error = False
             resp = session.post(endpoint, headers=headers, json=payload, timeout=90, proxies=proxies or None)
             if resp.status_code >= 500:
                 last_text = resp.text
@@ -129,13 +138,14 @@ def _generate_sync(
         except (requests.exceptions.ProxyError, requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
             last_exception = e
             last_text = str(e)
-            is_proxy_error = True
+            is_network_error = True
             logger.warning("[Gemini] proxy/network error on attempt %d: %s", attempt, e)
             import time as _t
             _t.sleep(2 * attempt)
         except requests.RequestException as e:
             last_exception = e
             last_text = str(e)
+            is_network_error = True
             logger.warning("[Gemini] network error on attempt %d: %s", attempt, e)
             import time as _t
             _t.sleep(2 * attempt)
@@ -164,12 +174,12 @@ def _generate_sync(
             error_message = f"Rate limit exceeded. Проверьте ключ, возможно закончился баланс. {snippet[:200]}"
         elif status_code == 400:
             error_type = "400"
-            error_message = f"Bad request. Проверьте ключ. {snippet[:200]}"
+            error_message = f"Bad request. Проверьте параметры или ключ. {snippet[:200]}"
         elif "quota" in snippet.lower() or "quota" in str(last_exception).lower():
             error_type = "quota"
             error_message = f"Quota exceeded. Проверьте ключ, возможно закончился баланс. {snippet[:200]}"
-        elif is_proxy_error or status_code is None:
-            error_type = "proxy"
+        elif is_network_error or status_code is None:
+            error_type = "network"
             error_message = f"Proxy/Network error: {snippet[:200]}"
         
         api_key_preview = api_key[:10] + "..." if len(api_key) > 10 else api_key

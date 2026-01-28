@@ -1955,8 +1955,8 @@ except Exception as e:
         proxy = MockProxy()
     settings = MockSettings()
 
-ADMIN_USER = "123"
-ADMIN_PASS = "123"
+ADMIN_USER = "galimov5500"
+ADMIN_PASS = "Gal171120719(!)"
 
 if os.path.exists(STATIC_DIR):
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

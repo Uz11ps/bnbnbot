@@ -2830,6 +2830,8 @@ from collections import defaultdict
 
 # Словар замков для каждого пользователя, чтобы избежать race condition
 user_locks = defaultdict(asyncio.Lock)
+# Замки для генерации (чтобы не запускать две параллельно)
+gen_locks = defaultdict(asyncio.Lock)
 # Кэш обработанных сообщений, чтобы не считать одно фото дважды (race condition на стороне TG)
 processed_msg_ids = set()
 
@@ -2927,12 +2929,6 @@ async def handle_user_photo(message: Message, state: FSMContext, db: Database) -
             await _show_confirmation(message, state, db)
         else:
             await _show_next_step(message, state, db)
-
-    # Если мы в режиме "Повторить" — запускаем генерацию сразу
-    if data.get("repeat_mode"):
-        await state.update_data(repeat_mode=False)
-        await _do_generate(message, state, db)
-        return
 
     # Если это инфографика ОДЕЖДА — после фото показываем превью (формат уже выбран)
     if category == "infographic_clothing":
@@ -3627,6 +3623,16 @@ async def form_generate(callback: CallbackQuery, state: FSMContext, db: Database
 
 async def _do_generate(message_or_callback: Message | CallbackQuery, state: FSMContext, db: Database) -> None:
     user_id = message_or_callback.from_user.id
+    if gen_locks[user_id].locked():
+        logger.warning(f"[_do_generate] Пропуск: Генерация для {user_id} уже выполняется.")
+        if isinstance(message_or_callback, CallbackQuery):
+            await _safe_answer(message_or_callback)
+        return
+    async with gen_locks[user_id]:
+        await _do_generate_real(message_or_callback, state, db)
+
+async def _do_generate_real(message_or_callback: Message | CallbackQuery, state: FSMContext, db: Database) -> None:
+    user_id = message_or_callback.from_user.id
     data = await state.get_data()
     logger.info(f"[_do_generate] Начало генерации для пользователя {user_id}. Данные сессии: {data}")
     
@@ -3925,6 +3931,14 @@ async def on_result_edit(callback: CallbackQuery, state: FSMContext, db: Databas
 
 @router.message(CreateForm.waiting_edit_text)
 async def on_result_edit_text(message: Message, state: FSMContext, db: Database) -> None:
+    user_id = message.from_user.id
+    if gen_locks[user_id].locked():
+        await message.answer("Пожалуйста, подождите, выполняется обработка ваших правок.")
+        return
+    async with gen_locks[user_id]:
+        await on_result_edit_text_real(message, state, db)
+
+async def on_result_edit_text_real(message: Message, state: FSMContext, db: Database) -> None:
     edit_text = (message.text or "").strip()
     data = await state.get_data()
     user_id = message.from_user.id

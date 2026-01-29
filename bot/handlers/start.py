@@ -3774,7 +3774,7 @@ async def _do_generate(message_or_callback: Message | CallbackQuery, state: FSMC
         last_error_msg = ""
         keys_tried = 0
         for key_tuple in active_keys:
-            if keys_tried >= 3: # Пробуем не более 3-х ключей, чтобы не затягивать ожидание
+            if keys_tried >= 5: # Пробуем до 5 ключей
                 break
             
             kid = key_tuple[0]

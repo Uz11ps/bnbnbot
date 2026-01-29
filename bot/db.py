@@ -1102,7 +1102,7 @@ class Database:
                 row = await cur.fetchone()
                 new_balance = row[0] if row else 0
             await db.execute(
-                "INSERT INTO balance_history (user_id, amount, new_balance, reason) VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO balance_history (user_id, amount, new_balance, reason, admin_id) VALUES (?, ?, ?, ?, ?)",
                 (user_id, -amount, new_balance, reason, None)
             )
             await db.commit()

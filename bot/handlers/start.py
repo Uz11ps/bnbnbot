@@ -3785,15 +3785,22 @@ async def _do_generate(message_or_callback: Message | CallbackQuery, state: FSMC
             keys_tried += 1
             try:
                 downloaded_paths = []
-                import uuid
+                import uuid, os
                 logger.info(f"[_do_generate] Подготовка фото: {input_photos}")
                 for fid in input_photos:
                     if not fid: continue
                     try:
                         f_info = await bot.get_file(fid)
+                        logger.info(f"[_do_generate] Telegram file size for {fid}: {f_info.file_size} bytes")
+                        
                         ext = f_info.file_path.split('.')[-1]
                         p = f"data/temp_{uuid.uuid4()}.{ext}"
                         await bot.download_file(f_info.file_path, p)
+                        
+                        if os.path.exists(p):
+                            sz = os.path.getsize(p)
+                            logger.info(f"[_do_generate] Real file size on disk: {sz} bytes")
+                            
                         downloaded_paths.append(p)
                     except Exception as e:
                         logger.error(f"Ошибка загрузки фото {fid}: {e}")
@@ -4015,10 +4022,20 @@ async def on_result_edit_text(message: Message, state: FSMContext, db: Database)
         downloaded_paths = []
         import uuid, os
         for fid in input_photos:
+            if not fid: continue
             f_info = await message.bot.get_file(fid)
+            # Логируем размер файла из инфо Телеграма
+            logger.info(f"[Edit] File {fid} size from Telegram: {f_info.file_size} bytes")
+            
             ext = f_info.file_path.split('.')[-1]
             p = f"data/temp_edit_{uuid.uuid4()}.{ext}"
             await message.bot.download_file(f_info.file_path, p)
+            
+            # Проверяем реальный размер на диске
+            if os.path.exists(p):
+                sz = os.path.getsize(p)
+                logger.info(f"[Edit] Real file size on disk: {sz} bytes")
+            
             downloaded_paths.append(p)
 
         # Выбор API ключей

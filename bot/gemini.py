@@ -54,20 +54,21 @@ def _generate_sync(
     else:
         img_list = images or []
         
-    # Сначала изображения
+    # ЛОГИРОВАНИЕ: Проверка размера первого фото
+    if img_list and len(img_list) > 0:
+        logger.info("[Gemini] First image size: %.2f KB", len(img_list[0]) / 1024)
+
+    # Сначала изображения (важно для Imagen 3 / Gemini 3)
     for i, img_bytes in enumerate(img_list, 1):
         if img_bytes:
-            if len(img_list) > 1:
-                parts.append({"text": f"Photo {i}:"})
+            # Для модели Gemini 3 лучше давать текст ПЕРЕД каждой картинкой
+            parts.append({"text": f"Photo {i}:"})
             parts.append({
                 "inlineData": {
                     "mimeType": "image/jpeg",
                     "data": base64.b64encode(img_bytes).decode("utf-8"),
                 }
             })
-            
-    # Промпт в самом конце
-    parts.append({"text": prompt})
             
     if ref_image_bytes:
         parts.append({"text": "Reference image:"})
@@ -77,6 +78,9 @@ def _generate_sync(
                 "data": base64.b64encode(ref_image_bytes).decode("utf-8"),
             }
         })
+
+    # Промпт ОБЯЗАТЕЛЬНО в самом конце для этой модели
+    parts.append({"text": prompt})
 
     # Для Gemini 3 Pro Image (Imagen 3) используем минимальный конфиг
     # Избыточные параметры часто вызывают INVALID_ARGUMENT

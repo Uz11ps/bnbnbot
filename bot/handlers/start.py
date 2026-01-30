@@ -3986,6 +3986,24 @@ async def _do_generate_real(message_or_callback: Message | CallbackQuery, state:
         bg = data.get("own_bg_photo_id") or data.get("bg_photo") or data.get("user_photo_id")
         prod = data.get("own_product_photo_id") or data.get("photo")
         input_photos = [bg, prod]
+    elif category == "storefront":
+        # Витринное фото: Фото 1 — выбранный фон (модель), Фото 2 — товар
+        model_id = data.get("model_id")
+        bg = None
+        if model_id:
+            async with aiosqlite.connect(db._db_path) as conn:
+                async with conn.execute("SELECT photo_file_id FROM models WHERE id=?", (model_id,)) as cur:
+                    row = await cur.fetchone()
+                    if row: bg = row[0]
+        
+        if not bg:
+            # Фолбэк если фон не выбран
+            bg = data.get("user_photo_id") or data.get("photo")
+            input_photos = [bg]
+        else:
+            prod = data.get("user_photo_id") or data.get("photo")
+            input_photos = [bg, prod]
+            
     elif data.get("own_mode") or category == "own":
         # Фото 1 — модель, Фото 2 — товар
         ref = data.get("own_ref_photo_id") or data.get("bg_photo") or data.get("user_photo_id")

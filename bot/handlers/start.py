@@ -1526,7 +1526,8 @@ async def on_rand_other_style_custom(message: Message, state: FSMContext, db: Da
 async def on_storefront_category(callback: CallbackQuery, db: Database, state: FSMContext) -> None:
     if await db.get_maintenance():
         settings = load_settings()
-        if callback.from_user.id not in (settings.admin_ids or []):
+        if callback.from_user.id in (settings.admin_ids or []): pass
+        else:
             await _safe_answer(callback, get_string("maintenance_alert", await db.get_user_language(callback.from_user.id)), show_alert=True)
             return
     if not await db.get_category_enabled("storefront"):
@@ -1536,10 +1537,9 @@ async def on_storefront_category(callback: CallbackQuery, db: Database, state: F
     await state.update_data(category="storefront", storefront_mode=True)
     lang = await db.get_user_language(callback.from_user.id)
     
-    # 1. Угол камеры (п. 6.1) — убираем выбор модели/пола
-    from bot.keyboards import form_view_keyboard
-    await _replace_with_text(callback, "Выберите угол камеры (Спереди/Сзади):", reply_markup=form_view_keyboard(lang))
-    await state.set_state(CreateForm.waiting_preset_view)
+    # Теперь для Витрины запрашиваем пол, чтобы показать фоны (как в пресетах)
+    from bot.keyboards import gender_selection_keyboard
+    await _replace_with_text(callback, get_string("select_gender", lang), reply_markup=gender_selection_keyboard("storefront", lang))
     await _safe_answer(callback)
 
 
@@ -2946,6 +2946,9 @@ async def handle_user_photo(message: Message, state: FSMContext, db: Database) -
     # ДЛЯ ВСЕХ ОСТАЛЬНЫХ РЕЖИМОВ: возвращаемся в основной флоу
     if data.get("random_other_mode"):
         await _show_confirmation(message, state, db)
+    elif data.get("repeat_mode"):
+        # В режиме повтора генерация уже запущена выше внутри лока
+        await state.update_data(repeat_mode=False)
     else:
         await _show_next_step(message, state, db)
 
@@ -3227,20 +3230,7 @@ async def _build_final_prompt(data: dict, db: Database) -> str:
     # Улучшаем описание размера для ИИ
     if size_text and str(size_text).isdigit():
         sz = int(size_text)
-        if sz >= 60:
-            size_text = f"very large massive body, size {sz}"
-        elif sz >= 58:
-            size_text = f"heavy body with substantial mass, size {sz}"
-        elif sz >= 54:
-            size_text = f"curvy body with clear belly volume and wide waist, size {sz}"
-        elif sz >= 50:
-            size_text = f"slim-curvy body with visible softness, size {sz}"
-        elif sz >= 46:
-            size_text = f"slim model, size {sz}"
-        elif sz <= 44:
-            size_text = f"very slim model, size {sz}"
-        else:
-            size_text = f"athletic/average body, size {sz}"
+        size_text = f"size {sz}"
         
     # --- УНИВЕРСАЛЬНАЯ ЗАМЕНА ПЛЕЙСХОЛДЕРОВ ---
     # Собираем все возможные значения для замены
@@ -3603,7 +3593,10 @@ Reproduce EXACTLY: shape, silhouette, neckline, seams, stitching, texture, and v
         "bg_photo", "photo", "user_photo_id", "result_photo_id", "has_person", "age", "size", "height", "body_type",
         "pants_style", "sleeve", "length", "pose", "dist", "view", "season", "holiday",
         "info_gender", "info_load", "info_lang", "info_brand", "info_extra", "info_angle", "info_pose",
-        "info_season", "info_holiday", "aspect", "prompt"
+        "info_season", "info_holiday", "aspect", "prompt", "last_photos_msg_id", "last_sent_prompt",
+        "gender", "cloth_label", "gender_label", "photo_label", "aspect_label", "height_cm", "width_cm", "length_cm",
+        "own_length", "child_gender", "info_dist", "info_adv1", "info_adv2", "info_adv3", "repeat_mode", "own_ref_photo_id",
+        "is_going_back"
     }
     for k, v in data.items():
         if k not in exclude_keys and v and isinstance(v, str):

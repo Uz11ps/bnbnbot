@@ -3254,6 +3254,7 @@ async def _build_final_prompt(data: dict, db: Database) -> str:
         "(ТУТ УКАЗЫВАЕМ Рост модели}": str(data.get("height") or data.get("height_cm") or ""),
         
         "{длина изделия}": str(data.get("length") or data.get("length_cm") or data.get("own_length") or ""), 
+        "{длину изделия}": str(data.get("length") or data.get("length_cm") or data.get("own_length") or ""),
         "{Длина изделия}": str(data.get("length") or data.get("length_cm") or data.get("own_length") or ""),
         "(ТУТ УКАЗЫВАЕМ ДЛИНУ ИЗДЕЛИЯ)": str(data.get("length") or data.get("length_cm") or data.get("own_length") or ""),
         "(ТУТ УКАЗЫВАЕМ длину изделия}": str(data.get("length") or data.get("length_cm") or data.get("own_length") or ""),
@@ -3280,6 +3281,7 @@ async def _build_final_prompt(data: dict, db: Database) -> str:
         "{brand}": str(data.get("info_brand") or ""),
         "{Название бренда}": str(data.get("info_brand") or ""),
         "{Укажите название брендатовара}": str(data.get("product_name") or data.get("info_brand") or ""),
+        "{Укажите название бренда товара}": str(data.get("product_name") or data.get("info_brand") or ""),
         
         "{Нагруженность}": str(data.get("info_load") or ""),
         "{Нагруженность инфографики}": str(data.get("info_load") or ""),

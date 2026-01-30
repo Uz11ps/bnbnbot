@@ -66,6 +66,7 @@ state_lock = Lock()
 import logging
 import os
 import json
+import aiosqlite
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 logger = logging.getLogger(__name__)

@@ -3292,6 +3292,9 @@ async def _build_final_prompt(data: dict, db: Database) -> str:
         "{Язык инфографики}": str(data.get("info_lang") or ""),
         "(ТУТ УКАЗЫВАЕМ ЯЗЫК ИНФОГРАФИКИ)": str(data.get("info_lang") or ""),
         
+        "{Формат фото}": str(data.get("aspect") or data.get("aspect_label") or ""),
+        "{Фото фона}": "AgAC..." if data.get("own_bg_photo_id") else "",
+        
         "{Стиль}": str(data.get("style") or ""),
         "{Стиль локации}": str(data.get("style") or ""),
         "(ТУТ УКАЗЫВАЕМ СТИЛЬ)": str(data.get("style") or ""),
@@ -3336,10 +3339,14 @@ async def _build_final_prompt(data: dict, db: Database) -> str:
     replacements["{Преимущество 1}"] = str(data.get("info_adv1") or "")
     replacements["{Преимущество 2}"] = str(data.get("info_adv2") or "")
     replacements["{Преимущество 3}"] = str(data.get("info_adv3") or "")
+    replacements["{Топ 1 преимущества товара}"] = str(data.get("info_adv1") or "")
+    replacements["{Топ 2 преимущества товара}"] = str(data.get("info_adv2") or "")
+    replacements["{Топ 3 преимущества товара}"] = str(data.get("info_adv3") or "")
     replacements["(ТУТ УКАЗЫВАЕМ ПРИМУЩЕСТВО 1)"] = str(data.get("info_adv1") or "")
     replacements["(ТУТ УКАЗЫВАЕМ ПРИМУЩЕСТВО 2)"] = str(data.get("info_adv2") or "")
     replacements["(ТУТ УКАЗЫВАЕМ ПРИМУЩЕСТВО 3)"] = str(data.get("info_adv3") or "")
     replacements["{Доп информация}"] = str(data.get("info_extra") or "")
+    replacements["{Дополнительная информация о продукте}"] = str(data.get("info_extra") or "")
     replacements["(ТУТ УКАЗЫВАЕМ ДОП ЧТО УГОДНО О ТОВАРЕ)"] = str(data.get("info_extra") or "")
 
     def apply_replacements(text: str) -> str:
@@ -3367,7 +3374,10 @@ async def _build_final_prompt(data: dict, db: Database) -> str:
     if data.get("own_mode") or category == "own":
         base = await db.get_own_prompt() or await db.get_own_prompt3()
         if not base or "Photo 1" not in base:
-            base = """Use Photo 1 only for the model’s face, natural skin texture, body shape, body proportions, pose, lighting, camera angle, location and background.
+            base = """MANDATORY: Produce ONE single, high-resolution, photorealistic image. 
+❌ NO COLLAGES. ❌ NO SIDE-BY-SIDE. ❌ NO COMPARISONS. ❌ NO SPLIT SCREEN.
+
+Use Photo 1 ONLY for: the model’s EXACT face (100% identity required), natural skin texture, body shape, body proportions, pose, lighting, camera angle, location and background.
 The head-to-body ratio must be natural (approximately 1:7–1:8).
 Legs must be full-length and proportional, never shortened.
 The model must appear in full height in every generation, with no distortion, no oversized head, and no compressed body segments.
@@ -3420,7 +3430,9 @@ Garment length: {Длина изделия} The AI must always ignore any garmen
 Sleeve length: {Тип рукава}
 Type of pants cut: {Тип кроя штанов}
 
-The AI must always understand whether Photo 2 shows the front or the back by analyzing seams and construction. If the back is shown, the front must be recreated logically and realistically."""
+The AI must always understand whether Photo 2 shows the front or the back by analyzing seams and construction. If the back is shown, the front must be recreated logically and realistically.
+
+🎯 FINAL GOAL: Produce ONE single photorealistic image with the EXACT model face and background from Photo 1, wearing the EXACT product from Photo 2."""
         prompt_filled = apply_replacements(base)
         
     elif category == "own_variant":

@@ -3633,6 +3633,10 @@ FORMAT:
     if "ONE single" not in prompt_filled:
         prompt_filled += " Produce ONE single, high-resolution, photorealistic image. No collages, no split screens, no multiple views in one image."
 
+    # ЧИСТКА ОТ СИСТЕМНОГО ТЕКСТА (Баг: "фото загружено")
+    if data.get("infographic_mode"):
+        prompt_filled += " ABSOLUTE NEGATIVE RULE: DO NOT write 'фото загружено', 'photo uploaded', or any Telegram-style system messages on the image. ONLY include product information text. No interface elements, no chat bubbles."
+
     # Финальный акцент на идентичность и отсутствие коллажей для режима Own Model
     if data.get("own_mode") or category == "own":
         prompt_filled += " MANDATORY: Keep the EXACT facial identity, skin tone, and facial features from Photo 1. 100% face match required. DO NOT change the model. DO NOT produce a collage. Dress the model from Photo 1 in the item from Photo 2. Result must be ONE single image."

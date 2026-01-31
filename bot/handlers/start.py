@@ -3572,7 +3572,23 @@ FORMAT:
                 prompt_filled = ((base_random or "") + "\n\n" + "".join(p_parts)).strip()
         else:
             # Обычная модель (из БД по prompt_id)
-            prompt_filled = apply_replacements(prompt_text)
+            if model_id:
+                # Если выбрана конкретная модель, усиливаем требование идентичности
+                base = f"""STRICT RECONSTRUCTION TASK:
+[SCENE_AND_MODEL_REFERENCE_IMAGE] is the source of the model, face, pose, and original outfit.
+[CLOTHING_ITEM_TO_WEAR_IMAGE] is the new item.
+
+CORE RULES:
+- IDENTITY: Keep the EXACT face and identity from [SCENE_AND_MODEL_REFERENCE_IMAGE].
+- OUTFIT: Replace the top part of the clothing with the item from [CLOTHING_ITEM_TO_WEAR_IMAGE]. 
+- BOTTOM: KEEP the pants/bottom from [SCENE_AND_MODEL_REFERENCE_IMAGE]. Do not make the model bottomless.
+- POSE: Keep the EXACT pose from [SCENE_AND_MODEL_REFERENCE_IMAGE].
+- SINGLE IMAGE. NO COLLAGES.
+
+SCENE DESCRIPTION: {prompt_text}"""
+                prompt_filled = apply_replacements(base)
+            else:
+                prompt_filled = apply_replacements(prompt_text)
             
             # Добавляем только то, чего нет в плейсхолдерах
             if "{Тип кроя}" not in prompt_text and data.get("pants_style"):
@@ -3714,6 +3730,22 @@ async def _do_generate_real(message_or_callback: Message | CallbackQuery, state:
         else:
             prod = data.get("user_photo_id") or data.get("photo")
             input_photos = [bg, prod]
+            
+    elif category in ("female", "male", "child") or data.get("is_preset") or category == "presets":
+        # Пресеты: Фото 1 — модель, Фото 2 — товар
+        model_id = data.get("model_id")
+        ref = None
+        if model_id:
+            async with aiosqlite.connect(db._db_path) as conn:
+                async with conn.execute("SELECT photo_file_id FROM models WHERE id=?", (model_id,)) as cur:
+                    row = await cur.fetchone()
+                    if row: ref = row[0]
+        
+        prod = data.get("user_photo_id") or data.get("photo")
+        if ref:
+            input_photos = [ref, prod]
+        else:
+            input_photos = [prod]
             
     elif data.get("own_mode") or category == "own":
         # Фото 1 — модель, Фото 2 — товар

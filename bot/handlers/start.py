@@ -3392,6 +3392,7 @@ KEEP EVERYTHING ELSE FROM PHOTO 1:
 OUTFIT LOGIC
 Dress the model from Photo 1 in the new item from Photo 2 while maintaining the exact pose, scene, and all other non-conflicting clothing from Photo 1.
 Reproduce the garment from Photo 2 with absolute accuracy: fabric, texture, stitching, seams, and structure.
+The AI must analyze Photo 2 and understand how the garment should fit the pose in Photo 1.
 
 COLOR RULE
 The product from Photo 2 must preserve its exact real color with no shift.

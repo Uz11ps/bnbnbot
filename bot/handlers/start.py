@@ -3840,6 +3840,20 @@ async def _do_generate_real(message_or_callback: Message | CallbackQuery, state:
                 for fid in input_photos:
                     if not fid: continue
                     try:
+                        # Если это локальный путь (начинается с data/)
+                        if str(fid).startswith("data/"):
+                            local_path = os.path.join(BASE_DIR, fid)
+                            if os.path.exists(local_path):
+                                # Копируем во временный файл для консистентности
+                                ext = local_path.split('.')[-1]
+                                p = f"data/temp_{uuid.uuid4()}.{ext}"
+                                import shutil
+                                shutil.copy2(local_path, p)
+                                downloaded_paths.append(p)
+                                logger.info(f"[_do_generate] Added local file: {fid}")
+                                continue
+                        
+                        # Иначе считаем, что это Telegram file_id
                         f_info = await bot.get_file(fid)
                         logger.info(f"[_do_generate] Telegram file size for {fid}: {f_info.file_size} bytes")
                         
@@ -4085,20 +4099,35 @@ async def on_result_edit_text_real(message: Message, state: FSMContext, db: Data
         import uuid, os
         for fid in input_photos:
             if not fid: continue
-            f_info = await message.bot.get_file(fid)
-            # Логируем размер файла из инфо Телеграма
-            logger.info(f"[Edit] File {fid} size from Telegram: {f_info.file_size} bytes")
-            
-            ext = f_info.file_path.split('.')[-1]
-            p = f"data/temp_edit_{uuid.uuid4()}.{ext}"
-            await message.bot.download_file(f_info.file_path, p)
-            
-            # Проверяем реальный размер на диске
-            if os.path.exists(p):
-                sz = os.path.getsize(p)
-                logger.info(f"[Edit] Real file size on disk: {sz} bytes")
-            
-            downloaded_paths.append(p)
+            try:
+                # Если это локальный путь
+                if str(fid).startswith("data/"):
+                    local_path = os.path.join(BASE_DIR, fid)
+                    if os.path.exists(local_path):
+                        ext = local_path.split('.')[-1]
+                        p = f"data/temp_edit_{uuid.uuid4()}.{ext}"
+                        import shutil
+                        shutil.copy2(local_path, p)
+                        downloaded_paths.append(p)
+                        logger.info(f"[Edit] Added local file: {fid}")
+                        continue
+
+                f_info = await message.bot.get_file(fid)
+                # Логируем размер файла из инфо Телеграма
+                logger.info(f"[Edit] File {fid} size from Telegram: {f_info.file_size} bytes")
+                
+                ext = f_info.file_path.split('.')[-1]
+                p = f"data/temp_edit_{uuid.uuid4()}.{ext}"
+                await message.bot.download_file(f_info.file_path, p)
+                
+                # Проверяем реальный размер на диске
+                if os.path.exists(p):
+                    sz = os.path.getsize(p)
+                    logger.info(f"[Edit] Real file size on disk: {sz} bytes")
+                
+                downloaded_paths.append(p)
+            except Exception as e:
+                logger.error(f"[Edit] Ошибка загрузки фото {fid}: {e}")
 
         # Выбор API ключей
         # Всегда используем основные API ключи (Pro версия)

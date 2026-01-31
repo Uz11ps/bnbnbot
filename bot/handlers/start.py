@@ -3384,7 +3384,7 @@ INPUT DATA:
 CORE RULES:
 - IDENTITY: Keep the EXACT face and identity from Photo 1. 100% match.
 - BACKGROUND: Keep the EXACT scene/room from Photo 1.
-- OUTFIT: Remove the original clothing from Photo 1. Replace it with the item from Photo 2.
+- OUTFIT: Replace the clothing on the model from Photo 1 with the item from Photo 2.
 - SINGLE VIEW: Only show the final result. Never show the original clothes or a "before" image.
 - QUALITY: Photorealistic, high-end commercial fashion photography.
 

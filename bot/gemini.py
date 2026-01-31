@@ -96,7 +96,9 @@ def _generate_sync(
     # Промпт ОБЯЗАТЕЛЬНО в самом конце для этой модели
     # Усиленная инструкция по формату
     final_aspect = (aspect_ratio or "1:1").replace("x", ":")
-    parts.append({"text": f"STRICT_FORMAT_RULE: Generate EXACTLY ONE image in {final_aspect} aspect ratio. FILL THE ENTIRE SQUARE/RECTANGLE. NO COLLAGES. NO SIDE-BY-SIDE. NO BEFORE/AFTER. ZOOM IN TO FILL FRAME. ZERO PADDING."})
+    
+    # Добавляем Photo 1 и Photo 2 в промпт для Imagen 3, чтобы он точно понимал роли
+    parts.append({"text": f"STRICT_FORMAT_RULE: Generate EXACTLY ONE image in {final_aspect} aspect ratio. FILL THE ENTIRE SQUARE/RECTANGLE. NO COLLAGES. NO SIDE-BY-SIDE. NO BEFORE/AFTER. ZOOM IN TO FILL FRAME. ZERO PADDING. PHOTO 1 is the MODEL/SCENE. PHOTO 2 is the PRODUCT."})
     parts.append({"text": prompt})
 
     # Для Gemini 3 Pro Image (Imagen 3) используем минимальный конфиг

@@ -3493,17 +3493,17 @@ Your task is to take the item from [CLOTHING_ITEM_TO_WEAR_IMAGE] and render it p
 The [CLOTHING_ITEM_TO_WEAR_IMAGE] is the ONLY source of truth for the item.
 
 CORE RULES:
-- PRODUCT FIDELITY: 100% exact reproduction from [CLOTHING_ITEM_TO_WEAR_IMAGE].
-- SCENE RECONSTRUCTION: Use the surface from [SCENE_AND_MODEL_REFERENCE_IMAGE].
-- PLACEMENT: Product must be centered, laid flat, with realistic shadows.
-- QUALITY: 4K Ultra HD, marketplace look.
-- NO PEOPLE. NO REPETITION. ONE SINGLE IMAGE.
+- PRODUCT FIDELITY: 100% exact reproduction of silhouette and texture from [CLOTHING_ITEM_TO_WEAR_IMAGE].
+- SCENE RECONSTRUCTION: Use the floor, environment, and decorations from [SCENE_AND_MODEL_REFERENCE_IMAGE]. 
+- REPLACEMENT: REMOVE the original clothing item (e.g. jacket on the hanger) from [SCENE_AND_MODEL_REFERENCE_IMAGE] and replace it with the item from [CLOTHING_ITEM_TO_WEAR_IMAGE].
+- PLACEMENT: The new product must be centered, laid flat on the floor exactly where the previous item was, with realistic shadows.
+- QUALITY: 4K Ultra HD, professional marketplace look. No people.
 
 FORMAT:
 - Aspect Ratio: {aspect}
 - Fill the entire frame. ZERO padding.
 
-🎯 FINAL GOAL: A luxury marketplace-ready image."""
+🎯 FINAL GOAL: A luxury marketplace-ready image where the item from [CLOTHING_ITEM_TO_WEAR_IMAGE] is lying on the surface from [SCENE_AND_MODEL_REFERENCE_IMAGE]."""
         prompt_filled = apply_replacements(base_storefront)
 
     elif data.get("infographic_mode"):

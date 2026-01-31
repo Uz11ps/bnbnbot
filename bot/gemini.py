@@ -73,8 +73,13 @@ def _generate_sync(
     # Сначала изображения (важно для Imagen 3 / Gemini 3)
     for i, img_bytes in enumerate(img_list, 1):
         if img_bytes:
-            # Возвращаемся к Photo 1 / Photo 2, так как это стандарт и это прописано в большинстве промптов пользователя
-            label = f"Photo {i}:"
+            # Используем семантические метки вместо порядковых номеров
+            if i == 1:
+                label = "[SCENE_AND_MODEL_REFERENCE_IMAGE]:"
+            elif i == 2:
+                label = "[CLOTHING_ITEM_TO_WEAR_IMAGE]:"
+            else:
+                label = f"Photo {i}:"
             
             parts.append({"text": label})
             parts.append({
@@ -93,13 +98,13 @@ def _generate_sync(
             }
         })
 
-    # Промпт ОБЯЗАТЕЛЬНО в самом конце для этой модели
-    # Усиленная инструкция по формату
+    # Промпт и финальные правила
     final_aspect = (aspect_ratio or "1:1").replace("x", ":")
     
-    # Добавляем Photo 1 и Photo 2 в промпт для Imagen 3, чтобы он точно понимал роли
-    parts.append({"text": f"STRICT_FORMAT_RULE: Generate EXACTLY ONE image in {final_aspect} aspect ratio. FILL THE ENTIRE SQUARE/RECTANGLE. NO COLLAGES. NO SIDE-BY-SIDE. NO BEFORE/AFTER. ZOOM IN TO FILL FRAME. ZERO PADDING. PHOTO 1 is the MODEL/SCENE. PHOTO 2 is the PRODUCT."})
     parts.append({"text": prompt})
+    
+    # Финальная директива, которая идет ПОСЛЕ промпта и имеет наивысший приоритет
+    parts.append({"text": f"CRITICAL RULE: Generate ONLY ONE image. NO COLLAGES. NO SIDE-BY-SIDE. NO REPETITION. NO COMPARISONS. Output MUST be a single holistic scene. Use [SCENE_AND_MODEL_REFERENCE_IMAGE] as the base and put [CLOTHING_ITEM_TO_WEAR_IMAGE] on the person. Final aspect ratio: {final_aspect}. FILL ENTIRE FRAME."})
 
     # Для Gemini 3 Pro Image (Imagen 3) используем минимальный конфиг
     generation_config = {

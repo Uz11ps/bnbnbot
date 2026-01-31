@@ -3373,36 +3373,35 @@ async def _build_final_prompt(data: dict, db: Database) -> str:
     prompt_filled = ""
     if data.get("own_mode") or category == "own":
         base = await db.get_own_prompt() or await db.get_own_prompt3()
-        if not base or "Photo 1" not in base:
+        if not base or "[SCENE_AND_MODEL_REFERENCE_IMAGE]" not in base:
             base = """STRICT RECONSTRUCTION TASK:
-Generate ONE SINGLE IMAGE. NO COLLAGES. NO SIDE-BY-SIDE. NO COMPARISONS.
+Generate ONE SINGLE IMAGE. NO COLLAGES. NO SIDE-BY-SIDE. NO REPETITION.
 
 INPUT DATA:
-1. Photo 1: Contains the person, face, background, and accessories.
-2. Photo 2: The new item the person MUST wear.
+1. [SCENE_AND_MODEL_REFERENCE_IMAGE]: The base image with the person, face, and background.
+2. [CLOTHING_ITEM_TO_WEAR_IMAGE]: The new clothing item.
 
 CORE RULES:
-- IDENTITY: Keep the EXACT face and identity from Photo 1. 100% match.
-- BACKGROUND: Keep the EXACT scene/room from Photo 1.
-- OUTFIT: Replace the clothing on the model from Photo 1 with the item from Photo 2.
-- SINGLE VIEW: Only show the final result. Never show the original clothes or a "before" image.
-- QUALITY: Photorealistic, high-end commercial fashion photography.
+- IDENTITY: Keep the EXACT face from [SCENE_AND_MODEL_REFERENCE_IMAGE].
+- BACKGROUND: Keep the EXACT environment from [SCENE_AND_MODEL_REFERENCE_IMAGE].
+- OUTFIT: Replace the current clothing on the person in [SCENE_AND_MODEL_REFERENCE_IMAGE] with the item from [CLOTHING_ITEM_TO_WEAR_IMAGE].
+- COMPOSITION: A single, natural, holistic photo. No frames, no comparisons.
 
 FORMAT:
 - Aspect Ratio: {aspect}
-- Requirement: Fill the entire {aspect} frame. Zoom/Crop the background to ensure NO BORDERS and NO PADDING.
+- Requirement: Fill the frame, crop background if needed. ZERO BORDERS.
 
-🎯 TARGET: A single perfect photo of the model from Photo 1 wearing the product from Photo 2. ZERO COLLAGES."""
+🎯 TARGET: One single perfect photo."""
         prompt_filled = apply_replacements(base)
         
     elif category == "own_variant":
         base = await db.get_own_variant_prompt()
-        if not base or "Photo 1" not in base:
+        if not base or "[SCENE_AND_MODEL_REFERENCE_IMAGE]" not in base:
             base = """STRICT SCENE RECONSTRUCTION:
-Place the product from Photo 2 onto the background from Photo 1.
+Place the product from [CLOTHING_ITEM_TO_WEAR_IMAGE] onto the background and person from [SCENE_AND_MODEL_REFERENCE_IMAGE].
 - Exact product reproduction.
-- Maintain Photo 1 lighting and perspective.
-- ONE single image. No collages.
+- Maintain original lighting.
+- ONE single holistic image. NO COLLAGES. NO REPETITION.
 
 FORMAT: {aspect}
 Fill frame, no borders."""
@@ -3487,25 +3486,24 @@ Fill frame, no borders."""
 
     elif category == "storefront":
         base_storefront = await db.get_storefront_prompt()
-        if not base_storefront or "Photo 1" not in base_storefront:
+        if not base_storefront or "[SCENE_AND_MODEL_REFERENCE_IMAGE]" not in base_storefront:
             base_storefront = """ROLE & TASK: Professional AI system for floor-based showcase photos (flat-lay style).
-Your task is to take the item from Photo 2 and render it perfectly on the surface from Photo 1.
+Your task is to take the item from [CLOTHING_ITEM_TO_WEAR_IMAGE] and render it perfectly on the surface from [SCENE_AND_MODEL_REFERENCE_IMAGE].
 
-The Photo 2 photo is the ONLY source of truth for the item.
+The [CLOTHING_ITEM_TO_WEAR_IMAGE] is the ONLY source of truth for the item.
 
 CORE RULES:
-- PRODUCT FIDELITY: 100% exact reproduction of silhouette, seams, texture, and color from Photo 2.
-- SCENE RECONSTRUCTION: Use the floor and environment from Photo 1.
-- PLACEMENT: Product must be centered, laid flat on the floor, with natural alignment and realistic shadows.
-- QUALITY: 4K Ultra HD, sharp focus, studio lighting, professional marketplace look.
-- NO PEOPLE: Focus strictly on the product. No models, no body parts.
-- RECONSTRUCTION: Do not just return Photo 2. You MUST combine Photo 2 item with Photo 1 background.
+- PRODUCT FIDELITY: 100% exact reproduction from [CLOTHING_ITEM_TO_WEAR_IMAGE].
+- SCENE RECONSTRUCTION: Use the surface from [SCENE_AND_MODEL_REFERENCE_IMAGE].
+- PLACEMENT: Product must be centered, laid flat, with realistic shadows.
+- QUALITY: 4K Ultra HD, marketplace look.
+- NO PEOPLE. NO REPETITION. ONE SINGLE IMAGE.
 
 FORMAT:
 - Aspect Ratio: {aspect}
 - Fill the entire frame. ZERO padding.
 
-🎯 FINAL GOAL: A luxury marketplace-ready floor showcase image of the product."""
+🎯 FINAL GOAL: A luxury marketplace-ready image."""
         prompt_filled = apply_replacements(base_storefront)
 
     elif data.get("infographic_mode"):

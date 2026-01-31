@@ -73,9 +73,8 @@ def _generate_sync(
     # Сначала изображения (важно для Imagen 3 / Gemini 3)
     for i, img_bytes in enumerate(img_list, 1):
         if img_bytes:
-            # Используем более специфичные метки, чтобы ИИ понимал роль каждого фото
-            label = "BASE_MODEL_AND_SCENE:" if i == 1 else "CLOTHING_PRODUCT:"
-            if len(img_list) > 2: label = f"Reference_Photo_{i}:"
+            # Возвращаемся к Photo 1 / Photo 2, так как это стандарт и это прописано в большинстве промптов пользователя
+            label = f"Photo {i}:"
             
             parts.append({"text": label})
             parts.append({

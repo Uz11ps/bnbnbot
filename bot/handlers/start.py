@@ -3373,18 +3373,18 @@ async def _build_final_prompt(data: dict, db: Database) -> str:
     prompt_filled = ""
     if data.get("own_mode") or category == "own":
         base = await db.get_own_prompt() or await db.get_own_prompt3()
-        if not base or "BASE_MODEL" not in base:
+        if not base or "Photo 1" not in base:
             base = """STRICT RECONSTRUCTION TASK:
 Generate ONE SINGLE IMAGE. NO COLLAGES. NO SIDE-BY-SIDE. NO COMPARISONS.
 
 INPUT DATA:
-1. BASE_MODEL_AND_SCENE: Contains the person, face, background, and accessories.
-2. CLOTHING_PRODUCT: The new item the person MUST wear.
+1. Photo 1: Contains the person, face, background, and accessories.
+2. Photo 2: The new item the person MUST wear.
 
 CORE RULES:
-- IDENTITY: Keep the EXACT face and identity from BASE_MODEL_AND_SCENE. 100% match.
-- BACKGROUND: Keep the EXACT scene/room from BASE_MODEL_AND_SCENE.
-- OUTFIT: Remove the original clothing from BASE_MODEL_AND_SCENE. Replace it with the item from CLOTHING_PRODUCT.
+- IDENTITY: Keep the EXACT face and identity from Photo 1. 100% match.
+- BACKGROUND: Keep the EXACT scene/room from Photo 1.
+- OUTFIT: Remove the original clothing from Photo 1. Replace it with the item from Photo 2.
 - SINGLE VIEW: Only show the final result. Never show the original clothes or a "before" image.
 - QUALITY: Photorealistic, high-end commercial fashion photography.
 
@@ -3392,314 +3392,20 @@ FORMAT:
 - Aspect Ratio: {aspect}
 - Requirement: Fill the entire {aspect} frame. Zoom/Crop the background to ensure NO BORDERS and NO PADDING.
 
-Additional parameters:
-Length: {Длина изделия}
-Sleeve: {Тип рукава}
-Pants: {Тип кроя штанов}
-
-🎯 TARGET: A single perfect photo of the model from BASE_MODEL_AND_SCENE wearing the product from CLOTHING_PRODUCT. ZERO COLLAGES."""
+🎯 TARGET: A single perfect photo of the model from Photo 1 wearing the product from Photo 2. ZERO COLLAGES."""
         prompt_filled = apply_replacements(base)
         
     elif category == "own_variant":
         base = await db.get_own_variant_prompt()
         if not base or "Photo 1" not in base:
-            base = """You are a strict visual reconstruction system, not a creative or artistic model.
-
-You are given TWO images ONLY:
-
-PHOTO 1 — BACKGROUND REFERENCE
-PHOTO 2 — PRODUCT REFERENCE (THE ONLY SOURCE OF TRUTH FOR THE PRODUCT)
-
-Your task is to generate ONE final commercial image.
-
-🔴 GLOBAL PRIORITY ORDER (ABSOLUTE)
-
-Product accuracy from PHOTO 2
-
-Removal of all foreign products from PHOTO 1
-
-Background reconstruction from PHOTO 1
-
-If any conflict exists — product accuracy and cleanup always win.
-
-1️⃣ BACKGROUND USAGE RULE (NON-CREATIVE)
-
-PHOTO 1 is used ONLY as a reference for:
-
-surface
-
-materials
-
-textures
-
-lighting
-
-perspective
-
-composition
-
-This is RECONSTRUCTION, not inspiration.
-
-❌ No stylization
-❌ No redesign
-❌ No simplification
-❌ No “similar style”
-
-Recreate the background as close as technically possible.
-
-🚨 2️⃣ ABSOLUTE BACKGROUND PURGE (HIGHEST PRIORITY)
-
-If PHOTO 1 contains ANY products or goods, they are classified as FOREIGN PRODUCTS.
-
-FOREIGN PRODUCTS INCLUDE (without exception):
-
-clothing (tops, underwear, sets, socks, shoes, etc.)
-
-accessories
-
-bags
-
-watches
-
-textiles
-
-gadgets
-
-printed items with commercial value
-
-items with labels, sizes, codes, SKUs, prices
-
-products inside baskets, boxes, frames, or compositions
-
-⛔ MANDATORY ACTION
-
-ALL foreign products from PHOTO 1 MUST BE COMPLETELY REMOVED.
-
-❌ They must NOT remain
-❌ They must NOT be blurred
-❌ They must NOT be faded
-❌ They must NOT be cropped
-❌ They must NOT be replaced with similar items
-
-They must be fully erased.
-
-2.1️⃣ BACKGROUND REBUILD AFTER REMOVAL (REQUIRED)
-
-After removal:
-
-rebuild missing areas using the same background material
-
-match exactly:
-
-texture
-
-surface pattern
-
-lighting
-
-shadows
-
-perspective
-
-The background must look continuous and untouched, as if no product ever existed there.
-
-3️⃣ BACKGROUND EXTENSION (ONLY IF NEEDED)
-
-If the product from PHOTO 2 does not physically fit:
-
-you may slightly extend the background
-
-extension must be:
-
-same material
-
-same texture
-
-same color
-
-same lighting
-
-same perspective
-
-❌ No new design
-❌ No creative decisions
-
-🔒 4️⃣ PRODUCT RECONSTRUCTION (ABSOLUTE PRODUCT FIDELITY)
-
-PHOTO 2 is the ONLY SOURCE OF TRUTH for the product.
-
-HARD BAN — NO TRANSFER
-
-❌ NO copy-paste
-❌ NO cut-out
-❌ NO masking
-❌ NO cloning
-❌ NO overlay
-❌ NO reuse of pixels
-
-The product must be fully reconstructed from scratch.
-
-4.1️⃣ GEOMETRY & CONSTRUCTION LOCK (CRITICAL)
-
-Reproduce EXACTLY:
-
-shape and silhouette
-
-proportions and dimensions
-
-construction and geometry
-
-neckline / collar shape and depth
-
-sleeves, cuffs, hems, edges
-
-seams and stitching placement
-
-knit / weave / surface structure
-
-thickness and volume
-
-❌ Do NOT alter
-❌ Do NOT “clean up”
-❌ Do NOT reinterpret
-
-If it looks different — it is WRONG.
-
-4.2️⃣ COLOR & MATERIAL LOCK (ABSOLUTE)
-
-Color must match EXACTLY, not approximately.
-
-Rules:
-
-Do NOT normalize color
-
-Do NOT correct white balance
-
-Do NOT enhance saturation
-
-Do NOT make cleaner, warmer, cooler, brighter, or softer
-
-If lighting differs between photos:
-➡️ TRUST PHOTO 2 ONLY
-
-Even a slight hue or brightness difference = FAILURE.
-
-4.3️⃣ TEXTURE & SURFACE BEHAVIOR
-
-Match texture density, roughness, softness, fuzziness exactly
-
-❌ No smoothing
-
-❌ No CGI polish
-
-❌ No plastic look
-
-Material must look like the same physical object.
-
-5️⃣ PRODUCT PRESENTATION (COMMERCIAL STANDARD)
-
-Product must look new, clean, steamed / ironed
-
-❌ No wrinkles
-
-❌ No folds
-
-❌ No deformation
-
-Lighting:
-
-neutral
-
-soft
-
-matches background direction
-
-no dramatic shadows
-
-5.1️⃣ COMMERCIAL CLEANUP (АЛГОРИТМИЧЕСКАЯ, НЕКРЕАТИВНАЯ ОБРАБОТКА)
-
-During product reconstruction, the system MUST perform a non-creative commercial cleanup:
-
-remove wrinkles
-
-remove uncontrolled folds
-
-remove compression marks
-
-straighten deformed areas
-
-ensure smooth, steamed product appearance
-
-This cleanup must NOT alter:
-
-color
-
-hue
-
-texture type
-
-material behavior
-
-geometry or construction lines
-
-seam placements
-
-collar shape
-
-zipper structure
-
-pocket positions
-
-The final product must look like the SAME physical item as in PHOTO 2,
-but professionally prepared for commercial photography.
-
-6️⃣ SCALE, PLACEMENT & PHYSICS
-
-Correct real-world scale
-
-Correct perspective
-
-Natural contact shadows
-
-Product must NOT float
-
-Product must NOT sink into surface
-
-🧠 7️⃣ SINGLE-PRODUCT ENFORCEMENT
-
-Final image must contain ONE AND ONLY ONE sellable product:
-
-➡️ the product reconstructed from PHOTO 2
-
-If ANY other product exists → RESULT IS INVALID.
-
-🔍 FINAL SELF-CHECK (MANDATORY)
-
-Before final output, internally verify:
-
-Number of sellable products in image = 1
-
-That product = PHOTO 2
-
-ZERO products from PHOTO 1 remain
-
-Background looks continuous and natural
-
-Product color, shape, collar, texture = IDENTICAL
-
-If any check fails → REGENERATE.
-
-🎯 FINAL GOAL
-
-Produce a photorealistic commercial image where:
-
-background = cleaned and reconstructed from PHOTO 1
-
-product = exact reconstruction of PHOTO 2
-
-no foreign products exist
-
-result looks like one real professional photoshoot"""
+            base = """STRICT SCENE RECONSTRUCTION:
+Place the product from Photo 2 onto the background from Photo 1.
+- Exact product reproduction.
+- Maintain Photo 1 lighting and perspective.
+- ONE single image. No collages.
+
+FORMAT: {aspect}
+Fill frame, no borders."""
         prompt_filled = apply_replacements(base)
 
     elif data.get("random_other_mode"):
@@ -3781,18 +3487,19 @@ result looks like one real professional photoshoot"""
 
     elif category == "storefront":
         base_storefront = await db.get_storefront_prompt()
-        if not base_storefront or "BASE_MODEL" not in base_storefront:
+        if not base_storefront or "Photo 1" not in base_storefront:
             base_storefront = """ROLE & TASK: Professional AI system for floor-based showcase photos (flat-lay style).
-Your task is to take the item from CLOTHING_PRODUCT and render it perfectly on the surface from BASE_MODEL_AND_SCENE.
+Your task is to take the item from Photo 2 and render it perfectly on the surface from Photo 1.
 
-The CLOTHING_PRODUCT photo is the ONLY source of truth for the item.
+The Photo 2 photo is the ONLY source of truth for the item.
 
 CORE RULES:
-- PRODUCT FIDELITY: 100% exact reproduction of silhouette, seams, texture, and color from CLOTHING_PRODUCT.
-- SCENE RECONSTRUCTION: Use the floor and environment from BASE_MODEL_AND_SCENE (Reference: Photo 1).
+- PRODUCT FIDELITY: 100% exact reproduction of silhouette, seams, texture, and color from Photo 2.
+- SCENE RECONSTRUCTION: Use the floor and environment from Photo 1.
 - PLACEMENT: Product must be centered, laid flat on the floor, with natural alignment and realistic shadows.
 - QUALITY: 4K Ultra HD, sharp focus, studio lighting, professional marketplace look.
 - NO PEOPLE: Focus strictly on the product. No models, no body parts.
+- RECONSTRUCTION: Do not just return Photo 2. You MUST combine Photo 2 item with Photo 1 background.
 
 FORMAT:
 - Aspect Ratio: {aspect}

@@ -3154,6 +3154,25 @@ async def on_back_step(callback: CallbackQuery, state: FSMContext, db: Database)
 
     # --- Старая логика (минимальный фолбэк для не-динамических состояний) ---
     if current_state == CreateForm.waiting_prompt.state:
+        if data.get("normal_gen_mode"):
+            photos = data.get("photos") or []
+            if len(photos) > 0:
+                from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+                kb = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="Далее" if len(photos) < 4 else "Перейти к промпту", callback_data="normal_photos_done")],
+                    [InlineKeyboardButton(text=get_string("back", lang), callback_data="back_step")]
+                ])
+                text = f"📸 Фото {len(photos)}/4 получено.\n\nВы можете отправить еще до {4 - len(photos)} фото или нажмите «Далее», чтобы продолжить."
+            else:
+                from bot.keyboards import back_main_keyboard
+                kb = back_main_keyboard(lang)
+                text = "📸 Пришлите до 4 фото (можно по одному или серией)."
+            
+            await _replace_with_text(callback, text, reply_markup=kb)
+            await state.set_state(CreateForm.waiting_view)
+            await _safe_answer(callback)
+            return
+
         await _replace_with_text(callback, get_string("upload_photo", lang), reply_markup=back_main_keyboard(lang))
         await state.set_state(CreateForm.waiting_view)
         await _safe_answer(callback)

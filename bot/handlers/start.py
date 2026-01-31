@@ -3396,12 +3396,18 @@ Reproduce the garment from Photo 2 with absolute accuracy: fabric, texture, stit
 COLOR RULE
 The product from Photo 2 must preserve its exact real color with no shift.
 
+IMAGE FORMAT RULE
+The final output MUST be in {aspect} aspect ratio. 
+If the original Photo 1 has a different ratio, you MUST CROP the scene to fit {aspect}. 
+❌ DO NOT add white borders. ❌ DO NOT add black bars. ❌ DO NOT pad the image. 
+The entire {aspect} frame must be filled with the photorealistic scene.
+
 Additional parameters
 Garment length: {Длина изделия}
 Sleeve length: {Тип рукава}
 Type of pants cut: {Тип кроя штанов}
 
-🎯 FINAL GOAL: A single photorealistic image where the model from Photo 1 wears the product from Photo 2, but keeps their original face, background, and all other clothing (like pants or accessories) from Photo 1."""
+🎯 FINAL GOAL: A single photorealistic image where the model from Photo 1 wears the product from Photo 2, but keeps their original face, background, and all other clothing (like pants or accessories) from Photo 1. The image must perfectly fill the {aspect} frame without any borders."""
         prompt_filled = apply_replacements(base)
         
     elif category == "own_variant":

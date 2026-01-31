@@ -87,13 +87,6 @@ def _generate_sync(
         "temperature": 0.1,
     }
     
-    # Добавляем формат (aspect ratio), если он передан
-    if aspect_ratio:
-        # Google API ожидает формат в виде "1:1", "3:4" и т.д. или через параметры
-        # В v1beta для Imagen 3 это aspectRatio
-        # Но мы также продублируем его в промпте для надежности
-        generation_config["aspectRatio"] = aspect_ratio.replace("x", ":")
-    
     # В текущей версии API Gemini Image Preview мы управляем качеством через промпт
     if "4k" in (prompt or "").lower() or "ultra" in (prompt or "").lower():
         generation_config["temperature"] = 0.1

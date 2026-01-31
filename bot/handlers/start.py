@@ -3781,7 +3781,25 @@ result looks like one real professional photoshoot"""
 
     elif category == "storefront":
         base_storefront = await db.get_storefront_prompt()
-        prompt_filled = apply_replacements(base_storefront) if base_storefront else f"Professional fashion photography. Model showing the product from {view_word} at {dist_word} distance. {data.get('own_length','')}"
+        if not base_storefront or "BASE_MODEL" not in base_storefront:
+            base_storefront = """ROLE & TASK: Professional AI system for floor-based showcase photos (flat-lay style).
+Your task is to take the item from CLOTHING_PRODUCT and render it perfectly on the surface from BASE_MODEL_AND_SCENE.
+
+The CLOTHING_PRODUCT photo is the ONLY source of truth for the item.
+
+CORE RULES:
+- PRODUCT FIDELITY: 100% exact reproduction of silhouette, seams, texture, and color from CLOTHING_PRODUCT.
+- SCENE RECONSTRUCTION: Use the floor and environment from BASE_MODEL_AND_SCENE (Reference: Photo 1).
+- PLACEMENT: Product must be centered, laid flat on the floor, with natural alignment and realistic shadows.
+- QUALITY: 4K Ultra HD, sharp focus, studio lighting, professional marketplace look.
+- NO PEOPLE: Focus strictly on the product. No models, no body parts.
+
+FORMAT:
+- Aspect Ratio: {aspect}
+- Fill the entire frame. ZERO padding.
+
+🎯 FINAL GOAL: A luxury marketplace-ready floor showcase image of the product."""
+        prompt_filled = apply_replacements(base_storefront)
 
     elif data.get("infographic_mode"):
         # Инфографика

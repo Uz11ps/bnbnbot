@@ -92,7 +92,9 @@ def _generate_sync(
         })
 
     # Промпт ОБЯЗАТЕЛЬНО в самом конце для этой модели
-    parts.append({"text": f"Final instruction: Generate the image in {aspect_ratio or 'original'} aspect ratio. Fill the entire frame, do not leave any white borders or padding. Crop the background if necessary to fit the ratio."})
+    # Усиленная инструкция по формату
+    final_aspect = (aspect_ratio or "1:1").replace("x", ":")
+    parts.append({"text": f"Final instruction: Generate ONE SINGLE image in {final_aspect} aspect ratio. FILL THE ENTIRE FRAME. NO WHITE BORDERS. NO PADDING. CROP THE BACKGROUND IF NECESSARY. DO NOT PRODUCE A COLLAGE. DO NOT SHOW BEFORE/AFTER. ONLY THE FINAL RESULT."})
     parts.append({"text": prompt})
 
     # Для Gemini 3 Pro Image (Imagen 3) используем минимальный конфиг

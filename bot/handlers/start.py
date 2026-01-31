@@ -3922,6 +3922,10 @@ result looks like one real professional photoshoot"""
     if "ONE single" not in prompt_filled:
         prompt_filled += " Produce ONE single, high-resolution, photorealistic image. No collages, no split screens, no multiple views in one image."
 
+    # Финальный акцент на идентичность и отсутствие коллажей для режима Own Model
+    if data.get("own_mode") or category == "own":
+        prompt_filled += " MANDATORY: Keep the EXACT facial identity, skin tone, and facial features from Photo 1. 100% face match required. DO NOT change the model. DO NOT produce a collage. Dress the model from Photo 1 in the item from Photo 2. Result must be ONE single image."
+
     return prompt_filled
 
 
@@ -4140,7 +4144,11 @@ async def _do_generate_real(message_or_callback: Message | CallbackQuery, state:
                 
                 logger.info(f"[_do_generate] Запуск генерации (ключ {kid}, фото: {len(downloaded_paths)})")
                 from bot.gemini import generate_image
-                aspect = (data.get("aspect") or "1:1").replace(":", "x")
+                # Исправляем передачу формата: Gemini ожидает 1x1, 9x16 и т.д.
+                raw_aspect = data.get("aspect") or "1:1"
+                aspect = raw_aspect.replace(":", "x")
+                if aspect == "auto": aspect = "1x1"
+                
                 result_path = await generate_image(api_key=token, prompt=prompt_filled, image_paths=downloaded_paths, aspect_ratio=aspect, quality=quality, key_id=kid, db_instance=db)
                 
                 import os
@@ -4391,9 +4399,10 @@ async def on_result_edit_text_real(message: Message, state: FSMContext, db: Data
         kid_used = None
         
         from bot.gemini import generate_image
-        aspect = (data.get("aspect") or "1:1").replace(":", "x")
-        if aspect == "auto": aspect = "1x1" # Для Gemini лучше передать конкретный формат
-
+        raw_aspect = data.get("aspect") or "1:1"
+        aspect = raw_aspect.replace(":", "x")
+        if aspect == "auto": aspect = "1x1"
+        
         for key_tuple in active_keys:
             kid, token = key_tuple[0], key_tuple[1]
             ok, _ = await db.check_api_key_limits(kid)

@@ -73,8 +73,11 @@ def _generate_sync(
     # Сначала изображения (важно для Imagen 3 / Gemini 3)
     for i, img_bytes in enumerate(img_list, 1):
         if img_bytes:
-            # Для модели Gemini 3 лучше давать текст ПЕРЕД каждой картинкой
-            parts.append({"text": f"Photo {i}:"})
+            # Используем более специфичные метки, чтобы ИИ понимал роль каждого фото
+            label = "BASE_MODEL_AND_SCENE:" if i == 1 else "CLOTHING_PRODUCT:"
+            if len(img_list) > 2: label = f"Reference_Photo_{i}:"
+            
+            parts.append({"text": label})
             parts.append({
                 "inlineData": {
                     "mimeType": "image/jpeg",
@@ -83,7 +86,7 @@ def _generate_sync(
             })
             
     if ref_image_bytes:
-        parts.append({"text": "Reference image:"})
+        parts.append({"text": "STYLE_REFERENCE:"})
         parts.append({
             "inlineData": {
                 "mimeType": "image/jpeg",
@@ -94,7 +97,7 @@ def _generate_sync(
     # Промпт ОБЯЗАТЕЛЬНО в самом конце для этой модели
     # Усиленная инструкция по формату
     final_aspect = (aspect_ratio or "1:1").replace("x", ":")
-    parts.append({"text": f"Final instruction: Generate ONE SINGLE image in {final_aspect} aspect ratio. FILL THE ENTIRE FRAME. NO WHITE BORDERS. NO PADDING. CROP THE BACKGROUND IF NECESSARY. DO NOT PRODUCE A COLLAGE. DO NOT SHOW BEFORE/AFTER. ONLY THE FINAL RESULT."})
+    parts.append({"text": f"STRICT_FORMAT_RULE: Generate EXACTLY ONE image in {final_aspect} aspect ratio. FILL THE ENTIRE SQUARE/RECTANGLE. NO COLLAGES. NO SIDE-BY-SIDE. NO BEFORE/AFTER. ZOOM IN TO FILL FRAME. ZERO PADDING."})
     parts.append({"text": prompt})
 
     # Для Gemini 3 Pro Image (Imagen 3) используем минимальный конфиг

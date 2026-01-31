@@ -3373,43 +3373,31 @@ async def _build_final_prompt(data: dict, db: Database) -> str:
     prompt_filled = ""
     if data.get("own_mode") or category == "own":
         base = await db.get_own_prompt() or await db.get_own_prompt3()
-        if not base or "Photo 1" not in base:
-            base = """MANDATORY: Produce ONE single, high-resolution, photorealistic image. 
-❌ NO COLLAGES. ❌ NO SIDE-BY-SIDE. ❌ NO COMPARISONS. ❌ NO SPLIT SCREEN.
+        if not base or "BASE_MODEL" not in base:
+            base = """STRICT RECONSTRUCTION TASK:
+Generate ONE SINGLE IMAGE. NO COLLAGES. NO SIDE-BY-SIDE. NO COMPARISONS.
 
-SOURCE OF TRUTH
-PHOTO 1: Model, background, facial features, and ALL existing clothing items (pants, shoes, accessories).
-PHOTO 2: The NEW product to be placed on the model.
+INPUT DATA:
+1. BASE_MODEL_AND_SCENE: Contains the person, face, background, and accessories.
+2. CLOTHING_PRODUCT: The new item the person MUST wear.
 
-Your task is to take the model from Photo 1 and replace ONLY the specific garment that matches the category of the item in Photo 2.
-KEEP EVERYTHING ELSE FROM PHOTO 1:
-1. Face and identity: 100% identical to Photo 1.
-2. Background and environment: 100% identical to Photo 1.
-3. Other clothing: Keep the pants, shoes, hat, glasses, and accessories from Photo 1 UNLESS the product in Photo 2 is meant to replace them.
-   - Example: If Photo 2 is a jacket, keep the pants and shoes from Photo 1.
-   - Example: If Photo 2 is a shirt, keep the trousers and accessories from Photo 1.
+CORE RULES:
+- IDENTITY: Keep the EXACT face and identity from BASE_MODEL_AND_SCENE. 100% match.
+- BACKGROUND: Keep the EXACT scene/room from BASE_MODEL_AND_SCENE.
+- OUTFIT: Remove the original clothing from BASE_MODEL_AND_SCENE. Replace it with the item from CLOTHING_PRODUCT.
+- SINGLE VIEW: Only show the final result. Never show the original clothes or a "before" image.
+- QUALITY: Photorealistic, high-end commercial fashion photography.
 
-OUTFIT LOGIC
-Dress the model from Photo 1 in the new item from Photo 2 while maintaining the exact pose, scene, and all other non-conflicting clothing from Photo 1.
-Reproduce the garment from Photo 2 with absolute accuracy: fabric, texture, stitching, seams, and structure.
-The AI must analyze Photo 2 and understand how the garment should fit the pose in Photo 1.
+FORMAT:
+- Aspect Ratio: {aspect}
+- Requirement: Fill the entire {aspect} frame. Zoom/Crop the background to ensure NO BORDERS and NO PADDING.
 
-COLOR RULE
-The product from Photo 2 must preserve its exact real color with no shift.
+Additional parameters:
+Length: {Длина изделия}
+Sleeve: {Тип рукава}
+Pants: {Тип кроя штанов}
 
-IMAGE FORMAT RULE
-The final output MUST be in {aspect} aspect ratio. 
-If the original Photo 1 has a different ratio, you MUST CROP the scene to fit {aspect}. 
-❌ DO NOT add white borders. ❌ DO NOT add black bars. ❌ DO NOT pad the image. 
-The entire {aspect} frame must be filled with the photorealistic scene.
-IMPORTANT: ZOOM IN or CROP the background to ensure the final image is exactly {aspect} without any empty space or padding.
-
-Additional parameters
-Garment length: {Длина изделия}
-Sleeve length: {Тип рукава}
-Type of pants cut: {Тип кроя штанов}
-
-🎯 FINAL GOAL: A single photorealistic image where the model from Photo 1 wears the product from Photo 2, but keeps their original face, background, and all other clothing (like pants or accessories) from Photo 1. The image must perfectly fill the {aspect} frame without any borders."""
+🎯 TARGET: A single perfect photo of the model from BASE_MODEL_AND_SCENE wearing the product from CLOTHING_PRODUCT. ZERO COLLAGES."""
         prompt_filled = apply_replacements(base)
         
     elif category == "own_variant":

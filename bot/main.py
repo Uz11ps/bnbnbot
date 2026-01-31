@@ -154,13 +154,26 @@ async def main() -> None:
 
     if proxy_url:
         from aiogram.client.session.aiohttp import AiohttpSession
-        session = AiohttpSession(proxy=proxy_url)
+        import random
+        
+        # Поддержка списка прокси через запятую
+        proxy_list = [p.strip() for p in proxy_url.split(",") if p.strip()]
+        selected_proxy = random.choice(proxy_list) if proxy_list else proxy_url
+        
+        if selected_proxy and ":" in selected_proxy and "://" not in selected_proxy:
+            parts = selected_proxy.split(":")
+            if len(parts) == 4:
+                selected_proxy = f"http://{parts[2]}:{parts[3]}@{parts[0]}:{parts[1]}"
+            elif len(parts) == 2:
+                selected_proxy = f"http://{parts[0]}:{parts[1]}"
+
+        session = AiohttpSession(proxy=selected_proxy)
         bot = Bot(
             token=settings.bot_token,
             session=session,
             default=DefaultBotProperties(parse_mode=ParseMode.HTML),
         )
-        logger.info(f"Бот запущен через прокси: {proxy_url}")
+        logger.info(f"Бот запущен через прокси (выбран из списка): {selected_proxy}")
     else:
         bot = Bot(
             token=settings.bot_token,

@@ -24,11 +24,23 @@ def _valid_proxy(url: str) -> bool:
 def _build_proxies_from_env() -> dict:
     http_proxy = os.getenv("GEMINI_HTTP_PROXY") or os.getenv("HTTP_PROXY") or os.getenv("http_proxy")
     https_proxy = os.getenv("GEMINI_HTTPS_PROXY") or os.getenv("HTTPS_PROXY") or os.getenv("https_proxy")
+    
+    import random
+    
+    def get_random_proxy(proxy_str: str | None) -> str | None:
+        if not proxy_str:
+            return None
+        proxies = [p.strip() for p in proxy_str.split(",") if p.strip()]
+        return random.choice(proxies) if proxies else proxy_str
+
+    selected_http = get_random_proxy(http_proxy)
+    selected_https = get_random_proxy(https_proxy)
+
     proxies = {}
-    if http_proxy and _valid_proxy(http_proxy):
-        proxies["http"] = http_proxy
-    if https_proxy and _valid_proxy(https_proxy):
-        proxies["https"] = https_proxy
+    if selected_http and _valid_proxy(selected_http):
+        proxies["http"] = selected_http
+    if selected_https and _valid_proxy(selected_https):
+        proxies["https"] = selected_https
     return proxies
 
 

@@ -80,6 +80,7 @@ def _generate_sync(
         })
 
     # Промпт ОБЯЗАТЕЛЬНО в самом конце для этой модели
+    parts.append({"text": f"Final instruction: Generate the image in {aspect_ratio or 'original'} aspect ratio. Fill the entire frame, do not leave any white borders or padding. Crop the background if necessary to fit the ratio."})
     parts.append({"text": prompt})
 
     # Для Gemini 3 Pro Image (Imagen 3) используем минимальный конфиг
@@ -87,8 +88,13 @@ def _generate_sync(
         "temperature": 0.1,
     }
     
-    # В текущей версии API Gemini Image Preview мы управляем качеством через промпт
-    if "4k" in (prompt or "").lower() or "ultra" in (prompt or "").lower():
+    # Пытаемся передать аспект через параметры, но в v1beta для Imagen 3 
+    # иногда требуется другой формат или только через промпт.
+    # Попробуем передать через aspect_ratio в правильном формате.
+    if aspect_ratio:
+        # В некоторых версиях API это может быть в корне payload или в config
+        # Но если 400 ошибка была на aspectRatio, попробуем передать через промпт более агрессивно
+        pass
         generation_config["temperature"] = 0.1
     
     payload = {

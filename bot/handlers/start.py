@@ -3401,6 +3401,7 @@ The final output MUST be in {aspect} aspect ratio.
 If the original Photo 1 has a different ratio, you MUST CROP the scene to fit {aspect}. 
 ❌ DO NOT add white borders. ❌ DO NOT add black bars. ❌ DO NOT pad the image. 
 The entire {aspect} frame must be filled with the photorealistic scene.
+IMPORTANT: ZOOM IN or CROP the background to ensure the final image is exactly {aspect} without any empty space or padding.
 
 Additional parameters
 Garment length: {Длина изделия}

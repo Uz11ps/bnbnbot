@@ -3801,17 +3801,19 @@ async def _do_generate_real(message_or_callback: Message | CallbackQuery, state:
             await message_or_callback.answer(text)
         return
 
+    # Проверка баланса (ВСЕГДА 20 РУБЛЕЙ)
+    balance = await db.get_user_balance(user_id)
+    price = 20
+    
+    if balance < price:
+        msg = f"❌ Недостаточно средств на балансе.\n\nСтоимость 1 генерации = {price} руб.\nВаш баланс: {balance} руб.\n\nПожалуйста, пополните баланс в профиле."
+        if isinstance(message_or_callback, CallbackQuery):
+            await _safe_answer(message_or_callback, msg, show_alert=True)
+        else:
+            await ans_obj.answer(msg)
+        return
+
     try:
-        balance = await db.get_user_balance(user_id)
-        price = await db.get_user_generation_price(user_id)
-        
-        if balance < price:
-            msg = f"❌ Недостаточно средств на балансе.\n\nСтоимость 1 генерации = {price} руб.\nВаш баланс: {balance} руб.\n\nПожалуйста, пополните баланс в профиле."
-            if isinstance(message_or_callback, CallbackQuery):
-                await _safe_answer(message_or_callback, msg, show_alert=True)
-            else:
-                await ans_obj.answer(msg)
-            return
         
         quality = 'HD' # По умолчанию HD, так как подписки убрали
         
@@ -4083,11 +4085,13 @@ async def on_result_edit_text_real(message: Message, state: FSMContext, db: Data
 
     # Проверка баланса (ПРАВКИ ВСЕГДА 20 РУБЛЕЙ)
     balance = await db.get_user_balance(user_id)
-    price_tenths = 200 # 20.0 рублей
+    price = 20
     
-    if balance < 20:
-        await message.answer("Недостаточно средств на балансе для правок. Стоимость правки: 20 руб.")
+    if balance < price:
+        await message.answer(f"❌ Недостаточно средств на балансе для правок.\n\nСтоимость правки = {price} руб.\nВаш баланс: {balance} руб.")
         return
+
+    category = data.get("category", "female")
 
     # Строим базовый промпт и добавляем правки
     base_prompt = await _build_final_prompt(data, db)

@@ -3954,13 +3954,8 @@ async def _do_generate_real(message_or_callback: Message | CallbackQuery, state:
                 if result_path:
                     await db.record_api_usage(kid)
                     
-                    # Списываем стоимость генерации (индивидуальную для юзера)
-                    price = await db.get_user_generation_price(user_id)
-                    
-                    # Если это повторная генерация (кнопка "Повторить"), цена всегда 20
-                    if data.get("repeat_mode"):
-                        price = 20
-                        
+                    # Списываем стоимость генерации (ВСЕГДА 20 РУБЛЕЙ ДЛЯ ВСЕХ)
+                    price = 20
                     await db.subtract_user_balance(user_id, price)
                     
                     anim_task.cancel()
@@ -4086,15 +4081,12 @@ async def on_result_edit_text_real(message: Message, state: FSMContext, db: Data
         await state.clear()
         return
 
-    # Проверка баланса
+    # Проверка баланса (ПРАВКИ ВСЕГДА 20 РУБЛЕЙ)
     balance = await db.get_user_balance(user_id)
-    frac = await db.get_user_fraction(user_id)
-    total_tenths = balance * 10 + frac
-    category = data.get("category", "female")
-    price_tenths = await db.get_category_price(category)
+    price_tenths = 200 # 20.0 рублей
     
-    if total_tenths < price_tenths:
-        await message.answer("Недостаточно средств на балансе для правок.")
+    if balance < 20:
+        await message.answer("Недостаточно средств на балансе для правок. Стоимость правки: 20 руб.")
         return
 
     # Строим базовый промпт и добавляем правки
@@ -4248,16 +4240,8 @@ async def on_result_edit_text_real(message: Message, state: FSMContext, db: Data
             # Успех
             await db.record_api_usage(kid_used)
             
-            # Списываем баланс
-            await db.increment_user_balance(user_id, -(price_tenths // 10))
-            rem = price_tenths % 10
-            if rem > 0:
-                cur_frac = await db.get_user_fraction(user_id)
-                new_frac = cur_frac - rem
-                if new_frac < 0:
-                    await db.increment_user_balance(user_id, -1)
-                    new_frac += 10
-                await db.set_user_fraction(user_id, new_frac)
+            # Списываем баланс (ВСЕГДА 20 РУБЛЕЙ)
+            await db.subtract_user_balance(user_id, 20)
             
             await db.update_daily_usage(user_id)
 

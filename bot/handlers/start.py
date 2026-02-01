@@ -3956,6 +3956,11 @@ async def _do_generate_real(message_or_callback: Message | CallbackQuery, state:
                     
                     # Списываем стоимость генерации (индивидуальную для юзера)
                     price = await db.get_user_generation_price(user_id)
+                    
+                    # Если это повторная генерация (кнопка "Повторить"), цена всегда 20
+                    if data.get("repeat_mode"):
+                        price = 20
+                        
                     await db.subtract_user_balance(user_id, price)
                     
                     anim_task.cancel()

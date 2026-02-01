@@ -2448,9 +2448,10 @@ async def on_garment_len_callback(callback: CallbackQuery, state: FSMContext, db
     len_map = {
         "short_top": "Короткий топ", "regular_top": "Обычный топ",
         "to_waist": "До талии", "below_waist": "Ниже талии",
-        "mid_thigh": "До середины бедра", "to_knees": "До колен",
-        "below_knees": "Ниже колен", "midi": "Миди",
-        "to_ankles": "До щиколоток", "to_floor": "До пола",
+        "mid_buttocks": "До середины ягодиц", "mid_thigh": "До середины бедра", 
+        "to_knees": "До колен", "below_knees": "Ниже колен", 
+        "midi": "Миди", "to_ankles": "До щиколоток", 
+        "to_floor": "До пола",
         "skip": ""
     }
     
@@ -2916,42 +2917,33 @@ async def handle_user_photo(message: Message, state: FSMContext, db: Database) -
             return
 
         # --- ОСТАЛЬНЫЕ РЕЖИМЫ (Свой вариант и т.д.) ---
-        await state.update_data(user_photo_id=photo_id)
+        # Определяем, в какой ключ сохранять фото (в зависимости от категории)
+        photo_key = "user_photo_id"
+        if category in ("own", "own_variant") or data.get("own_mode"):
+            photo_key = "own_product_photo_id"
+            
+        await state.update_data({photo_key: photo_id})
+        
         if data.get("repeat_mode"):
             await state.update_data(repeat_mode=False)
             await _do_generate(message, state, db)
+            return  # ВАЖНО: останавливаем выполнение хендлера здесь
         elif category == "infographic_clothing":
             dummy_callback = CallbackQuery(
                 id="0", from_user=message.from_user, chat_instance="0",
                 message=message, data=f"form_aspect:{data.get('aspect', '1:1')}"
             ).as_(message.bot)
             await on_aspect_selected(dummy_callback, state, db)
+            return
         elif data.get("random_other_mode"):
             await _show_confirmation(message, state, db)
+            return
         else:
             await _show_next_step(message, state, db)
+            return
 
-    # Если это инфографика ОДЕЖДА — после фото показываем превью (формат уже выбран)
-    if category == "infographic_clothing":
-        # Переиспользуем хендлер превью (имитируем нажатие на формат)
-        dummy_callback = CallbackQuery(
-            id="0",
-            from_user=message.from_user,
-            chat_instance="0",
-            message=message,
-            data=f"form_aspect:{data.get('aspect', '1:1')}"
-        ).as_(message.bot)
-        await on_aspect_selected(dummy_callback, state, db)
-        return
-
-    # ДЛЯ ВСЕХ ОСТАЛЬНЫХ РЕЖИМОВ: возвращаемся в основной флоу
-    if data.get("random_other_mode"):
-        await _show_confirmation(message, state, db)
-    elif data.get("repeat_mode"):
-        # В режиме повтора генерация уже запущена выше внутри лока
-        await state.update_data(repeat_mode=False)
-    else:
-        await _show_next_step(message, state, db)
+    # Обработка завершена внутри лока
+    return
 
 
 @router.callback_query(F.data == "back_step")
@@ -3254,6 +3246,29 @@ async def _build_final_prompt(data: dict, db: Database) -> str:
         
     # --- УНИВЕРСАЛЬНАЯ ЗАМЕНА ПЛЕЙСХОЛДЕРОВ ---
     # Собираем все возможные значения для замены
+    
+    # Расширенный маппинг длины изделия для лучшего понимания ИИ
+    length_raw = str(data.get("length") or data.get("length_cm") or data.get("own_length") or "")
+    length_en = ""
+    if length_raw:
+        len_en_map = {
+            "Короткий топ": "short crop top length",
+            "Обычный топ": "regular top length",
+            "До талии": "waist length",
+            "Ниже талии": "below waist length",
+            "До середины ягодиц": "mid-buttocks length",
+            "До середины бедра": "mid-thigh length",
+            "До колен": "knee length",
+            "Ниже колен": "below knee length",
+            "Миди": "midi length",
+            "До щиколоток": "ankle length",
+            "До пола": "floor length"
+        }
+        length_en = len_en_map.get(length_raw, "")
+    
+    # Если есть английский эквивалент, добавляем его в скобках для Gemini
+    length_final = f"{length_raw} ({length_en})" if length_en else length_raw
+
     view_key = data.get("view") or data.get("info_angle")
     view_word = {"close": "близкий", "far": "дальний", "medium": "средний", "back": "сзади", "front": "спереди", "side": "сбоку"}.get(view_key, "спереди")
     
@@ -3272,11 +3287,11 @@ async def _build_final_prompt(data: dict, db: Database) -> str:
         "(ТУТ УКАЗЫВАЕМ РОСТ МОДЕЛИ)": str(data.get("height") or data.get("height_cm") or ""),
         "(ТУТ УКАЗЫВАЕМ Рост модели}": str(data.get("height") or data.get("height_cm") or ""),
         
-        "{длина изделия}": str(data.get("length") or data.get("length_cm") or data.get("own_length") or ""), 
-        "{длину изделия}": str(data.get("length") or data.get("length_cm") or data.get("own_length") or ""),
-        "{Длина изделия}": str(data.get("length") or data.get("length_cm") or data.get("own_length") or ""),
-        "(ТУТ УКАЗЫВАЕМ ДЛИНУ ИЗДЕЛИЯ)": str(data.get("length") or data.get("length_cm") or data.get("own_length") or ""),
-        "(ТУТ УКАЗЫВАЕМ длину изделия}": str(data.get("length") or data.get("length_cm") or data.get("own_length") or ""),
+        "{длина изделия}": length_final, 
+        "{длину изделия}": length_final,
+        "{Длина изделия}": length_final,
+        "(ТУТ УКАЗЫВАЕМ ДЛИНУ ИЗДЕЛИЯ)": length_final,
+        "(ТУТ УКАЗЫВАЕМ длину изделия}": length_final,
         
         "{возраст}": age_text, "{Возраст модели}": age_text,
         "(ТУТ УКАЗЫВАЕМ ВОЗРАСТ МОДЕЛИ)": age_text, "(ТУТ УКАЗЫВАЕМ Возраст модели}": age_text,

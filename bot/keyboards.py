@@ -621,7 +621,8 @@ def garment_length_keyboard(lang="ru") -> InlineKeyboardMarkup:
     rows = [
         [InlineKeyboardButton(text=get_string("len_short_top", lang), callback_data="garment_len:short_top"), InlineKeyboardButton(text=get_string("len_regular_top", lang), callback_data="garment_len:regular_top")],
         [InlineKeyboardButton(text=get_string("len_to_waist", lang), callback_data="garment_len:to_waist"), InlineKeyboardButton(text=get_string("len_below_waist", lang), callback_data="garment_len:below_waist")],
-        [InlineKeyboardButton(text=get_string("len_mid_thigh", lang), callback_data="garment_len:mid_thigh"), InlineKeyboardButton(text=get_string("len_to_knees", lang), callback_data="garment_len:to_knees")],
+        [InlineKeyboardButton(text=get_string("len_mid_buttocks", lang), callback_data="garment_len:mid_buttocks"), InlineKeyboardButton(text=get_string("len_mid_thigh", lang), callback_data="garment_len:mid_thigh")],
+        [InlineKeyboardButton(text=get_string("len_to_knees", lang), callback_data="garment_len:to_knees"), InlineKeyboardButton(text=get_string("len_below_knees", lang), callback_data="garment_len:below_knees")],
         [InlineKeyboardButton(text=get_string("len_below_knees", lang), callback_data="garment_len:below_knees"), InlineKeyboardButton(text=get_string("len_midi", lang), callback_data="garment_len:midi")],
         [InlineKeyboardButton(text=get_string("len_to_ankles", lang), callback_data="garment_len:to_ankles"), InlineKeyboardButton(text=get_string("len_to_floor", lang), callback_data="garment_len:to_floor")],
         [InlineKeyboardButton(text=get_string("custom_variant", lang), callback_data="garment_len:custom")],

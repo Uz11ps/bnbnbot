@@ -158,22 +158,36 @@ async def main() -> None:
         
         # Поддержка списка прокси через запятую
         proxy_list = [p.strip() for p in proxy_url.split(",") if p.strip()]
-        selected_proxy = random.choice(proxy_list) if proxy_list else proxy_url
+        raw_proxy = random.choice(proxy_list) if proxy_list else proxy_url
         
-        if selected_proxy and ":" in selected_proxy and "://" not in selected_proxy:
-            parts = selected_proxy.split(":")
+        selected_proxy = raw_proxy
+        if raw_proxy and "://" not in raw_proxy:
+            parts = raw_proxy.split(":")
             if len(parts) == 4:
+                # host:port:user:pass -> http://user:pass@host:port
                 selected_proxy = f"http://{parts[2]}:{parts[3]}@{parts[0]}:{parts[1]}"
             elif len(parts) == 2:
+                # host:port -> http://host:port
                 selected_proxy = f"http://{parts[0]}:{parts[1]}"
 
-        session = AiohttpSession(proxy=selected_proxy)
-        bot = Bot(
-            token=settings.bot_token,
-            session=session,
-            default=DefaultBotProperties(parse_mode=ParseMode.HTML),
-        )
-        logger.info(f"Бот запущен через прокси (выбран из списка): {selected_proxy}")
+        # Финальная проверка формата для aiogram
+        if selected_proxy and not selected_proxy.startswith("http"):
+            selected_proxy = f"http://{selected_proxy}"
+
+        try:
+            session = AiohttpSession(proxy=selected_proxy)
+            bot = Bot(
+                token=settings.bot_token,
+                session=session,
+                default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+            )
+            logger.info(f"Бот запущен через прокси: {selected_proxy.split('@')[-1]}") # Логируем без пароля
+        except Exception as e:
+            logger.error(f"Ошибка при настройке прокси {selected_proxy}: {e}")
+            bot = Bot(
+                token=settings.bot_token,
+                default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+            )
     else:
         bot = Bot(
             token=settings.bot_token,

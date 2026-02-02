@@ -356,8 +356,14 @@ async def _check_subscription(user_id: int, bot: Bot, db: Database) -> bool:
         logger.debug(f"Subscription check for {user_id} in {channel_id}: {member.status} (is_subbed: {is_subbed})")
         return is_subbed
     except Exception as e:
+        # Если ошибка "chat not found", значит ID канала неверный или бот не в канале
+        if "chat not found" in str(e).lower():
+            logger.error(f"CRITICAL: Required channel {channel_id} not found. Check if bot is admin there.")
+            # В этом случае разрешаем доступ, чтобы не блокировать всех пользователей из-за ошибки настройки
+            return True
+        
         logger.error(f"Error checking subscription for {user_id} in {channel_id}: {e}")
-        # Если бот не в канале или канал не найден — разрешаем работу, чтобы не блокировать всех
+        # Для остальных ошибок (например, временный сбой ТГ) тоже разрешаем
         return True
 
 async def _show_confirmation(message_or_callback: Message | CallbackQuery, state: FSMContext, db: Database) -> None:
@@ -773,6 +779,12 @@ async def cmd_start(message: Message, state: FSMContext, db: Database) -> None:
         last_name=user.last_name,
     )
     lang = await db.get_user_language(user.id)
+    
+    # Блокировка пользователя
+    if await db.get_user_blocked(user.id):
+        await message.answer(get_string("user_blocked", lang))
+        return
+
     await message.answer(get_string("start_welcome", lang), reply_markup=main_menu_keyboard(lang))
 
 @router.message(F.text == "/profile")
@@ -1014,7 +1026,7 @@ async def on_create_photo(callback: CallbackQuery, db: Database, state: FSMConte
     price = await db.get_user_generation_price(callback.from_user.id)
     # Блокировка пользователя
     if await db.get_user_blocked(callback.from_user.id):
-        await _safe_answer(callback, get_string("maintenance_alert", lang), show_alert=True)
+        await _safe_answer(callback, get_string("user_blocked", lang), show_alert=True)
         return
     if balance < price:
         await _safe_answer(callback, get_string("limit_rem_zero", lang), show_alert=True)
@@ -1040,6 +1052,10 @@ async def on_marketplace_menu(callback: CallbackQuery, db: Database) -> None:
             return
     balance = await db.get_user_balance(callback.from_user.id)
     price = await db.get_user_generation_price(callback.from_user.id)
+    # Блокировка пользователя
+    if await db.get_user_blocked(callback.from_user.id):
+        await _safe_answer(callback, get_string("user_blocked", lang), show_alert=True)
+        return
     if balance < price:
         await _safe_answer(callback, get_string("limit_rem_zero", lang), show_alert=True)
         return
@@ -1050,30 +1066,22 @@ async def on_marketplace_menu(callback: CallbackQuery, db: Database) -> None:
     await _safe_answer(callback)
 
 
-async def _check_subscription(user_id: int, bot: Bot, db: Database) -> bool:
-    """Проверяет подписку пользователя на обязательный канал"""
-    channel_id = await db.get_app_setting("required_channel_id")
-    if not channel_id:
-        return True 
-    try:
-        # Пытаемся получить статус участника
-        member = await bot.get_chat_member(chat_id=channel_id, user_id=user_id)
-        # Статусы, которые считаются "подписан"
-        is_subbed = member.status in ("member", "administrator", "creator")
-        logger.debug(f"Subscription check for {user_id} in {channel_id}: {member.status} (is_subbed: {is_subbed})")
-        return is_subbed
-    except Exception as e:
-        logger.error(f"Error checking subscription for {user_id} in {channel_id}: {e}")
-        # Если бот не в канале или канал не найден — разрешаем работу, чтобы не блокировать всех
-        return True
-
 async def _ensure_access(message_or_callback: Message | CallbackQuery, db: Database, bot: Bot) -> bool:
     """Проверяет условия доступа (соглашение и подписка) и выводит нужный экран"""
     user_id = message_or_callback.from_user.id
     lang = await db.get_user_language(user_id)
     from bot.keyboards import terms_keyboard, subscription_check_keyboard
     
-    # 1. Сначала Соглашение
+    # 1. Сначала Блокировка
+    if await db.get_user_blocked(user_id):
+        text = get_string("user_blocked", lang)
+        if isinstance(message_or_callback, Message):
+            await message_or_callback.answer(text)
+        else:
+            await _replace_with_text(message_or_callback, text)
+        return False
+
+    # 2. Потом Соглашение
     accepted = await db.get_user_accepted_terms(user_id)
     if not accepted:
         text = get_string("start_welcome", lang)
@@ -3735,6 +3743,16 @@ async def _do_generate_real(message_or_callback: Message | CallbackQuery, state:
             else:
                 await ans_obj.answer(get_string("maintenance_alert", lang))
             return
+
+    # Блокировка пользователя
+    if await db.get_user_blocked(user_id):
+        lang = await db.get_user_language(user_id)
+        text = get_string("user_blocked", lang)
+        if isinstance(message_or_callback, CallbackQuery):
+            await _safe_answer(message_or_callback, text, show_alert=True)
+        else:
+            await ans_obj.answer(text)
+        return
 
     # Если не обычная генерация и нет фото - просим прислать (для пресетов и т.д.)
     category = data.get("category")

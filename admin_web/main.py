@@ -2643,12 +2643,51 @@ async def update_app_settings(
     db: aiosqlite.Connection = Depends(get_db), 
     user: str = Depends(get_current_username)
 ):
+    # Очистка channel_id от лишних символов (пробелы, @ и т.д.)
+    if channel_id:
+        channel_id = channel_id.strip()
+        if not channel_id.startswith("-100") and channel_id.isdigit():
+            # Если ввели просто цифры без -100 (для супергрупп/каналов)
+            channel_id = f"-100{channel_id}"
+        elif not channel_id.startswith("-") and not channel_id.startswith("@"):
+            # Если ввели юзернейм без @
+            channel_id = f"@{channel_id}"
+
     await db.execute("INSERT INTO app_settings (key, value) VALUES ('agreement_text', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (agreement,))
     await db.execute("INSERT INTO app_settings (key, value) VALUES ('howto_text', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (howto,))
     await db.execute("INSERT INTO app_settings (key, value) VALUES ('required_channel_id', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (channel_id or "",))
     await db.execute("INSERT INTO app_settings (key, value) VALUES ('required_channel_url', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (channel_url or "https://t.me/bnbslow",))
     await db.commit()
     return RedirectResponse(url="/settings", status_code=303)
+
+@app.post("/settings/test_channel")
+async def test_channel_settings(
+    db: aiosqlite.Connection = Depends(get_db),
+    user: str = Depends(get_current_username)
+):
+    channel_id = ""
+    async with db.execute("SELECT value FROM app_settings WHERE key='required_channel_id'") as cur:
+        row = await cur.fetchone()
+        if row: channel_id = row[0]
+    
+    if not channel_id:
+        return JSONResponse({"status": "error", "message": "ID канала не установлен"})
+
+    bot = Bot(token=settings.bot_token)
+    try:
+        chat = await bot.get_chat(channel_id)
+        # Проверяем права бота
+        member = await bot.get_chat_member(channel_id, (await bot.get_me()).id)
+        can_check = member.status in ("administrator", "creator")
+        
+        return JSONResponse({
+            "status": "success", 
+            "message": f"Канал найден: {chat.title}. Бот имеет права администратора: {'Да' if can_check else 'Нет'}"
+        })
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": f"Ошибка: {str(e)}"})
+    finally:
+        await bot.session.close()
 
 @app.get("/api_keys", response_class=HTMLResponse)
 async def list_keys(request: Request, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):

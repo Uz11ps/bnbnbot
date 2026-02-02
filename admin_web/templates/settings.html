@@ -12,9 +12,31 @@
 
         <div class="mb-4">
             <label class="form-label fw-bold">📢 ID Telegram канала (для обязательной подписки)</label>
-            <input type="text" name="channel_id" class="form-control" value="{{ channel_id }}" placeholder="-100123456789">
+            <div class="input-group">
+                <input type="text" name="channel_id" class="form-control" value="{{ channel_id }}" placeholder="-100123456789">
+                <button type="button" class="btn btn-outline-secondary" onclick="testChannel()">Проверить</button>
+            </div>
             <div class="form-text">Оставьте пустым, чтобы отключить проверку. Бот должен быть администратором в канале.</div>
+            <div id="channelTestResult" class="mt-2 small"></div>
         </div>
+
+        <script>
+        async function testChannel() {
+            const resDiv = document.getElementById('channelTestResult');
+            resDiv.innerHTML = '<span class="text-muted">Проверка...</span>';
+            try {
+                const resp = await fetch('/settings/test_channel', {method: 'POST'});
+                const data = await resp.json();
+                if (data.status === 'success') {
+                    resDiv.innerHTML = '<span class="text-success">✅ ' + data.message + '</span>';
+                } else {
+                    resDiv.innerHTML = '<span class="text-danger">❌ ' + data.message + '</span>';
+                }
+            } catch (e) {
+                resDiv.innerHTML = '<span class="text-danger">❌ Ошибка запроса: ' + e + '</span>';
+            }
+        }
+        </script>
 
         <div class="mb-4">
             <label class="form-label fw-bold">🔗 Ссылка на Telegram канал</label>

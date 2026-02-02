@@ -105,13 +105,24 @@ class AccessMiddleware:
         if is_callback and event.callback_query.data in exceptions:
             return await handler(event, data)
             
-        # Пропускаем администраторов
+        # 1. Проверка блокировки (даже для админов, если они сами себя заблокировали)
+        db = data.get("db")
+        if await db.get_user_blocked(user_id):
+            lang = await db.get_user_language(user_id)
+            from bot.strings import get_string
+            text = get_string("user_blocked", lang)
+            if is_callback:
+                await event.callback_query.answer(text, show_alert=True)
+            else:
+                await event.message.answer(text)
+            return
+
+        # 2. Пропускаем администраторов для остальных проверок (подписка и т.д.)
         settings = data.get("settings")
         if settings and user_id in (settings.admin_ids or []):
             return await handler(event, data)
             
         # Основная проверка
-        db = data.get("db")
         bot = data.get("bot")
         
         # Вызываем нашу функцию проверки (передаем actual_event вместо Update)

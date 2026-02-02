@@ -52,6 +52,10 @@ async def run_migrations(db: aiosqlite.Connection):
         except Exception as e:
             print(f"Migration error (subscriptions.individual_api_key): {e}")
 
+    # Миграция прокси из .env в БД
+    from scripts.migrate_proxies import migrate_proxies
+    await migrate_proxies()
+
     async with db.execute("PRAGMA table_info(users)") as cur:
         cols = [row[1] for row in await cur.fetchall()]
     if cols:
@@ -2393,6 +2397,64 @@ async def list_prompts(request: Request, db: aiosqlite.Connection = Depends(get_
         "prompt_placeholders": prompt_placeholders,
         "cat_prompts": cat_prompts
     })
+
+@app.get("/proxy", response_class=HTMLResponse)
+async def list_proxies_page(request: Request, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    async with db.execute("SELECT * FROM proxies ORDER BY created_at DESC") as cur:
+        proxies = await cur.fetchall()
+    return templates.TemplateResponse("proxy.html", {"request": request, "proxies": proxies})
+
+@app.post("/admin/proxy/add")
+async def add_proxy_route(urls: str = Form(...), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    proxy_list = [u.strip() for u in urls.split("\n") if u.strip()]
+    for url in proxy_list:
+        await db.execute("INSERT INTO proxies (url) VALUES (?)", (url,))
+    await db.commit()
+    return RedirectResponse(url="/proxy", status_code=303)
+
+@app.post("/admin/proxy/delete")
+async def delete_proxy_route(id: int = Form(...), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    await db.execute("DELETE FROM proxies WHERE id = ?", (id,))
+    await db.commit()
+    return RedirectResponse(url="/proxy", status_code=303)
+
+@app.post("/admin/proxy/toggle")
+async def toggle_proxy_route(id: int = Form(...), active: int = Form(...), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    await db.execute("UPDATE proxies SET is_active = ? WHERE id = ?", (active, id))
+    await db.commit()
+    return RedirectResponse(url="/proxy", status_code=303)
+
+@app.post("/admin/proxy/check")
+async def check_proxy_route(id: int = Form(...), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    async with db.execute("SELECT url FROM proxies WHERE id = ?", (id,)) as cur:
+        row = await cur.fetchone()
+        if not row:
+            return RedirectResponse(url="/proxy", status_code=303)
+        proxy_url = row[0]
+
+    # Проверка прокси
+    import httpx
+    import time
+    start = time.time()
+    status = "working"
+    error_msg = None
+    try:
+        async with httpx.AsyncClient(proxies={"all://": proxy_url}, timeout=10.0) as client:
+            resp = await client.get("https://generativelanguage.googleapis.com/v1beta/models?key=DUMMY")
+            # Мы ожидаем 400 (Invalid Key) или 200, но главное что запрос прошел через прокси
+            if resp.status_code not in (200, 400, 401, 403, 404):
+                status = "failed"
+                error_msg = f"HTTP {resp.status_code}"
+    except Exception as e:
+        status = "failed"
+        error_msg = str(e)
+
+    await db.execute(
+        "UPDATE proxies SET status = ?, error_message = ?, last_check = CURRENT_TIMESTAMP WHERE id = ?",
+        (status, error_msg, id)
+    )
+    await db.commit()
+    return RedirectResponse(url="/proxy", status_code=303)
 
 @app.post("/prompts/category_prompts")
 async def update_category_prompts(

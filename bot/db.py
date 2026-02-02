@@ -180,6 +180,19 @@ CREATE TABLE IF NOT EXISTS own_variant_api_keys (
 );
 """
 
+CREATE_PROXIES_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS proxies (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    url TEXT NOT NULL,               -- Полный URL: http://user:pass@host:port
+    is_active INTEGER NOT NULL DEFAULT 1,
+    status TEXT DEFAULT 'unknown',    -- 'working', 'failed', 'unknown'
+    last_check TIMESTAMP,
+    error_message TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+"""
+
 CREATE_OWN_VARIANT_RATE_LIMIT_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS own_variant_rate_limit (
     key_id INTEGER NOT NULL,
@@ -338,6 +351,7 @@ class Database:
             await db.execute(CREATE_API_USAGE_LOG_TABLE_SQL)
             await db.execute(CREATE_API_ERRORS_TABLE_SQL)
             await db.execute(CREATE_OWN_VARIANT_API_KEYS_TABLE_SQL)
+            await db.execute(CREATE_PROXIES_TABLE_SQL)
             await db.execute(CREATE_OWN_VARIANT_RATE_LIMIT_TABLE_SQL)
             await db.execute(CREATE_OWN_VARIANT_RATE_LIMIT_INDEX_SQL)
             await db.execute(CREATE_APP_SETTINGS_TABLE_SQL)
@@ -2272,6 +2286,44 @@ class Database:
         s_len_ov = await self.add_step(cat_id, "length", "📏 Выберите длину изделия. Внимание! если ваш продукт Костюм 2-к, 3-к то длину можно не указывать.", "buttons", order_index=4)
         for i, (t, v) in enumerate(length_options, 1):
             await self.add_step_option(s_len_ov, t, v, i)
+
+    # --- PROXIES METHODS ---
+    async def add_proxy(self, url: str) -> int:
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute("INSERT INTO proxies (url) VALUES (?)", (url,))
+            await db.commit()
+            async with db.execute("SELECT last_insert_rowid()") as cur:
+                row = await cur.fetchone()
+                return int(row[0])
+
+    async def delete_proxy(self, proxy_id: int) -> None:
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute("DELETE FROM proxies WHERE id=?", (proxy_id,))
+            await db.commit()
+
+    async def list_proxies(self) -> list[tuple]:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT * FROM proxies ORDER BY created_at DESC") as cur:
+                return await cur.fetchall()
+
+    async def get_active_proxies_urls(self) -> list[str]:
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT url FROM proxies WHERE is_active = 1") as cur:
+                rows = await cur.fetchall()
+                return [r[0] for r in rows]
+
+    async def update_proxy_status(self, proxy_id: int, status: str, error_message: str = None) -> None:
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute(
+                "UPDATE proxies SET status = ?, error_message = ?, last_check = CURRENT_TIMESTAMP WHERE id = ?",
+                (status, error_message, proxy_id)
+            )
+            await db.commit()
+
+    async def toggle_proxy_active(self, proxy_id: int, is_active: int) -> None:
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute("UPDATE proxies SET is_active = ? WHERE id = ?", (is_active, proxy_id))
+            await db.commit()
 
 
 

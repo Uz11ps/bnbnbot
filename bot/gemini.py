@@ -21,27 +21,10 @@ def _valid_proxy(url: str) -> bool:
         return False
 
 
-def _build_proxies_from_env() -> dict:
-    http_proxy = os.getenv("GEMINI_HTTP_PROXY") or os.getenv("HTTP_PROXY") or os.getenv("http_proxy")
-    https_proxy = os.getenv("GEMINI_HTTPS_PROXY") or os.getenv("HTTPS_PROXY") or os.getenv("https_proxy")
-    
-    import random
-    
-    def get_random_proxy(proxy_str: str | None) -> str | None:
-        if not proxy_str:
-            return None
-        proxies = [p.strip() for p in proxy_str.split(",") if p.strip()]
-        return random.choice(proxies) if proxies else proxy_str
-
-    selected_http = get_random_proxy(http_proxy)
-    selected_https = get_random_proxy(https_proxy)
-
-    proxies = {}
-    if selected_http and _valid_proxy(selected_http):
-        proxies["http"] = selected_http
-    if selected_https and _valid_proxy(selected_https):
-        proxies["https"] = selected_https
-    return proxies
+def _build_proxies(proxy_url: str | None) -> dict:
+    if not proxy_url or not _valid_proxy(proxy_url):
+        return {}
+    return {"http": proxy_url, "https": proxy_url}
 
 
 def _generate_sync(
@@ -53,6 +36,7 @@ def _generate_sync(
     aspect_ratio: str | None = None,
     key_id: int | None = None,
     db_instance = None,
+    proxy_url: str | None = None,
 ) -> Optional[bytes]:
     # Используем gemini-3-pro-image-preview (NANO PRO) для всех категорий
     endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent?key={api_key}"
@@ -131,7 +115,7 @@ def _generate_sync(
         ]
     }
 
-    proxies = _build_proxies_from_env()
+    proxies = _build_proxies(proxy_url)
     session = requests.Session()
     session.trust_env = False
 
@@ -288,6 +272,18 @@ async def generate_image(
     if quality == '4K':
         final_prompt += " High detail, 4k resolution, professional photography."
         
+    # Выбираем прокси из БД если есть db_instance
+    selected_proxy = None
+    if db_instance:
+        try:
+            active_proxies = await db_instance.get_active_proxies_urls()
+            if active_proxies:
+                import random
+                selected_proxy = random.choice(active_proxies)
+                logger.info(f"[Gemini] Using proxy from DB: {selected_proxy[:30]}...")
+        except Exception as e:
+            logger.error(f"[Gemini] Error getting proxies from DB: {e}")
+
     # Вызываем синхронную обертку
     result_bytes = await asyncio.to_thread(
         _generate_sync, 
@@ -298,7 +294,8 @@ async def generate_image(
         model_name, 
         aspect_ratio, 
         key_id, 
-        db_instance
+        db_instance,
+        selected_proxy
     )
     
     if result_bytes:
@@ -316,6 +313,7 @@ def _generate_text_sync(
     api_key: str,
     prompt: str,
     image_bytes: bytes,
+    proxy_url: str | None = None,
 ) -> Optional[str]:
     """Получает текстовый ответ от Gemini на основе изображения и промта"""
     # Используем gemini-2.0-flash для быстрого анализа текста
@@ -337,7 +335,7 @@ def _generate_text_sync(
         "generationConfig": {"temperature": 0.1, "topK": 32, "topP": 1, "maxOutputTokens": 8192},
     }
 
-    proxies = _build_proxies_from_env()
+    proxies = _build_proxies(proxy_url)
     session = requests.Session()
     session.trust_env = False
 
@@ -386,6 +384,16 @@ async def generate_text(
     api_key: str,
     prompt: str,
     image_bytes: bytes,
+    db_instance = None,
 ) -> Optional[str]:
     """Асинхронная обёртка для получения текстового ответа от Gemini"""
-    return await asyncio.to_thread(_generate_text_sync, api_key, prompt, image_bytes)
+    selected_proxy = None
+    if db_instance:
+        try:
+            active_proxies = await db_instance.get_active_proxies_urls()
+            if active_proxies:
+                import random
+                selected_proxy = random.choice(active_proxies)
+        except Exception: pass
+
+    return await asyncio.to_thread(_generate_text_sync, api_key, prompt, image_bytes, selected_proxy)

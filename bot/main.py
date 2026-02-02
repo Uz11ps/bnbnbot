@@ -156,9 +156,9 @@ async def main() -> None:
         from aiogram.client.session.aiohttp import AiohttpSession
         import random
         
-        # Поддержка списка прокси через запятую
+        # Поддержка списка прокси через запятую (берем только первый для связи с ТГ)
         proxy_list = [p.strip() for p in proxy_url.split(",") if p.strip()]
-        raw_proxy = random.choice(proxy_list) if proxy_list else proxy_url
+        raw_proxy = proxy_list[0] if proxy_list else proxy_url
         
         selected_proxy = raw_proxy
         if raw_proxy and "://" not in raw_proxy:
@@ -171,8 +171,11 @@ async def main() -> None:
                 selected_proxy = f"http://{parts[0]}:{parts[1]}"
 
         # Финальная проверка формата для aiogram
-        if selected_proxy and not selected_proxy.startswith("http"):
+        if selected_proxy and not str(selected_proxy).startswith("http"):
             selected_proxy = f"http://{selected_proxy}"
+
+        # Удаляем лишние пробелы и символы, которые могут вызвать Invalid port
+        selected_proxy = str(selected_proxy).strip().rstrip('/')
 
         try:
             session = AiohttpSession(proxy=selected_proxy)
@@ -181,9 +184,11 @@ async def main() -> None:
                 session=session,
                 default=DefaultBotProperties(parse_mode=ParseMode.HTML),
             )
-            logger.info(f"Бот запущен через прокси: {selected_proxy.split('@')[-1]}") # Логируем без пароля
+            # Логируем только хост для безопасности
+            host_log = selected_proxy.split('@')[-1] if '@' in selected_proxy else selected_proxy
+            logger.info(f"Бот запущен через прокси: {host_log}")
         except Exception as e:
-            logger.error(f"Ошибка при настройке прокси {selected_proxy}: {e}")
+            logger.error(f"Ошибка настройки прокси: {e}. Запуск без прокси.")
             bot = Bot(
                 token=settings.bot_token,
                 default=DefaultBotProperties(parse_mode=ParseMode.HTML),

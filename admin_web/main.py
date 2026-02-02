@@ -74,6 +74,18 @@ async def run_migrations(db: aiosqlite.Connection):
             sys.path.append(BASE_DIR)
         from scripts.migrate_proxies import migrate_proxies
         await migrate_proxies()
+        
+        # Авто-исправление неверных форматов в БД
+        async with db.execute("SELECT id, url FROM proxies") as cur:
+            rows = await cur.fetchall()
+        for p_id, url in rows:
+            url = url.strip()
+            parts = url.split(':')
+            if len(parts) == 4 and "://" not in url:
+                new_url = f"http://{parts[2]}:{parts[3]}@{parts[0]}:{parts[1]}"
+                await db.execute("UPDATE proxies SET url = ? WHERE id = ?", (new_url, p_id))
+        await db.commit()
+        
     except Exception as e:
         print(f"Proxy migration warning (non-critical): {e}")
 
@@ -2429,7 +2441,18 @@ async def list_proxies_page(request: Request, db: aiosqlite.Connection = Depends
 async def add_proxy_route(urls: str = Form(...), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
     proxy_list = [u.strip() for u in urls.split("\n") if u.strip()]
     for url in proxy_list:
-        await db.execute("INSERT INTO proxies (url) VALUES (?)", (url,))
+        # Умная конвертация IP:PORT:USER:PASS -> http://USER:PASS@IP:PORT
+        parts = url.split(':')
+        if len(parts) == 4 and "://" not in url:
+            converted_url = f"http://{parts[2]}:{parts[3]}@{parts[0]}:{parts[1]}"
+        elif not url.startswith("http") and "@" in url:
+            converted_url = f"http://{url}"
+        elif not url.startswith("http"):
+            converted_url = f"http://{url}"
+        else:
+            converted_url = url
+            
+        await db.execute("INSERT INTO proxies (url) VALUES (?)", (converted_url,))
     await db.commit()
     return RedirectResponse(url="/proxy", status_code=303)
 

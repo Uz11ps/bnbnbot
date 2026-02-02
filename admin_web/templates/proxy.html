@@ -40,7 +40,8 @@
                         {% if p.status == 'working' %}
                             <span class="badge bg-success">Работает</span>
                         {% elif p.status == 'failed' %}
-                            <span class="badge bg-danger" title="{{ p.error_message }}">Ошибка</span>
+                            <span class="badge bg-danger">Ошибка</span>
+                            <div class="text-danger x-small" style="font-size: 0.7rem; max-width: 200px;">{{ p.error_message }}</div>
                         {% else %}
                             <span class="badge bg-secondary">Не проверялся</span>
                         {% endif %}

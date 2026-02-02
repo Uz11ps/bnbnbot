@@ -2476,26 +2476,41 @@ async def check_proxy_route(id: int = Form(...), db: aiosqlite.Connection = Depe
             return RedirectResponse(url="/proxy", status_code=303)
         proxy_url = row[0]
 
-    # Проверка прокси
     import httpx
     import time
-    start = time.time()
-    status = "working"
+    
+    status = "failed"
     error_msg = None
-    try:
-        async with httpx.AsyncClient(proxies={"all://": proxy_url}, timeout=10.0) as client:
-            resp = await client.get("https://generativelanguage.googleapis.com/v1beta/models?key=DUMMY")
-            # Мы ожидаем 400 (Invalid Key) или 200, но главное что запрос прошел через прокси
-            if resp.status_code not in (200, 400, 401, 403, 404):
-                status = "failed"
-                error_msg = f"HTTP {resp.status_code}"
-    except Exception as e:
-        status = "failed"
-        error_msg = str(e)
+    
+    # Список протоколов для проверки
+    protocols = ["http://", "socks5://"]
+    
+    # Очищаем URL от старого префикса для тестов
+    base_url = proxy_url
+    if "://" in proxy_url:
+        base_url = proxy_url.split("://", 1)[1]
+
+    for proto in protocols:
+        test_url = f"{proto}{base_url}"
+        try:
+            # Для socks5 может понадобиться расширение httpx[socks], 
+            # но мы попробуем стандартный метод
+            async with httpx.AsyncClient(proxies={"all://": test_url}, timeout=15.0, verify=False) as client:
+                # Проверяем на Google API
+                resp = await client.get("https://www.google.com", follow_redirects=True)
+                if resp.status_code < 400:
+                    status = "working"
+                    proxy_url = test_url # Сохраняем работающий протокол
+                    break
+                else:
+                    error_msg = f"HTTP {resp.status_code} ({proto})"
+        except Exception as e:
+            error_msg = f"{str(e)} ({proto})"
+            continue
 
     await db.execute(
-        "UPDATE proxies SET status = ?, error_message = ?, last_check = CURRENT_TIMESTAMP WHERE id = ?",
-        (status, error_msg, id)
+        "UPDATE proxies SET url = ?, status = ?, error_message = ?, last_check = CURRENT_TIMESTAMP WHERE id = ?",
+        (proxy_url, status, error_msg, id)
     )
     await db.commit()
     return RedirectResponse(url="/proxy", status_code=303)

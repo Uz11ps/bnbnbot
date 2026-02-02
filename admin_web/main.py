@@ -2493,10 +2493,9 @@ async def check_proxy_route(id: int = Form(...), db: aiosqlite.Connection = Depe
     for proto in protocols:
         test_url = f"{proto}{base_url}"
         try:
-            # Для socks5 может понадобиться расширение httpx[socks], 
-            # но мы попробуем стандартный метод
-            async with httpx.AsyncClient(proxies={"all://": test_url}, timeout=15.0, verify=False) as client:
-                # Проверяем на Google API
+            # В новых версиях httpx используется аргумент proxy вместо proxies
+            async with httpx.AsyncClient(proxy=test_url, timeout=15.0, verify=False) as client:
+                # Проверяем на Google
                 resp = await client.get("https://www.google.com", follow_redirects=True)
                 if resp.status_code < 400:
                     status = "working"

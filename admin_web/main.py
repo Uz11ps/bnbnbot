@@ -68,8 +68,11 @@ async def run_migrations(db: aiosqlite.Connection):
     await db.commit()
 
     # Миграция прокси из .env в БД
-    from scripts.migrate_proxies import migrate_proxies
-    await migrate_proxies()
+    try:
+        from scripts.migrate_proxies import migrate_proxies
+        await migrate_proxies()
+    except Exception as e:
+        print(f"Proxy migration error: {e}")
 
     async with db.execute("PRAGMA table_info(users)") as cur:
         cols = [row[1] for row in await cur.fetchall()]

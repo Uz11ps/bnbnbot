@@ -6,8 +6,15 @@ from dotenv import load_dotenv
 
 async def migrate_proxies():
     load_dotenv()
-    db_path = os.path.join(os.getcwd(), 'bot.db')
+    # Определяем путь к БД (учитываем Docker)
+    db_path = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./data/bot.db").replace("sqlite+aiosqlite:///", "")
+    if not os.path.isabs(db_path):
+        db_path = os.path.join(os.getcwd(), db_path)
     
+    if not os.path.exists(db_path):
+        print(f"DB file not found at {db_path}, skipping migration")
+        return
+
     # Извлекаем прокси из GEMINI_HTTP_PROXY
     proxy_str = os.getenv("GEMINI_HTTP_PROXY", "")
     if not proxy_str:

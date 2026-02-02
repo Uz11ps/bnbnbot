@@ -52,6 +52,21 @@ async def run_migrations(db: aiosqlite.Connection):
         except Exception as e:
             print(f"Migration error (subscriptions.individual_api_key): {e}")
 
+    # Создаем таблицу прокси, если её еще нет
+    await db.execute("""
+    CREATE TABLE IF NOT EXISTS proxies (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        url TEXT NOT NULL,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        status TEXT DEFAULT 'unknown',
+        last_check TIMESTAMP,
+        error_message TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+    await db.commit()
+
     # Миграция прокси из .env в БД
     from scripts.migrate_proxies import migrate_proxies
     await migrate_proxies()

@@ -3408,24 +3408,26 @@ async def _build_final_prompt(data: dict, db: Database) -> str:
     if data.get("own_mode") or category == "own":
         base = await db.get_own_prompt() or await db.get_own_prompt3()
         if not base or "[SCENE_AND_MODEL_REFERENCE_IMAGE]" not in base:
-            base = """STRICT RECONSTRUCTION TASK:
+            base = """STRICT FASHION REDRESS TASK:
 Generate ONE SINGLE IMAGE. NO COLLAGES. NO SIDE-BY-SIDE. NO REPETITION.
 
 INPUT DATA:
-1. [SCENE_AND_MODEL_REFERENCE_IMAGE]: The base image with the person, face, and background.
-2. [CLOTHING_ITEM_TO_WEAR_IMAGE]: The new clothing item.
+1. [SCENE_AND_MODEL_REFERENCE_IMAGE]: The model, face, pose, and background.
+2. [CLOTHING_ITEM_TO_WEAR_IMAGE]: The NEW item to put on the model.
 
 CORE RULES:
-- IDENTITY: Keep the EXACT face from [SCENE_AND_MODEL_REFERENCE_IMAGE].
+- IDENTITY: Keep the EXACT face and body of the person from [SCENE_AND_MODEL_REFERENCE_IMAGE].
+- POSE: Keep the EXACT pose from [SCENE_AND_MODEL_REFERENCE_IMAGE].
 - BACKGROUND: Keep the EXACT environment from [SCENE_AND_MODEL_REFERENCE_IMAGE].
-- OUTFIT: Replace the current clothing on the person in [SCENE_AND_MODEL_REFERENCE_IMAGE] with the item from [CLOTHING_ITEM_TO_WEAR_IMAGE].
-- COMPOSITION: A single, natural, holistic photo. No frames, no comparisons.
+- REDRESSING: DISCARD the original clothes from [SCENE_AND_MODEL_REFERENCE_IMAGE]. Put the item from [CLOTHING_ITEM_TO_WEAR_IMAGE] on the person.
+- STYLING: If [CLOTHING_ITEM_TO_WEAR_IMAGE] is only a top, you MUST choose matching pants/skirt and shoes that fit the style. If it's a full outfit, use it completely.
+- FIDELITY: The new item must look 100% identical to [CLOTHING_ITEM_TO_WEAR_IMAGE] in texture and silhouette.
 
 FORMAT:
 - Aspect Ratio: {aspect}
-- Requirement: Fill the frame, crop background if needed. ZERO BORDERS.
+- Requirement: Fill the frame. ZERO BORDERS.
 
-🎯 TARGET: One single perfect photo."""
+🎯 TARGET: A professional marketplace photo where the model from [SCENE_AND_MODEL_REFERENCE_IMAGE] is wearing the NEW item from [CLOTHING_ITEM_TO_WEAR_IMAGE]."""
         prompt_filled = apply_replacements(base)
         
     elif category == "own_variant":
@@ -3433,8 +3435,10 @@ FORMAT:
         if not base or "[SCENE_AND_MODEL_REFERENCE_IMAGE]" not in base:
             base = """STRICT SCENE RECONSTRUCTION:
 Place the product from [CLOTHING_ITEM_TO_WEAR_IMAGE] onto the background and person from [SCENE_AND_MODEL_REFERENCE_IMAGE].
-- Exact product reproduction.
-- Maintain original lighting.
+- DISCARD the original clothes from [SCENE_AND_MODEL_REFERENCE_IMAGE].
+- Exact product reproduction from [CLOTHING_ITEM_TO_WEAR_IMAGE].
+- Maintain original lighting and person's identity.
+- If only a top is provided, pick matching bottoms and shoes automatically.
 - ONE single holistic image. NO COLLAGES. NO REPETITION.
 
 FORMAT: {aspect}

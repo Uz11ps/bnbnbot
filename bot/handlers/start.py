@@ -304,28 +304,43 @@ async def _run_generation_progress(bot, chat_id: int, message_id: int, stop_even
     except: pass
 
 
-async def _answer_model_photo(callback: CallbackQuery, photo: str, caption: str, reply_markup=None) -> None:
+async def _answer_model_photo(callback: CallbackQuery, photo: str, caption: str, reply_markup=None) -> Message | None:
+    from aiogram.types import InputMediaPhoto, FSInputFile
+    import os
+
+    # Определяем медиа-объект
+    if photo.startswith("AgAC"): # Telegram file_id
+        media = InputMediaPhoto(media=photo, caption=caption)
+    else: # Локальный файл
+        file_path = photo if os.path.exists(photo) else os.path.join("/app", photo)
+        if os.path.exists(file_path):
+            media = InputMediaPhoto(media=FSInputFile(file_path), caption=caption)
+        else:
+            logger.error(f"Файл фото модели не найден: {photo}")
+            await _replace_with_text(callback, caption, reply_markup=reply_markup)
+            return None
+
     try:
-        await callback.message.delete()
-    except TelegramBadRequest:
-        pass
-    
-    try:
-        if photo.startswith("AgAC"): # Telegram file_id
-            await callback.message.answer_photo(photo=photo, caption=caption, reply_markup=reply_markup)
-        else: # Локальный файл
-            from aiogram.types import FSInputFile
-            import os
-            # Пробуем найти файл в корне или в /app/
-            file_path = photo if os.path.exists(photo) else os.path.join("/app", photo)
-            if os.path.exists(file_path):
-                await callback.message.answer_photo(photo=FSInputFile(file_path), caption=caption, reply_markup=reply_markup)
-            else:
-                logger.error(f"Файл фото модели не найден: {photo}")
-                await callback.message.answer(caption, reply_markup=reply_markup)
+        # Пытаемся отредактировать текущее медиа (это намного быстрее и нет прыжков)
+        return await callback.message.edit_media(media=media, reply_markup=reply_markup)
     except Exception as e:
-        logger.error(f"Ошибка отправки фото модели: {e}")
-        await callback.message.answer(caption, reply_markup=reply_markup)
+        # Если не получилось отредактировать (например, сообщение было текстовым),
+        # удаляем старое и отправляем новое
+        try:
+            await callback.message.delete()
+        except:
+            pass
+        
+        try:
+            if photo.startswith("AgAC"):
+                return await callback.message.answer_photo(photo=photo, caption=caption, reply_markup=reply_markup)
+            else:
+                file_path = photo if os.path.exists(photo) else os.path.join("/app", photo)
+                return await callback.message.answer_photo(photo=FSInputFile(file_path), caption=caption, reply_markup=reply_markup)
+        except Exception as e2:
+            logger.error(f"Ошибка отправки фото модели: {e2}")
+            await callback.message.answer(caption, reply_markup=reply_markup)
+            return None
 
 
 @router.callback_query(F.data.startswith("child_gender:"))
@@ -468,7 +483,9 @@ async def _show_model_selection(message_or_callback: Message | CallbackQuery, st
     
     if model and model[3]: # photo_file_id
         if isinstance(message_or_callback, CallbackQuery):
-            await _answer_model_photo(message_or_callback, model[3], text, kb)
+            res_msg = await _answer_model_photo(message_or_callback, model[3], text, kb)
+            if res_msg and res_msg.photo and not model[3].startswith("AgAC"):
+                await db.set_model_photo(model[0], res_msg.photo[-1].file_id)
         else:
             await message_or_callback.answer_photo(photo=model[3], caption=text, reply_markup=kb)
     else:
@@ -1276,7 +1293,14 @@ async def _show_models_for_category(callback: CallbackQuery, db: Database, categ
     kb = model_select_keyboard(category, cloth, index, total, lang, logic_category=logic_category)
     
     if model and model[3]:
-        await _answer_model_photo(callback, model[3], text, kb)
+        # photo_file_id или путь
+        res_msg = await _answer_model_photo(callback, model[3], text, kb)
+        
+        # Кэшируем file_id в базу, если это был локальный файл (для мгновенной загрузки в след. раз)
+        if res_msg and res_msg.photo and not model[3].startswith("AgAC"):
+            new_file_id = res_msg.photo[-1].file_id
+            await db.set_model_photo(model[0], new_file_id)
+            logger.info(f"Cached file_id for model {model[0]}")
     else:
         await _replace_with_text(callback, text, reply_markup=kb)
 
@@ -2222,12 +2246,14 @@ async def on_any_cloth(callback: CallbackQuery, db: Database, state: FSMContext)
     model = await db.get_model_by_index(category, cloth, 0)
     lang = await db.get_user_language(callback.from_user.id)
     if model and model[3]:
-        await _answer_model_photo(
+        res_msg = await _answer_model_photo(
             callback,
             model[3],
             text,
             model_select_keyboard(category, cloth, 0, total, lang),
         )
+        if res_msg and res_msg.photo and not model[3].startswith("AgAC"):
+            await db.set_model_photo(model[0], res_msg.photo[-1].file_id)
     else:
         await _replace_with_text(callback, text, reply_markup=model_select_keyboard(category, cloth, 0, total, lang))
     await _safe_answer(callback)

@@ -4410,7 +4410,13 @@ async def on_model_nav(callback: CallbackQuery, db: Database) -> None:
 
 @router.callback_query(F.data == "presets_back")
 async def on_presets_back(callback: CallbackQuery, db: Database, state: FSMContext) -> None:
-    await on_ready_presets(callback, db, state)
+    data = await state.get_data()
+    logic_cat = data.get("category")
+    
+    if logic_cat == "storefront":
+        await on_marketplace_menu(callback, db)
+    else:
+        await on_ready_presets(callback, db, state)
     await _safe_answer(callback)
 
 @router.callback_query(F.data.startswith("model_search:"))

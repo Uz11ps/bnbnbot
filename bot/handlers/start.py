@@ -374,12 +374,12 @@ async def _check_subscription(user_id: int, bot: Bot, db: Database) -> bool:
         # Если ошибка "chat not found", значит ID канала неверный или бот не в канале
         if "chat not found" in str(e).lower():
             logger.error(f"CRITICAL: Required channel {channel_id} not found. Check if bot is admin there.")
-            # В этом случае разрешаем доступ, чтобы не блокировать всех пользователей из-за ошибки настройки
-            return True
+            # В этом случае НЕ разрешаем доступ, чтобы было видно ошибку
+            return False
         
         logger.error(f"Error checking subscription for {user_id} in {channel_id}: {e}")
-        # Для остальных ошибок (например, временный сбой ТГ) тоже разрешаем
-        return True
+        # Для остальных ошибок тоже возвращаем False, чтобы не было дыр в проверке
+        return False
 
 async def _show_confirmation(message_or_callback: Message | CallbackQuery, state: FSMContext, db: Database) -> None:
     """Показывает сводку параметров и кнопку создания фото"""

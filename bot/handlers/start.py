@@ -1101,7 +1101,9 @@ async def _ensure_access(message_or_callback: Message | CallbackQuery, db: Datab
     settings = load_settings()
     if user_id in (settings.admin_ids or []):
         logger.info(f"Admin {user_id} bypasses access checks")
-        return True
+        # Но если админ хочет проверить подписку, мы можем закомментировать return True
+        # return True 
+        pass
 
     # 3. Потом Соглашение
     accepted = await db.get_user_accepted_terms(user_id)
@@ -1115,9 +1117,10 @@ async def _ensure_access(message_or_callback: Message | CallbackQuery, db: Datab
         
     # 4. Потом Подписка
     channel_id = await db.get_app_setting("required_channel_id")
-    logger.info(f"Checking subscription for {user_id} in channel {channel_id}")
+    logger.info(f"Checking subscription for {user_id} in channel '{channel_id}'")
     if channel_id and str(channel_id).strip():
         is_subbed = await _check_subscription(user_id, bot, db)
+        logger.info(f"User {user_id} sub status: {is_subbed}")
         if not is_subbed:
             channel_url = await db.get_app_setting("required_channel_url", "https://t.me/bnbslow")
             text = get_string("subscribe_channel", lang)

@@ -99,6 +99,8 @@ class AccessMiddleware:
         
         # Список исключений (где проверка не нужна)
         if not is_callback and actual_event.text and actual_event.text.startswith("/start"):
+            # Для команды /start мы НЕ пропускаем проверку, а вызываем её внутри хендлера
+            # Но Middleware должен пропустить событие дальше
             return await handler(event, data)
             
         exceptions = ["accept_terms", "check_subscription", "menu_agreement"]

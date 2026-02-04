@@ -368,18 +368,23 @@ async def _check_subscription(user_id: int, bot: Bot, db: Database) -> bool:
         member = await bot.get_chat_member(chat_id=channel_id, user_id=user_id)
         # Статусы, которые считаются "подписан"
         is_subbed = member.status in ("member", "administrator", "creator")
-        logger.debug(f"Subscription check for {user_id} in {channel_id}: {member.status} (is_subbed: {is_subbed})")
+        logger.info(f"Subscription check for {user_id} in {channel_id}: {member.status} (is_subbed: {is_subbed})")
         return is_subbed
     except Exception as e:
+        err_msg = str(e).lower()
+        logger.error(f"Error checking subscription for {user_id} in {channel_id}: {e}")
+        
         # Если ошибка "chat not found", значит ID канала неверный или бот не в канале
-        if "chat not found" in str(e).lower():
+        if "chat not found" in err_msg:
             logger.error(f"CRITICAL: Required channel {channel_id} not found. Check if bot is admin there.")
-            # В этом случае НЕ разрешаем доступ, чтобы было видно ошибку
             return False
         
-        logger.error(f"Error checking subscription for {user_id} in {channel_id}: {e}")
-        # Для остальных ошибок тоже возвращаем False, чтобы не было дыр в проверке
-        return False
+        # Если ошибка "member not found", значит пользователь точно не подписан
+        if "user not found" in err_msg or "member not found" in err_msg:
+            return False
+            
+        # Для остальных ошибок (например, временный сбой) разрешаем, чтобы не блокировать сервис
+        return True
 
 async def _show_confirmation(message_or_callback: Message | CallbackQuery, state: FSMContext, db: Database) -> None:
     """Показывает сводку параметров и кнопку создания фото"""
@@ -1101,9 +1106,7 @@ async def _ensure_access(message_or_callback: Message | CallbackQuery, db: Datab
     settings = load_settings()
     if user_id in (settings.admin_ids or []):
         logger.info(f"Admin {user_id} bypasses access checks")
-        # Но если админ хочет проверить подписку, мы можем закомментировать return True
-        # return True 
-        pass
+        return True
 
     # 3. Потом Соглашение
     accepted = await db.get_user_accepted_terms(user_id)

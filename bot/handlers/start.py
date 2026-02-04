@@ -786,7 +786,7 @@ async def on_support_message(message: Message, state: FSMContext, db: Database) 
     await message.answer("Вы можете отправить ещё что-то или вернуться в меню:", reply_markup=back_main_keyboard(lang))
 
 @router.message(CommandStart())
-async def cmd_start(message: Message, state: FSMContext, db: Database) -> None:
+async def cmd_start(message: Message, state: FSMContext, db: Database, bot: Bot) -> None:
     await state.clear()
     user = message.from_user
     await db.upsert_user(
@@ -795,13 +795,12 @@ async def cmd_start(message: Message, state: FSMContext, db: Database) -> None:
         first_name=user.first_name,
         last_name=user.last_name,
     )
-    lang = await db.get_user_language(user.id)
     
-    # Блокировка пользователя
-    if await db.get_user_blocked(user.id):
-        await message.answer(get_string("user_blocked", lang))
+    # Сначала проверяем доступ (соглашение, подписка, блокировка)
+    if not await _ensure_access(message, db, bot):
         return
 
+    lang = await db.get_user_language(user.id)
     await message.answer(get_string("start_welcome", lang), reply_markup=main_menu_keyboard(lang))
 
 @router.message(F.text == "/profile")
@@ -1098,7 +1097,12 @@ async def _ensure_access(message_or_callback: Message | CallbackQuery, db: Datab
             await _replace_with_text(message_or_callback, text)
         return False
 
-    # 2. Потом Соглашение
+    # 2. Проверка администратора (админы проходят мимо подписки и соглашения)
+    settings = load_settings()
+    if user_id in (settings.admin_ids or []):
+        return True
+
+    # 3. Потом Соглашение
     accepted = await db.get_user_accepted_terms(user_id)
     if not accepted:
         text = get_string("start_welcome", lang)

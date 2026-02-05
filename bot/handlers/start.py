@@ -2346,15 +2346,22 @@ async def on_model_pick(callback: CallbackQuery, db: Database, state: FSMContext
     lang = await db.get_user_language(callback.from_user.id)
     data = await state.get_data()
     
-    # Если мы в режиме пресетов или это пресетная категория — используем динамический флоу
-    if category == "presets" or data.get("is_preset"):
+    # Витринное фото (НОВЫЙ ФЛОУ)
+    if category == "storefront" or data.get("storefront_mode"):
         await state.update_data(current_step_index=0)
         await _show_next_step(callback, state, db)
         await _safe_answer(callback)
         return
 
-    # Витринное фото (НОВЫЙ ФЛОУ)
-    if category == "storefront" or data.get("storefront_mode"):
+    # Готовые пресеты (НОВЫЙ ФЛОУ - как в Свой вариант модели)
+    if category == "presets" or data.get("is_preset"):
+        # Сохраняем модель как референс (Фото 1)
+        model_photo = _photo or model[3]
+        await state.update_data(own_ref_photo_id=model_photo)
+        # Также сохраняем её как user_photo_id для совместимости с некоторыми промптами
+        await state.update_data(user_photo_id=model_photo)
+        
+        # Переходим к динамическим шагам (длина, рукав и т.д.)
         await state.update_data(current_step_index=0)
         await _show_next_step(callback, state, db)
         await _safe_answer(callback)
@@ -3829,13 +3836,16 @@ async def _do_generate_real(message_or_callback: Message | CallbackQuery, state:
             
     elif category in ("female", "male", "child") or data.get("is_preset") or category == "presets":
         # Пресеты: Фото 1 — модель, Фото 2 — товар
-        model_id = data.get("model_id")
-        ref = None
-        if model_id:
-            async with aiosqlite.connect(db._db_path) as conn:
-                async with conn.execute("SELECT photo_file_id FROM models WHERE id=?", (model_id,)) as cur:
-                    row = await cur.fetchone()
-                    if row: ref = row[0]
+        # Сначала проверяем, не сохранена ли модель как референс (новый флоу)
+        ref = data.get("own_ref_photo_id")
+        
+        if not ref:
+            model_id = data.get("model_id")
+            if model_id:
+                async with aiosqlite.connect(db._db_path) as conn:
+                    async with conn.execute("SELECT photo_file_id FROM models WHERE id=?", (model_id,)) as cur:
+                        row = await cur.fetchone()
+                        if row: ref = row[0]
         
         prod = data.get("user_photo_id") or data.get("photo")
         if ref:

@@ -3486,7 +3486,8 @@ CORE RULES:
 - BACKGROUND: Keep the EXACT environment from [SCENE_AND_MODEL_REFERENCE_IMAGE].
 - TOTAL OUTFIT OVERHAUL: You MUST DISCARD ALL clothing items (tops, bottoms, shoes, accessories) from [SCENE_AND_MODEL_REFERENCE_IMAGE]. 
 - NEW STYLING: Put the item from [CLOTHING_ITEM_TO_WEAR_IMAGE] on the person. 
-- COMPLETE THE LOOK: If [CLOTHING_ITEM_TO_WEAR_IMAGE] is only a top, you MUST generate NEW matching pants/skirt and shoes that perfectly fit the style of the new item. DO NOT reuse the pants from the original photo.
+- COMPLETE THE LOOK: If [CLOTHING_ITEM_TO_WEAR_IMAGE] is only a top, you MUST generate NEW matching pants/skirt and shoes that perfectly fit the style of the new item. 
+- STYLISH OUTFIT: Avoid making the entire outfit monochromatic or the same color as the new item. Use complementary colors, different materials, and stylish textures for the pants and shoes to create a professional fashion-forward look. DO NOT reuse the pants from the original photo.
 - FIDELITY: The new item must look 100% identical to [CLOTHING_ITEM_TO_WEAR_IMAGE] in texture and silhouette.
 
 FORMAT:
@@ -3503,6 +3504,7 @@ FORMAT:
 Place the product from [CLOTHING_ITEM_TO_WEAR_IMAGE] onto the background and person from [SCENE_AND_MODEL_REFERENCE_IMAGE].
 - TOTAL REDRESS: REMOVE ALL original clothes from the person in [SCENE_AND_MODEL_REFERENCE_IMAGE].
 - NEW OUTFIT: Put the item from [CLOTHING_ITEM_TO_WEAR_IMAGE] on the person and pick NEW matching clothes for the rest of the body.
+- STYLISH VARIETY: Ensure the outfit is stylish and not monochromatic. Use complementary colors and textures for the rest of the clothing items to create a professional fashion look.
 - DO NOT reuse any piece of clothing from the original photo.
 - Exact product reproduction from [CLOTHING_ITEM_TO_WEAR_IMAGE].
 - Maintain original lighting and person's identity.
@@ -3694,7 +3696,8 @@ CORE RULES:
 - TOTAL OUTFIT OVERHAUL: You MUST DISCARD ALL clothing items (tops, bottoms, shoes, accessories) from [SCENE_AND_MODEL_REFERENCE_IMAGE]. 
 - IGNORE ORIGINAL CLOTHES: Completely ignore any clothing mentioned in the scene description below.
 - NEW STYLING: Put the item from [CLOTHING_ITEM_TO_WEAR_IMAGE] on the person. 
-- COMPLETE THE LOOK: If [CLOTHING_ITEM_TO_WEAR_IMAGE] is only a top, you MUST generate NEW matching pants/skirt and shoes that perfectly fit the style of the new item. DO NOT reuse the pants from the original photo.
+- COMPLETE THE LOOK: If [CLOTHING_ITEM_TO_WEAR_IMAGE] is only a top, you MUST generate NEW matching pants/skirt and shoes that perfectly fit the style of the new item. 
+- STYLISH OUTFIT: Avoid making the entire outfit monochromatic or the same color as the new item. Use complementary colors, different materials, and stylish textures for the pants and shoes to create a professional fashion-forward look. DO NOT reuse the pants from the original photo.
 - FIDELITY: The new item must look 100% identical to [CLOTHING_ITEM_TO_WEAR_IMAGE] in texture and silhouette.
 
 FORMAT:

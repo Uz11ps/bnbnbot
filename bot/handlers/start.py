@@ -2358,8 +2358,9 @@ async def on_model_pick(callback: CallbackQuery, db: Database, state: FSMContext
         # Сохраняем модель как референс (Фото 1)
         model_photo = _photo or model[3]
         await state.update_data(own_ref_photo_id=model_photo)
-        # Также сохраняем её как user_photo_id для совместимости с некоторыми промптами
-        await state.update_data(user_photo_id=model_photo)
+        
+        # Сбрасываем старые фото товара и ID, чтобы юзер загрузил новое
+        await state.update_data(user_photo_id=None, photo=None, photos=[])
         
         # Переходим к динамическим шагам (длина, рукав и т.д.)
         await state.update_data(current_step_index=0)
@@ -3678,18 +3679,31 @@ FORMAT:
             # Обычная модель (из БД по prompt_id)
             if model_id:
                 # Если выбрана конкретная модель, усиливаем требование идентичности
-                base = f"""STRICT RECONSTRUCTION TASK:
-[SCENE_AND_MODEL_REFERENCE_IMAGE] is the source of the model, face, pose, and original outfit.
-[CLOTHING_ITEM_TO_WEAR_IMAGE] is the new item.
+                # Используем логику "Свой вариант" (полное переодевание), как просил пользователь
+                base = f"""STRICT FASHION REDRESS TASK:
+Generate ONE SINGLE IMAGE. NO COLLAGES. NO SIDE-BY-SIDE. NO REPETITION.
+
+INPUT DATA:
+1. [SCENE_AND_MODEL_REFERENCE_IMAGE]: The model, face, pose, and background.
+2. [CLOTHING_ITEM_TO_WEAR_IMAGE]: The NEW item to put on the model.
 
 CORE RULES:
-- IDENTITY: Keep the EXACT face and identity from [SCENE_AND_MODEL_REFERENCE_IMAGE].
-- OUTFIT: Replace the top part of the clothing with the item from [CLOTHING_ITEM_TO_WEAR_IMAGE]. 
-- BOTTOM: KEEP the pants/bottom from [SCENE_AND_MODEL_REFERENCE_IMAGE]. Do not make the model bottomless.
+- IDENTITY: Keep the EXACT face and body of the person from [SCENE_AND_MODEL_REFERENCE_IMAGE].
 - POSE: Keep the EXACT pose from [SCENE_AND_MODEL_REFERENCE_IMAGE].
-- SINGLE IMAGE. NO COLLAGES.
+- BACKGROUND: Keep the EXACT environment from [SCENE_AND_MODEL_REFERENCE_IMAGE].
+- TOTAL OUTFIT OVERHAUL: You MUST DISCARD ALL clothing items (tops, bottoms, shoes, accessories) from [SCENE_AND_MODEL_REFERENCE_IMAGE]. 
+- IGNORE ORIGINAL CLOTHES: Completely ignore any clothing mentioned in the scene description below.
+- NEW STYLING: Put the item from [CLOTHING_ITEM_TO_WEAR_IMAGE] on the person. 
+- COMPLETE THE LOOK: If [CLOTHING_ITEM_TO_WEAR_IMAGE] is only a top, you MUST generate NEW matching pants/skirt and shoes that perfectly fit the style of the new item. DO NOT reuse the pants from the original photo.
+- FIDELITY: The new item must look 100% identical to [CLOTHING_ITEM_TO_WEAR_IMAGE] in texture and silhouette.
 
-SCENE DESCRIPTION: {prompt_text}"""
+FORMAT:
+- Aspect Ratio: {{aspect}}
+- Requirement: Fill the frame. ZERO BORDERS.
+
+🎯 TARGET: A professional marketplace photo where the model from [SCENE_AND_MODEL_REFERENCE_IMAGE] is wearing a COMPLETELY NEW OUTFIT based on [CLOTHING_ITEM_TO_WEAR_IMAGE].
+
+SCENE DESCRIPTION (USE FOR BACKGROUND AND MODEL ONLY, IGNORE CLOTHES): {prompt_text}"""
                 prompt_filled = apply_replacements(base)
             else:
                 prompt_filled = apply_replacements(prompt_text)
@@ -3858,11 +3872,31 @@ async def _do_generate_real(message_or_callback: Message | CallbackQuery, state:
                         row = await cur.fetchone()
                         if row: ref = row[0]
         
+        # Товар — это user_photo_id (если загружен после модели) или photo
         prod = data.get("user_photo_id") or data.get("photo")
-        if ref:
+        
+        # Если ref и prod одинаковые, значит юзер еще не загрузил товар
+        if ref == prod:
+            prod = None
+            
+        if ref and prod:
             input_photos = [ref, prod]
-        else:
+        elif prod:
             input_photos = [prod]
+        elif ref:
+            input_photos = [ref]
+            
+        # Если в режиме пресетов нет второго фото (товара), просим загрузить
+        if not prod and (data.get("is_preset") or category == "presets"):
+            logger.error(f"[_do_generate] Нет фото товара для пресетов. Ref: {ref}")
+            text = get_string("upload_product", lang)
+            await state.set_state(CreateForm.waiting_view)
+            if isinstance(message_or_callback, CallbackQuery):
+                await message_or_callback.message.answer(text)
+                await _safe_answer(message_or_callback)
+            else:
+                await ans_obj.answer(text)
+            return
             
     elif data.get("own_mode") or category == "own":
         # Фото 1 — модель, Фото 2 — товар

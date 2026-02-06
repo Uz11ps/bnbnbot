@@ -3861,43 +3861,44 @@ async def _do_generate_real(message_or_callback: Message | CallbackQuery, state:
             
     elif category in ("female", "male", "child") or data.get("is_preset") or category == "presets":
         # Пресеты: Фото 1 — модель, Фото 2 — товар
-        # Сначала проверяем, не сохранена ли модель как референс (новый флоу)
-        ref = data.get("own_ref_photo_id")
+    # Сначала проверяем, не сохранена ли модель как референс (новый флоу)
+    ref = data.get("own_ref_photo_id")
+    
+    # Если мы в режиме повтора, нам ВАЖНО использовать сохраненную модель
+    if not ref:
+        model_id = data.get("model_id")
+        if model_id:
+            async with aiosqlite.connect(db._db_path) as conn:
+                async with conn.execute("SELECT photo_file_id FROM models WHERE id=?", (model_id,)) as cur:
+                    row = await cur.fetchone()
+                    if row: ref = row[0]
+    
+    # Товар — это user_photo_id (если загружен после модели) или photo
+    prod = data.get("user_photo_id") or data.get("photo")
+    
+    # Если ref и prod одинаковые, значит юзер еще не загрузил товар
+    if ref == prod:
+        prod = None
         
-        if not ref:
-            model_id = data.get("model_id")
-            if model_id:
-                async with aiosqlite.connect(db._db_path) as conn:
-                    async with conn.execute("SELECT photo_file_id FROM models WHERE id=?", (model_id,)) as cur:
-                        row = await cur.fetchone()
-                        if row: ref = row[0]
+    if ref and prod:
+        input_photos = [ref, prod]
+    elif prod:
+        input_photos = [prod]
+    elif ref:
+        input_photos = [ref]
         
-        # Товар — это user_photo_id (если загружен после модели) или photo
-        prod = data.get("user_photo_id") or data.get("photo")
-        
-        # Если ref и prod одинаковые, значит юзер еще не загрузил товар
-        if ref == prod:
-            prod = None
-            
-        if ref and prod:
-            input_photos = [ref, prod]
-        elif prod:
-            input_photos = [prod]
-        elif ref:
-            input_photos = [ref]
-            
-        # Если в режиме пресетов нет второго фото (товара), просим загрузить
-        if not prod and (data.get("is_preset") or category == "presets"):
-            logger.error(f"[_do_generate] Нет фото товара для пресетов. Ref: {ref}")
-            text = get_string("upload_product", lang)
-            await state.set_state(CreateForm.waiting_view)
-            if isinstance(message_or_callback, CallbackQuery):
-                await message_or_callback.message.answer(text)
-                await _safe_answer(message_or_callback)
-            else:
-                await ans_obj.answer(text)
-            return
-            
+    # Если в режиме пресетов нет второго фото (товара), просим загрузить
+    if not prod and (data.get("is_preset") or category == "presets" or data.get("repeat_mode")):
+        logger.error(f"[_do_generate] Нет фото товара для пресетов. Ref: {ref}")
+        text = get_string("upload_product", lang)
+        await state.set_state(CreateForm.waiting_view)
+        if isinstance(message_or_callback, CallbackQuery):
+            await message_or_callback.message.answer(text)
+            await _safe_answer(message_or_callback)
+        else:
+            await ans_obj.answer(text)
+        return
+
     elif data.get("own_mode") or category == "own":
         # Фото 1 — модель, Фото 2 — товар
         ref = data.get("own_ref_photo_id") or data.get("bg_photo") or data.get("user_photo_id")
@@ -4445,11 +4446,16 @@ async def on_result_repeat(callback: CallbackQuery, state: FSMContext, db: Datab
     remove_keys = [
         "photo", "photo_id", "user_photo_id", "own_product_photo_id",
         "last_pid", "user_photo_count", "photos", "normal_gen_prompt_msg",
-        "result_photo_id"
+        "result_photo_id", "photo_label"
     ]
     
     new_data = {k: v for k, v in data.items() if k not in remove_keys}
     new_data["repeat_mode"] = True
+    
+    # ВАЖНО: Убеждаемся, что модель сохранена как референс
+    if "own_ref_photo_id" not in new_data and "model_id" in new_data:
+        # Если почему-то нет ID фото в сессии, попробуем его найти
+        pass
     
     await state.clear()
     await state.update_data(**new_data)

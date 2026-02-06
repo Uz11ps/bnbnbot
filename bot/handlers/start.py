@@ -3285,6 +3285,8 @@ async def _build_final_prompt(data: dict, db: Database) -> str:
     else:
         pid = data.get('prompt_id')
         prompt_text = await db.get_prompt_text(int(pid)) if pid else ""
+    
+    age_key = data.get('age')
     age_map = {
         "20_26": "Молодая модель возраста 20-26 лет",
         "30_38": "Взрослая модель возраста 30-38 лет",
@@ -3302,7 +3304,14 @@ async def _build_final_prompt(data: dict, db: Database) -> str:
     # --- УНИВЕРСАЛЬНАЯ ЗАМЕНА ПЛЕЙСХОЛДЕРОВ ---
     # Собираем все возможные значения для замены
     
-    # Расширенный маппинг длины изделия для лучшего понимания ИИ
+    age_key = data.get('age')
+    age_map = {
+        "20_26": "Молодая модель возраста 20-26 лет",
+        "30_38": "Взрослая модель возраста 30-38 лет",
+        "40_48": "Зрелая модель возраста 40-48 лет",
+        "55_60": "Пожилая модель возраста 55-60 лет",
+    }
+    age_text = age_map.get(age_key, age_key or "")
     length_raw = str(data.get("length") or data.get("length_cm") or data.get("own_length") or "")
     length_en = ""
     if length_raw:

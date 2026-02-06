@@ -3274,15 +3274,17 @@ async def _build_final_prompt(data: dict, db: Database) -> str:
     elif category == "own_variant":
         base = await db.get_own_variant_prompt() or "Professional fashion photography. Place the product from the second image onto the background from the first image. Maintain natural lighting, shadows, and perspective. High quality, 8k resolution."
         prompt_text = base
+    elif category in ("female", "male", "child") or data.get("is_preset") or category == "presets":
+        pid = data.get('prompt_id')
+        model_prompt = await db.get_prompt_text(int(pid)) if pid else ""
+        presets_base = await db.get_app_setting("presets_prompt") or ""
+        prompt_text = f"{model_prompt}\n\n{presets_base}"
+    elif category == "whitebg":
+        base = await db.get_whitebg_prompt()
+        prompt_text = base or ""
     else:
-        if category == "whitebg":
-            base = await db.get_whitebg_prompt()
-            prompt_text = base or ""
-        else:
-            pid = data.get('prompt_id')
-            prompt_text = await db.get_prompt_text(int(pid)) if pid else ""
-    
-    age_key = data.get('age')
+        pid = data.get('prompt_id')
+        prompt_text = await db.get_prompt_text(int(pid)) if pid else ""
     age_map = {
         "20_26": "Молодая модель возраста 20-26 лет",
         "30_38": "Взрослая модель возраста 30-38 лет",

@@ -41,6 +41,10 @@
                 <textarea name="own_variant_prompt" class="form-control" rows="3">{{ cat_prompts.own_variant_prompt }}</textarea>
             </div>
             <div class="col-12">
+                <label class="form-label">Готовые пресеты (общий промпт)</label>
+                <textarea name="presets_prompt" class="form-control" rows="3" placeholder="Этот промпт будет добавляться ко всем генерациям в разделе готовых пресетов">{{ cat_prompts.presets_prompt }}</textarea>
+            </div>
+            <div class="col-12">
                 <button type="submit" class="btn btn-primary">Сохранить промпты</button>
             </div>
         </form>

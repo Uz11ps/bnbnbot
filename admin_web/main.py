@@ -2411,6 +2411,7 @@ async def list_prompts(request: Request, db: aiosqlite.Connection = Depends(get_
         "infographic_other_prompt",
         "own_prompt",
         "own_variant_prompt",
+        "presets_prompt",
     ]
     cat_prompts = {}
     async with db.execute(

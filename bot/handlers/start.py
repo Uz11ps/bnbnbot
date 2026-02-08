@@ -3594,23 +3594,24 @@ Fill frame, no borders."""
     elif category == "storefront":
         base_storefront = await db.get_storefront_prompt()
         if not base_storefront or "[SCENE_AND_MODEL_REFERENCE_IMAGE]" not in base_storefront:
-            base_storefront = """ROLE & TASK: Professional AI system for floor-based showcase photos (flat-lay style).
-Your task is to take the item from [CLOTHING_ITEM_TO_WEAR_IMAGE] and render it perfectly on the surface from [SCENE_AND_MODEL_REFERENCE_IMAGE].
+            base_storefront = """ROLE & TASK: Professional AI system for product showcase photography.
+Your task is to take the NEW item from [CLOTHING_ITEM_TO_WEAR_IMAGE] and render it perfectly into the scene from [SCENE_AND_MODEL_REFERENCE_IMAGE].
 
-The [CLOTHING_ITEM_TO_WEAR_IMAGE] is the ONLY source of truth for the item.
+The [CLOTHING_ITEM_TO_WEAR_IMAGE] is the ONLY source of truth for the item's design, color, and texture.
 
 CORE RULES:
 - PRODUCT FIDELITY: 100% exact reproduction of silhouette and texture from [CLOTHING_ITEM_TO_WEAR_IMAGE].
-- SCENE RECONSTRUCTION: Use the floor, environment, and decorations from [SCENE_AND_MODEL_REFERENCE_IMAGE]. 
-- REPLACEMENT: REMOVE the original clothing item (e.g. jacket on the hanger) from [SCENE_AND_MODEL_REFERENCE_IMAGE] and replace it with the item from [CLOTHING_ITEM_TO_WEAR_IMAGE].
-- PLACEMENT: The new product must be centered, laid flat on the floor exactly where the previous item was, with realistic shadows.
-- QUALITY: 4K Ultra HD, professional marketplace look. No people.
+- SCENE RECONSTRUCTION: Maintain the EXACT background, lighting, and environment from [SCENE_AND_MODEL_REFERENCE_IMAGE].
+- REPLACEMENT: Identify the original clothing item in [SCENE_AND_MODEL_REFERENCE_IMAGE] (whether it is on a hanger, on a hook, or laid flat on a surface). REMOVE IT COMPLETELY.
+- NATURAL PLACEMENT: Place the NEW item from [CLOTHING_ITEM_TO_WEAR_IMAGE] in the exact same spot and orientation.
+- HANGER/HOOK INTEGRATION: If the original item was on a hanger or hook, the NEW item must appear naturally hanging from that SAME hanger or hook with realistic gravity-defying folds and shadows.
+- QUALITY: 4K Ultra HD, professional commercial look. ZERO human parts.
 
 FORMAT:
 - Aspect Ratio: {aspect}
-- Fill the entire frame. ZERO padding.
+- Fill frame. No borders.
 
-🎯 FINAL GOAL: A luxury marketplace-ready image where the item from [CLOTHING_ITEM_TO_WEAR_IMAGE] is lying on the surface from [SCENE_AND_MODEL_REFERENCE_IMAGE]."""
+🎯 FINAL GOAL: A professional marketplace photo where the item from [CLOTHING_ITEM_TO_WEAR_IMAGE] replaces the original item in the scene from [SCENE_AND_MODEL_REFERENCE_IMAGE] with perfect integration."""
         prompt_filled = apply_replacements(base_storefront)
 
     elif data.get("infographic_mode"):

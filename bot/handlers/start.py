@@ -3500,14 +3500,15 @@ FORMAT:
     elif category == "own_variant":
         base = await db.get_own_variant_prompt()
         if not base or "[SCENE_AND_MODEL_REFERENCE_IMAGE]" not in base:
-            base = """STRICT SCENE RECONSTRUCTION:
-Place the product from [CLOTHING_ITEM_TO_WEAR_IMAGE] onto the background and person from [SCENE_AND_MODEL_REFERENCE_IMAGE].
-- TOTAL REDRESS: REMOVE ALL original clothes from the person in [SCENE_AND_MODEL_REFERENCE_IMAGE].
-- NEW OUTFIT: Put the item from [CLOTHING_ITEM_TO_WEAR_IMAGE] on the person and pick NEW matching clothes for the rest of the body.
-- STYLISH VARIETY: Ensure the outfit is stylish and not monochromatic. Use complementary colors and textures for the rest of the clothing items to create a professional fashion look.
-- DO NOT reuse any piece of clothing from the original photo.
-- Exact product reproduction from [CLOTHING_ITEM_TO_WEAR_IMAGE].
-- Maintain original lighting and person's identity.
+            base = """STRICT PRODUCT-IN-SCENE RECONSTRUCTION:
+Place the product from [CLOTHING_ITEM_TO_WEAR_IMAGE] into the exact scene from [SCENE_AND_MODEL_REFERENCE_IMAGE].
+
+CORE RULES:
+- PRODUCT FIDELITY: The product from [CLOTHING_ITEM_TO_WEAR_IMAGE] is the ONLY source. Reproduce its color, texture, and silhouette with 100% accuracy.
+- SCENE PRESERVATION: Keep the EXACT background, props (hangers, hooks, walls, furniture), and lighting from [SCENE_AND_MODEL_REFERENCE_IMAGE].
+- SMART REPLACEMENT: Remove the original clothing item from [SCENE_AND_MODEL_REFERENCE_IMAGE] and put the NEW item from [CLOTHING_ITEM_TO_WEAR_IMAGE] in its place.
+- NO EXTRA CLOTHES: Do NOT add any additional clothing items (like pants, shoes, or belts) unless there is a human model in the reference image who explicitly needs them. If the scene is a hanger or flat-lay, ONLY render the item from [CLOTHING_ITEM_TO_WEAR_IMAGE].
+- HIGH-END QUALITY: The new product must look perfectly ironed, clean, and professional. Sharp focus on fabric details, 8k resolution, cinematic lighting.
 - ONE single holistic image. NO COLLAGES. NO REPETITION.
 
 FORMAT: {aspect}

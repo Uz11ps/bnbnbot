@@ -3489,12 +3489,13 @@ CORE RULES:
 - COMPLETE THE LOOK: If [CLOTHING_ITEM_TO_WEAR_IMAGE] is only a top, you MUST generate NEW matching pants/skirt and shoes that perfectly fit the style of the new item. 
 - STYLISH OUTFIT: Avoid making the entire outfit monochromatic or the same color as the new item. Use complementary colors, different materials, and stylish textures for the pants and shoes to create a professional fashion-forward look. DO NOT reuse the pants from the original photo.
 - FIDELITY: The new item must look 100% identical to [CLOTHING_ITEM_TO_WEAR_IMAGE] in texture and silhouette.
+- HIGH-END QUALITY: The new product must look perfectly ironed, clean, and brand new. Sharp focus on fabric details, textures, and professional cinematic lighting.
 
 FORMAT:
 - Aspect Ratio: {aspect}
 - Requirement: Fill the frame. ZERO BORDERS.
 
-🎯 TARGET: A professional marketplace photo where the model from [SCENE_AND_MODEL_REFERENCE_IMAGE] is wearing a COMPLETELY NEW OUTFIT based on [CLOTHING_ITEM_TO_WEAR_IMAGE]."""
+🎯 TARGET: A high-end, luxury marketplace photo where the model from [SCENE_AND_MODEL_REFERENCE_IMAGE] is wearing a COMPLETELY NEW OUTFIT with superior commercial quality."""
         prompt_filled = apply_replacements(base)
         
     elif category == "own_variant":
@@ -3590,7 +3591,7 @@ Fill frame, no borders."""
 
     elif category == "whitebg":
         base_whitebg = await db.get_whitebg_prompt()
-        prompt_filled = apply_replacements(base_whitebg) if base_whitebg else "Professional commercial product photography on a pure white background. High resolution, studio lighting, sharp focus on the product."
+        prompt_filled = apply_replacements(base_whitebg) if base_whitebg else "High-end commercial product photography on a pure white background. Perfectly ironed, clean, professional studio lighting, 8k resolution, sharp focus on fabric details and texture."
 
     elif category == "storefront":
         base_storefront = await db.get_storefront_prompt()
@@ -3606,13 +3607,14 @@ CORE RULES:
 - REPLACEMENT: Identify the original clothing item in [SCENE_AND_MODEL_REFERENCE_IMAGE] (whether it is on a hanger, on a hook, or laid flat on a surface). REMOVE IT COMPLETELY.
 - NATURAL PLACEMENT: Place the NEW item from [CLOTHING_ITEM_TO_WEAR_IMAGE] in the exact same spot and orientation.
 - HANGER/HOOK INTEGRATION: If the original item was on a hanger or hook, the NEW item must appear naturally hanging from that SAME hanger or hook with realistic gravity-defying folds and shadows.
-- QUALITY: 4K Ultra HD, professional commercial look. ZERO human parts.
+- QUALITY: 4K Ultra HD, professional high-end commercial look. ZERO human parts.
+- PRODUCT ENHANCEMENT: The new product must look flawlessly ironed, impeccably clean, and brand new. Sharp focus on every fabric detail, weave, and texture. Use cinematic, professional studio lighting to accentuate the product's premium quality and silhouette.
 
 FORMAT:
 - Aspect Ratio: {aspect}
 - Fill frame. No borders.
 
-🎯 FINAL GOAL: A professional marketplace photo where the item from [CLOTHING_ITEM_TO_WEAR_IMAGE] replaces the original item in the scene from [SCENE_AND_MODEL_REFERENCE_IMAGE] with perfect integration."""
+🎯 FINAL GOAL: A high-end, luxury marketplace-ready photo where the item from [CLOTHING_ITEM_TO_WEAR_IMAGE] replaces the original item with perfect commercial presentation and superior quality."""
         prompt_filled = apply_replacements(base_storefront)
 
     elif data.get("infographic_mode"):
@@ -3701,12 +3703,13 @@ CORE RULES:
 - COMPLETE THE LOOK: If [CLOTHING_ITEM_TO_WEAR_IMAGE] is only a top, you MUST generate NEW matching pants/skirt and shoes that perfectly fit the style of the new item. 
 - STYLISH OUTFIT: Avoid making the entire outfit monochromatic or the same color as the new item. Use complementary colors, different materials, and stylish textures for the pants and shoes to create a professional fashion-forward look. DO NOT reuse the pants from the original photo.
 - FIDELITY: The new item must look 100% identical to [CLOTHING_ITEM_TO_WEAR_IMAGE] in texture and silhouette.
+- HIGH-END QUALITY: The new product must look perfectly ironed, clean, and brand new. Sharp focus on fabric details, textures, and professional cinematic lighting.
 
 FORMAT:
 - Aspect Ratio: {{aspect}}
 - Requirement: Fill the frame. ZERO BORDERS.
 
-🎯 TARGET: A professional marketplace photo where the model from [SCENE_AND_MODEL_REFERENCE_IMAGE] is wearing a COMPLETELY NEW OUTFIT based on [CLOTHING_ITEM_TO_WEAR_IMAGE].
+🎯 TARGET: A high-end, luxury marketplace photo where the model from [SCENE_AND_MODEL_REFERENCE_IMAGE] is wearing a COMPLETELY NEW OUTFIT with superior commercial quality.
 
 SCENE DESCRIPTION (USE FOR BACKGROUND AND MODEL ONLY, IGNORE CLOTHES): {prompt_text}"""
                 prompt_filled = apply_replacements(base)

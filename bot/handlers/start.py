@@ -3602,13 +3602,15 @@ Your task is to take the NEW item from [CLOTHING_ITEM_TO_WEAR_IMAGE] and render 
 The [CLOTHING_ITEM_TO_WEAR_IMAGE] is the ONLY source of truth for the item's design, color, and texture.
 
 CORE RULES:
-- PRODUCT FIDELITY: 100% exact reproduction of silhouette and texture from [CLOTHING_ITEM_TO_WEAR_IMAGE].
+- PRODUCT FIDELITY: 100% exact reproduction of silhouette, print, and texture from [CLOTHING_ITEM_TO_WEAR_IMAGE].
+- NO REINTERPRETATION: Do NOT simplify the design. If the product has a specific print (like red flowers), it MUST be rendered exactly as shown, in the same position and scale.
 - SCENE RECONSTRUCTION: Maintain the EXACT background, lighting, and environment from [SCENE_AND_MODEL_REFERENCE_IMAGE].
 - REPLACEMENT: Identify the original clothing item in [SCENE_AND_MODEL_REFERENCE_IMAGE] (whether it is on a hanger, on a hook, or laid flat on a surface). REMOVE IT COMPLETELY.
 - NATURAL PLACEMENT: Place the NEW item from [CLOTHING_ITEM_TO_WEAR_IMAGE] in the exact same spot and orientation.
 - HANGER/HOOK INTEGRATION: If the original item was on a hanger or hook, the NEW item must appear naturally hanging from that SAME hanger or hook with realistic gravity-defying folds and shadows.
 - QUALITY: 4K Ultra HD, professional high-end commercial look. ZERO human parts.
 - PRODUCT ENHANCEMENT: The new product must look flawlessly ironed, impeccably clean, and brand new. Sharp focus on every fabric detail, weave, and texture. Use cinematic, professional studio lighting to accentuate the product's premium quality and silhouette.
+- NO HANDS: Do NOT add human hands or any other body parts unless they are already present in [SCENE_AND_MODEL_REFERENCE_IMAGE].
 
 FORMAT:
 - Aspect Ratio: {aspect}

@@ -185,7 +185,7 @@
                                     <div class="col-4">
                                         {% if m.photo_file_id %}
                                             <div class="position-relative">
-                                                {% if m.photo_file_id.startswith('data/') %}
+                                                {% if m.photo_file_id.startswith('data/') or m.photo_file_id.startswith('uploads/') %}
                                                     <img src="/{{ m.photo_file_id }}" class="img-fluid rounded mb-2 shadow-sm" alt="Model" style="display: block; width: 100%;">
                                                 {% else %}
                                                     <div class="text-center py-4 bg-light rounded small mb-2">TG Photo<br>{{ m.photo_file_id[:10] }}...</div>

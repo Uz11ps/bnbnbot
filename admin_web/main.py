@@ -2563,8 +2563,10 @@ async def edit_model_prompt(
     await db.execute("UPDATE models SET name=? WHERE id=?", (name, model_id))
     if photo and photo.filename:
         file_path = f"{UPLOAD_DIR}/model_{model_id}.jpg"
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(photo.file, buffer)
+        # Сохраняем путь относительно BASE_DIR, чтобы он начинался с data/uploads/...
         rel_path = os.path.relpath(file_path, BASE_DIR).replace("\\", "/")
         await db.execute("UPDATE models SET photo_file_id=? WHERE id=?", (rel_path, model_id))
     async with db.execute("SELECT prompt_id FROM models WHERE id=?", (model_id,)) as cur:
@@ -2594,6 +2596,7 @@ async def add_full_model(
     
     if photo and photo.filename:
         file_path = f"{UPLOAD_DIR}/model_{model_id}.jpg"
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(photo.file, buffer)
         

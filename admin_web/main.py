@@ -1975,6 +1975,7 @@ app = FastAPI(title="AI-ROOM Admin Panel", lifespan=lifespan)
 # --- Статика ---
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.mount("/data", StaticFiles(directory=os.path.join(BASE_DIR, "data")), name="data")
+app.mount("/uploads", StaticFiles(directory=os.path.join(BASE_DIR, "data", "uploads")), name="uploads")
 
 # --- Шаблоны ---
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "admin_web", "templates"))

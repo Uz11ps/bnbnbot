@@ -160,18 +160,36 @@ async def main() -> None:
             proxy_url = url
             break
 
-    def _parse_proxy(raw: str) -> str | None:
+    def _parse_proxy(raw: str) -> tuple[str, object] | str | None:
+        """Возвращает (url, BasicAuth) или url для AiohttpSession.
+        BasicAuth используется при наличии user:pass — обходит Invalid port component в yarl."""
         if not raw or not raw.strip():
             return None
-        raw = raw.strip()
-        # Уже в формате URL
+        raw = raw.strip().split(",")[0].strip()
+
         if raw.startswith("http://") or raw.startswith("https://"):
-            return raw.split(",")[0].strip()
-        # Список через запятую — берём первый
-        first = raw.split(",")[0].strip()
-        parts = first.split(":")
+            url = raw
+            # Парсим user:pass@host:port
+            if "@" in url:
+                auth_part, host_part = url.rsplit("@", 1)
+                scheme = url.split("://", 1)[0]
+                host_port = host_part.split("/")[0]
+                proxy_base = f"{scheme}://{host_port}"
+                try:
+                    user_pass = auth_part.split("://", 1)[1]
+                    if ":" in user_pass:
+                        user, password = user_pass.split(":", 1)
+                        from aiohttp import BasicAuth
+                        return (proxy_base, BasicAuth(login=user, password=password))
+                except Exception:
+                    pass
+            return url
+        parts = raw.split(":")
         if len(parts) == 4:
-            return f"http://{parts[2]}:{parts[3]}@{parts[0]}:{parts[1]}"
+            host, port, user, password = parts[0], parts[1], parts[2], parts[3]
+            proxy_base = f"http://{host}:{port}"
+            from aiohttp import BasicAuth
+            return (proxy_base, BasicAuth(login=user, password=password))
         if len(parts) == 2:
             return f"http://{parts[0]}:{parts[1]}"
         return None
@@ -180,14 +198,15 @@ async def main() -> None:
 
     if selected_proxy:
         from aiogram.client.session.aiohttp import AiohttpSession
+        proxy_arg = selected_proxy if isinstance(selected_proxy, tuple) else selected_proxy
         try:
-            session = AiohttpSession(proxy=selected_proxy)
+            session = AiohttpSession(proxy=proxy_arg)
             bot = Bot(
                 token=settings.bot_token,
                 session=session,
                 default=DefaultBotProperties(parse_mode=ParseMode.HTML),
             )
-            host_log = selected_proxy.split("@")[-1] if "@" in selected_proxy else selected_proxy
+            host_log = proxy_arg[0] if isinstance(proxy_arg, tuple) else (proxy_arg.split("@")[-1] if "@" in proxy_arg else proxy_arg)
             logger.info(f"Бот запущен через прокси: {host_log}")
         except Exception as e:
             logger.error(f"Ошибка настройки прокси: {e}. Запуск без прокси.")

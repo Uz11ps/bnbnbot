@@ -12,8 +12,8 @@ import requests
 logger = logging.getLogger(__name__)
 
 # Макс. размер по длинной стороне (уменьшает payload для медленных прокси)
-MAX_IMAGE_DIM = 1200
-JPEG_QUALITY = 88
+MAX_IMAGE_DIM = 960
+JPEG_QUALITY = 85
 
 
 def _compress_image(img_bytes: bytes) -> bytes:
@@ -167,9 +167,10 @@ def _generate_sync(
     for attempt in range(1, 3):
         try:
             is_network_error = False
-            use_proxies = proxies if attempt == 1 else None
+            # Сначала пробуем БЕЗ прокси (если сервер за границей — будет быстрее)
+            use_proxies = None if attempt == 1 else proxies
             if attempt == 2 and proxies:
-                logger.info("[Gemini] Retry without proxy after timeout")
+                logger.info("[Gemini] Retry WITH proxy (direct failed)")
             resp = session.post(endpoint, headers=headers, json=payload, timeout=timeout_tuple, proxies=use_proxies)
             if resp.status_code >= 500:
                 last_text = resp.text
@@ -183,8 +184,8 @@ def _generate_sync(
             last_text = str(e)
             is_network_error = True
             logger.warning("[Gemini] proxy/network error on attempt %d: %s", attempt, e)
-            if attempt == 1 and proxies and "timeout" in str(e).lower():
-                continue  # retry without proxy
+            if attempt == 1 and proxies:
+                continue  # retry with proxy
             import time as _t
             _t.sleep(1)
         except requests.RequestException as e:
@@ -192,8 +193,8 @@ def _generate_sync(
             last_text = str(e)
             is_network_error = True
             logger.warning("[Gemini] network error on attempt %d: %s", attempt, e)
-            if attempt == 1 and proxies and "timeout" in str(e).lower():
-                continue  # retry without proxy
+            if attempt == 1 and proxies:
+                continue  # retry with proxy
             import time as _t
             _t.sleep(1)
     

@@ -162,21 +162,36 @@ async def main() -> None:
             break
 
     def _parse_proxy(raw: str) -> tuple[str, object] | str | None:
-        """Возвращает (url, BasicAuth) или url. Всегда (url, auth) при наличии учётки — иначе Invalid port component."""
+        """Возвращает (url, BasicAuth) или url. Всегда (url, auth) при наличии учётки."""
         if not raw or not raw.strip():
             return None
         raw = raw.strip().split(",")[0].strip()
         from aiohttp import BasicAuth
 
-        # URL-формат: http://user:pass@host:port — используем urlparse
+        # URL: http://user:pass@host:port — urlparse
         if raw.startswith("http://") or raw.startswith("https://"):
-            p = urlparse(raw)
-            if p.hostname:
-                port = p.port if p.port is not None else (80 if p.scheme == "http" else 443)
-                proxy_base = f"{p.scheme}://{p.hostname}:{port}"
-                if p.username is not None and p.password is not None:
-                    return (proxy_base, BasicAuth(login=p.username, password=p.password))
-                return proxy_base
+            try:
+                p = urlparse(raw)
+                if p.hostname:
+                    port = p.port if p.port is not None else (80 if p.scheme == "http" else 443)
+                    proxy_base = f"{p.scheme}://{p.hostname}:{port}"
+                    if p.username is not None and p.password is not None:
+                        return (proxy_base, BasicAuth(login=p.username, password=p.password))
+                    return proxy_base
+            except (ValueError, TypeError):
+                pass
+            # Fallback: http://user:host:port (3 части) или http://host:port:user:pass (4 части)
+            rest = raw.split("://", 1)[-1].split("/")[0]
+            parts = rest.split(":")
+            if len(parts) == 4 and parts[1].isdigit():
+                host, port, user, password = parts[0], parts[1], parts[2], parts[3]
+                return (f"http://{host}:{port}", BasicAuth(login=user, password=password))
+            if len(parts) == 3 and parts[2].isdigit():
+                user, host, port = parts[0], parts[1], parts[2]
+                return (f"http://{host}:{port}", BasicAuth(login=user, password=""))
+            if len(parts) == 3 and parts[1].isdigit():
+                host, port, user = parts[0], parts[1], parts[2]
+                return (f"http://{host}:{port}", BasicAuth(login=user, password=""))
             return raw
 
         # IP:PORT:USER:PASS

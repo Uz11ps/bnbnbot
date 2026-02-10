@@ -1,6 +1,7 @@
 """
 Скрипт деплоя bnbai на сервер.
 Требования: pip install paramiko scp
+Переменные: DEPLOY_HOST, DEPLOY_USER, DEPLOY_PASSWORD (или задать ниже)
 """
 import os
 import sys
@@ -12,10 +13,10 @@ except ImportError:
     print("Установите: pip install paramiko scp")
     sys.exit(1)
 
-SERVER = "130.49.148.147"
-PORT = 22
-USER = "root"
-PASSWORD = "ixm7e6yx6zthgbw0"
+SERVER = os.getenv("DEPLOY_HOST", "130.49.148.147")
+PORT = int(os.getenv("DEPLOY_PORT", "22"))
+USER = os.getenv("DEPLOY_USER", "root")
+PASSWORD = os.getenv("DEPLOY_PASSWORD", "ixm7e6yx6zthgbw0")
 REMOTE_DIR = "/root/bnbai"
 REPO_URL = "https://github.com/Uz11ps/bnbnbot.git"
 

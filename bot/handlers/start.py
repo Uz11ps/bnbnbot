@@ -4158,6 +4158,9 @@ async def _do_generate_real(message_or_callback: Message | CallbackQuery, state:
                 last_error_msg = str(e)
                 from bot.gemini import is_proxy_error
                 await db.record_api_error(kid, token[:10], type(e).__name__, str(e), is_proxy_error=is_proxy_error(e))
+                # При таймауте не крутим ключи — проблема в сети/прокси
+                if "timeout" in str(e).lower():
+                    keys_tried = 999
         
         anim_task.cancel()
         try: await process_msg.delete()

@@ -2,14 +2,41 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import io
 import logging
 import os
 from typing import Optional
 
 import requests
 
-
 logger = logging.getLogger(__name__)
+
+# Макс. размер по длинной стороне (уменьшает payload для медленных прокси)
+MAX_IMAGE_DIM = 1200
+JPEG_QUALITY = 88
+
+
+def _compress_image(img_bytes: bytes) -> bytes:
+    """Сжимает изображение для ускорения передачи через прокси."""
+    try:
+        from PIL import Image
+        img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+        w, h = img.size
+        if w <= MAX_IMAGE_DIM and h <= MAX_IMAGE_DIM:
+            buf = io.BytesIO()
+            img.save(buf, "JPEG", quality=JPEG_QUALITY, optimize=True)
+            return buf.getvalue()
+        scale = min(MAX_IMAGE_DIM / w, MAX_IMAGE_DIM / h, 1.0)
+        nw, nh = int(w * scale), int(h * scale)
+        img = img.resize((nw, nh), Image.Resampling.LANCZOS)
+        buf = io.BytesIO()
+        img.save(buf, "JPEG", quality=JPEG_QUALITY, optimize=True)
+        out = buf.getvalue()
+        logger.info("[Gemini] Image compressed: %d -> %d bytes", len(img_bytes), len(out))
+        return out
+    except Exception as e:
+        logger.warning("[Gemini] Compression failed, using original: %s", e)
+        return img_bytes
 
 
 def _valid_proxy(url: str) -> bool:
@@ -54,22 +81,21 @@ def _generate_sync(
     if img_list and len(img_list) > 0:
         logger.info("[Gemini] First image size: %.2f KB", len(img_list[0]) / 1024)
 
-    # Сначала изображения (важно для Imagen 3 / Gemini 3)
+    # Сжимаем изображения для ускорения передачи через прокси
     for i, img_bytes in enumerate(img_list, 1):
         if img_bytes:
-            # Используем семантические метки вместо порядковых номеров
+            compressed = _compress_image(img_bytes)
             if i == 1:
                 label = "[SCENE_AND_MODEL_REFERENCE_IMAGE]:"
             elif i == 2:
                 label = "[CLOTHING_ITEM_TO_WEAR_IMAGE]:"
             else:
                 label = f"Photo {i}:"
-            
             parts.append({"text": label})
             parts.append({
                 "inlineData": {
                     "mimeType": "image/jpeg",
-                    "data": base64.b64encode(img_bytes).decode("utf-8"),
+                    "data": base64.b64encode(compressed).decode("utf-8"),
                 }
             })
             
@@ -136,16 +162,20 @@ def _generate_sync(
     last_text = None
     last_exception = None
     is_network_error = False
-    # Увеличиваем таймаут до 180 секунд (3 минуты)
-    for attempt in range(1, 2):
+    # connect=30s, read=300s (5 мин) — даём время на медленные прокси
+    timeout_tuple = (30, 300)
+    for attempt in range(1, 3):
         try:
             is_network_error = False
-            resp = session.post(endpoint, headers=headers, json=payload, timeout=180, proxies=proxies or None)
+            use_proxies = proxies if attempt == 1 else None
+            if attempt == 2 and proxies:
+                logger.info("[Gemini] Retry without proxy after timeout")
+            resp = session.post(endpoint, headers=headers, json=payload, timeout=timeout_tuple, proxies=use_proxies)
             if resp.status_code >= 500:
                 last_text = resp.text
                 logger.warning("[Gemini] 5xx on attempt %d: %s", attempt, (resp.text or '')[:200])
                 import time as _t
-                _t.sleep(1) 
+                _t.sleep(1)
                 continue
             break
         except (requests.exceptions.ProxyError, requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
@@ -153,6 +183,8 @@ def _generate_sync(
             last_text = str(e)
             is_network_error = True
             logger.warning("[Gemini] proxy/network error on attempt %d: %s", attempt, e)
+            if attempt == 1 and proxies and "timeout" in str(e).lower():
+                continue  # retry without proxy
             import time as _t
             _t.sleep(1)
         except requests.RequestException as e:
@@ -160,6 +192,8 @@ def _generate_sync(
             last_text = str(e)
             is_network_error = True
             logger.warning("[Gemini] network error on attempt %d: %s", attempt, e)
+            if attempt == 1 and proxies and "timeout" in str(e).lower():
+                continue  # retry without proxy
             import time as _t
             _t.sleep(1)
     
@@ -208,7 +242,7 @@ def _generate_sync(
         # Здесь мы только логируем, запись в БД происходит в обработчике
         
         error_obj = RuntimeError(f"Gemini API error {status_code or 'network'}: {error_message}")
-        error_obj.is_proxy_error = is_proxy_error
+        error_obj.is_proxy_error = is_network_error
         error_obj.status_code = status_code
         error_obj.error_type = error_type
         raise error_obj

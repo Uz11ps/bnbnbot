@@ -7,7 +7,8 @@ import logging
 import os
 from typing import Optional
 
-import requests
+import httpx
+import requests  # для совместимости с generate_text
 
 logger = logging.getLogger(__name__)
 
@@ -141,18 +142,16 @@ def _generate_sync(
         ]
     }
 
-    proxies = _build_proxies(proxy_url)
-    session = requests.Session()
-    session.trust_env = False
+    proxy_url_used = proxy_url if _valid_proxy(proxy_url or "") else None
+    timeout_cfg = httpx.Timeout(connect=30.0, read=600.0)  # 10 мин на чтение
 
     logger.info(
         "[Gemini] NANO PRO (v1beta generateContent) start: prompt_len=%d, images_count=%d, ref_img=%s, proxy=%s, model=gemini-3-pro-image-preview",
         len(prompt or ""),
         len(img_list),
         bool(ref_image_bytes),
-        proxies or "none",
+        (proxy_url_used[:30] + "...") if proxy_url_used else "none",
     )
-    # Логируем промт для отладки (первые и последние 500 символов)
     if prompt:
         logger.info(f"[Gemini] Промт (первые 500 символов): {prompt[:500]}")
         if len(prompt) > 1000:
@@ -162,16 +161,14 @@ def _generate_sync(
     last_text = None
     last_exception = None
     is_network_error = False
-    # connect=30s, read=300s (5 мин) — даём время на медленные прокси
-    timeout_tuple = (30, 300)
     for attempt in range(1, 3):
         try:
             is_network_error = False
-            # Сначала пробуем БЕЗ прокси (если сервер за границей — будет быстрее)
-            use_proxies = None if attempt == 1 else proxies
-            if attempt == 2 and proxies:
+            use_proxy = None if attempt == 1 else proxy_url_used
+            if attempt == 2 and proxy_url_used:
                 logger.info("[Gemini] Retry WITH proxy (direct failed)")
-            resp = session.post(endpoint, headers=headers, json=payload, timeout=timeout_tuple, proxies=use_proxies)
+            with httpx.Client(proxy=use_proxy, timeout=timeout_cfg, verify=True) as client:
+                resp = client.post(endpoint, headers=headers, json=payload)
             if resp.status_code >= 500:
                 last_text = resp.text
                 logger.warning("[Gemini] 5xx on attempt %d: %s", attempt, (resp.text or '')[:200])
@@ -179,22 +176,22 @@ def _generate_sync(
                 _t.sleep(1)
                 continue
             break
-        except (requests.exceptions.ProxyError, requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+        except (httpx.ProxyError, httpx.ConnectError, httpx.ReadTimeout, httpx.ConnectTimeout) as e:
             last_exception = e
             last_text = str(e)
             is_network_error = True
             logger.warning("[Gemini] proxy/network error on attempt %d: %s", attempt, e)
-            if attempt == 1 and proxies:
-                continue  # retry with proxy
+            if attempt == 1 and proxy_url_used:
+                continue
             import time as _t
             _t.sleep(1)
-        except requests.RequestException as e:
+        except httpx.HTTPError as e:
             last_exception = e
             last_text = str(e)
             is_network_error = True
-            logger.warning("[Gemini] network error on attempt %d: %s", attempt, e)
-            if attempt == 1 and proxies:
-                continue  # retry with proxy
+            logger.warning("[Gemini] HTTP error on attempt %d: %s", attempt, e)
+            if attempt == 1 and proxy_url_used:
+                continue
             import time as _t
             _t.sleep(1)
     

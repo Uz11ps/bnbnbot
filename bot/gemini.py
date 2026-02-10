@@ -192,7 +192,7 @@ def _generate_sync(
     }
 
     proxy_url_used = proxy_url if _valid_proxy(proxy_url or "") else None
-    timeout_cfg = httpx.Timeout(connect=30.0, read=600.0)  # 10 мин на чтение
+    timeout_cfg = httpx.Timeout(connect=30.0, read=600.0, write=60.0, pool=30.0)
 
     logger.info(
         "[Gemini] NANO PRO (v1beta generateContent) start: prompt_len=%d, images_count=%d, ref_img=%s, proxy=%s, model=gemini-3-pro-image-preview",

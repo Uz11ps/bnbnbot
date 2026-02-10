@@ -223,11 +223,13 @@ async def main() -> None:
 
     selected_proxy = _parse_proxy(proxy_url) if proxy_url else None
 
+    from aiogram.client.session.aiohttp import AiohttpSession
+    # 300 сек — для загрузки больших файлов в Telegram (через прокси может быть медленно)
+    session = AiohttpSession(timeout=300)
     if selected_proxy:
-        from aiogram.client.session.aiohttp import AiohttpSession
         proxy_arg = selected_proxy if isinstance(selected_proxy, tuple) else selected_proxy
         try:
-            session = AiohttpSession(proxy=proxy_arg)
+            session = AiohttpSession(proxy=proxy_arg, timeout=300)
             bot = Bot(
                 token=settings.bot_token,
                 session=session,
@@ -237,13 +239,16 @@ async def main() -> None:
             logger.info(f"Бот запущен через прокси: {host_log}")
         except Exception as e:
             logger.error(f"Ошибка настройки прокси: {e}. Запуск без прокси.")
+            session = AiohttpSession(timeout=300)
             bot = Bot(
                 token=settings.bot_token,
+                session=session,
                 default=DefaultBotProperties(parse_mode=ParseMode.HTML),
             )
     else:
         bot = Bot(
             token=settings.bot_token,
+            session=session,
             default=DefaultBotProperties(parse_mode=ParseMode.HTML),
         )
 

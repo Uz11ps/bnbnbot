@@ -180,8 +180,16 @@ async def main() -> None:
                     return proxy_base
             except (ValueError, TypeError):
                 pass
-            # Fallback: http://user:host:port (3 части) или http://host:port:user:pass (4 части)
+            # Fallback: разбор вручную
             rest = raw.split("://", 1)[-1].split("/")[0]
+            if "@" in rest:
+                auth_part, host_part = rest.rsplit("@", 1)
+                hp = host_part.split(":")
+                if len(hp) == 2 and hp[1].isdigit():
+                    host, port = hp[0], hp[1]
+                    up = auth_part.split(":", 1)
+                    user, password = up[0], up[1] if len(up) > 1 else ""
+                    return (f"http://{host}:{port}", BasicAuth(login=user, password=password))
             parts = rest.split(":")
             if len(parts) == 4 and parts[1].isdigit():
                 host, port, user, password = parts[0], parts[1], parts[2], parts[3]
@@ -192,7 +200,9 @@ async def main() -> None:
             if len(parts) == 3 and parts[1].isdigit():
                 host, port, user = parts[0], parts[1], parts[2]
                 return (f"http://{host}:{port}", BasicAuth(login=user, password=""))
-            return raw
+            if len(parts) == 2 and parts[1].isdigit():
+                return f"http://{parts[0]}:{parts[1]}"
+            return None
 
         # IP:PORT:USER:PASS
         parts = raw.split(":")

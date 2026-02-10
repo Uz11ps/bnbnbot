@@ -4033,54 +4033,51 @@ async def _do_generate_real(message_or_callback: Message | CallbackQuery, state:
             
             keys_tried += 1
             try:
-                downloaded_paths = []
-                import uuid, os
-                logger.info(f"[_do_generate] Подготовка фото: {input_photos}")
-                for fid in input_photos:
-                    if not fid: continue
+                import io
+                
+                async def download_one(fid):
+                    if not fid: return None
+                    if str(fid).startswith("data/"):
+                        local_path = os.path.join(BASE_DIR, fid)
+                        if os.path.exists(local_path):
+                            with open(local_path, "rb") as f:
+                                return f.read()
                     try:
-                        # Если это локальный путь (начинается с data/)
-                        if str(fid).startswith("data/"):
-                            local_path = os.path.join(BASE_DIR, fid)
-                            if os.path.exists(local_path):
-                                # Копируем во временный файл для консистентности
-                                ext = local_path.split('.')[-1]
-                                p = f"data/temp_{uuid.uuid4()}.{ext}"
-                                import shutil
-                                shutil.copy2(local_path, p)
-                                downloaded_paths.append(p)
-                                logger.info(f"[_do_generate] Added local file: {fid}")
-                                continue
-                        
-                        # Иначе считаем, что это Telegram file_id
+                        # Скачиваем напрямую в память
                         f_info = await bot.get_file(fid)
-                        logger.info(f"[_do_generate] Telegram file size for {fid}: {f_info.file_size} bytes")
-                        
-                        ext = f_info.file_path.split('.')[-1]
-                        p = f"data/temp_{uuid.uuid4()}.{ext}"
-                        await bot.download_file(f_info.file_path, p)
-                        
-                        if os.path.exists(p):
-                            sz = os.path.getsize(p)
-                            logger.info(f"[_do_generate] Real file size on disk: {sz} bytes")
-                            
-                        downloaded_paths.append(p)
+                        dest = io.BytesIO()
+                        await bot.download_file(f_info.file_path, dest)
+                        return dest.getvalue()
                     except Exception as e:
                         logger.error(f"Ошибка загрузки фото {fid}: {e}")
+                        return None
+
+                logger.info(f"[_do_generate] Параллельная загрузка {len(input_photos)} фото")
+                # Запускаем загрузку всех фото одновременно
+                images_data = await asyncio.gather(*[download_one(fid) for fid in input_photos])
+                images_data = [d for d in images_data if d] # Убираем пустые
                 
-                logger.info(f"[_do_generate] Запуск генерации (ключ {kid}, фото: {len(downloaded_paths)})")
+                if not images_data:
+                    logger.error("[_do_generate] Не удалось загрузить ни одного фото")
+                    continue
+
+                logger.info(f"[_do_generate] Запуск генерации (ключ {kid}, фото: {len(images_data)})")
                 from bot.gemini import generate_image
                 # Исправляем передачу формата: Gemini ожидает 1x1, 9x16 и т.д.
                 raw_aspect = data.get("aspect") or "1:1"
                 aspect = raw_aspect.replace(":", "x")
                 if aspect == "auto": aspect = "1x1"
                 
-                result_path = await generate_image(api_key=token, prompt=prompt_filled, image_paths=downloaded_paths, aspect_ratio=aspect, quality=quality, key_id=kid, db_instance=db)
-                
-                import os
-                for p in downloaded_paths:
-                    try: os.remove(p)
-                    except: pass
+                # Передаем байты напрямую в generate_image
+                result_path = await generate_image(
+                    api_key=token, 
+                    prompt=prompt_filled, 
+                    images_bytes=images_data, 
+                    aspect_ratio=aspect, 
+                    quality=quality, 
+                    key_id=kid, 
+                    db_instance=db
+                )
                 
                 if result_path:
                     await db.record_api_usage(kid)

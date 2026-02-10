@@ -243,25 +243,28 @@ def is_proxy_error(e: Exception) -> bool:
 async def generate_image(
     api_key: str,
     prompt: str,
-    image_paths: list[str],
+    image_paths: list[str] = None,
     aspect_ratio: str | None = None,
     quality: str | None = None,
     model_name: str | None = "gemini-3-pro-image-preview",
     key_id: int | None = None,
     db_instance = None,
+    images_bytes: list[bytes] = None,
 ) -> Optional[str]:
     """
     Генерирует изображение через Gemini API.
-    Принимает пути к файлам, возвращает путь к результату.
+    Принимает пути к файлам ИЛИ байты изображений напрямую.
     """
     import uuid
     
-    # Читаем файлы в байты
-    images_bytes = []
-    for p in image_paths:
-        if os.path.exists(p):
-            with open(p, "rb") as f:
-                images_bytes.append(f.read())
+    # Если переданы пути, читаем их (для обратной совместимости)
+    if not images_bytes:
+        images_bytes = []
+        if image_paths:
+            for p in image_paths:
+                if os.path.exists(p):
+                    with open(p, "rb") as f:
+                        images_bytes.append(f.read())
     
     # Модифицируем промпт под качество и аспект если нужно
     final_prompt = prompt

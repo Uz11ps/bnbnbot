@@ -3853,7 +3853,7 @@ async def _do_generate_real(message_or_callback: Message | CallbackQuery, state:
         input_photos = [bg, prod]
     elif category == "storefront":
         # Витринное фото: Фото 1 — выбранный фон (модель), Фото 2 — товар
-        model_id = data.get("model_id") or data.get("model_select")
+        model_id = data.get("model_id")
         bg = None
         if model_id:
             async with aiosqlite.connect(db._db_path) as conn:
@@ -4154,7 +4154,7 @@ async def _do_generate_real(message_or_callback: Message | CallbackQuery, state:
                     from bot.gemini import is_proxy_error
                     await db.record_api_error(kid, token[:10], "EmptyResult", "Empty result from API", is_proxy_error=False)
             except Exception as e:
-                logger.error(f"Ошибка генерации на ключе {kid}: {e}")
+                logger.error(f"Ошибка генерации на ключе {kid}: {e}", exc_info=True)
                 last_error_msg = str(e)
                 from bot.gemini import is_proxy_error
                 await db.record_api_error(kid, token[:10], type(e).__name__, str(e), is_proxy_error=is_proxy_error(e))

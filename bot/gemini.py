@@ -49,43 +49,52 @@ def _valid_proxy(url: str) -> bool:
         return False
 
 
-def _normalize_proxy(raw: str | None) -> str | None:
-    """Нормализует прокси в http://host:port или http://user:pass@host:port для httpx."""
-    if not raw or not (s := raw.strip().split(",")[0].strip()):
+def _normalize_proxy_for_httpx(raw: str) -> str | None:
+    """Приводит прокси к формату http://user:pass@host:port для httpx."""
+    if not raw or not raw.strip():
         return None
-    if s.startswith("http://") or s.startswith("https://"):
+    raw = raw.strip().split(",")[0].strip()
+    from urllib.parse import urlparse
+
+    if raw.startswith("http://") or raw.startswith("https://"):
         try:
-            from urllib.parse import urlparse
-            p = urlparse(s)
-            if p.hostname:
-                port = p.port if p.port is not None else (80 if p.scheme == "http" else 443)
-                base = f"{p.scheme}://{p.hostname}:{port}"
+            p = urlparse(raw)
+            if p.hostname and p.port is not None:
                 if p.username is not None and p.password is not None:
-                    return f"{p.scheme}://{p.username}:{p.password}@{p.hostname}:{port}"
-                return base
+                    return f"{p.scheme}://{p.username}:{p.password}@{p.hostname}:{p.port}"
+                return f"{p.scheme}://{p.hostname}:{p.port}"
         except (ValueError, TypeError):
             pass
-        rest = s.split("://", 1)[-1].split("/")[0]
+        rest = raw.split("://", 1)[-1].split("/")[0]
         if "@" in rest:
             auth_part, host_part = rest.rsplit("@", 1)
             hp = host_part.split(":")
             if len(hp) == 2 and hp[1].isdigit():
                 up = auth_part.split(":", 1)
                 user, password = up[0], up[1] if len(up) > 1 else ""
-                return f"http://{user}:{password}@{hp[0]}:{hp[1]}"
+                scheme = raw.split("://", 1)[0]
+                return f"{scheme}://{user}:{password}@{hp[0]}:{hp[1]}"
         parts = rest.split(":")
         if len(parts) == 4 and parts[1].isdigit():
             return f"http://{parts[2]}:{parts[3]}@{parts[0]}:{parts[1]}"
         if len(parts) == 3 and parts[2].isdigit():
-            return f"http://{parts[0]}@{parts[1]}:{parts[2]}"
+            return f"http://{parts[0]}:@{parts[1]}:{parts[2]}"
         if len(parts) == 2 and parts[1].isdigit():
             return f"http://{parts[0]}:{parts[1]}"
     else:
-        parts = s.split(":")
-        if len(parts) == 4 and parts[1].isdigit():
-            return f"http://{parts[2]}:{parts[3]}@{parts[0]}:{parts[1]}"
-        if len(parts) == 2 and parts[1].isdigit():
-            return f"http://{parts[0]}:{parts[1]}"
+        parts = raw.split(":")
+        if len(parts) == 4:
+            try:
+                int(parts[1])
+                return f"http://{parts[2]}:{parts[3]}@{parts[0]}:{parts[1]}"
+            except ValueError:
+                return None
+        if len(parts) == 2:
+            try:
+                int(parts[1])
+                return f"http://{parts[0]}:{parts[1]}"
+            except ValueError:
+                return None
     return None
 
 
@@ -182,7 +191,7 @@ def _generate_sync(
         ]
     }
 
-    proxy_url_used = _normalize_proxy(proxy_url or "") if proxy_url else None
+    proxy_url_used = proxy_url if _valid_proxy(proxy_url or "") else None
     timeout_cfg = httpx.Timeout(connect=30.0, read=600.0)  # 10 мин на чтение
 
     logger.info(
@@ -346,18 +355,26 @@ async def generate_image(
     if quality == '4K':
         final_prompt += " High detail, 4k resolution, professional photography."
         
-    # Выбираем прокси из БД если есть db_instance
+    # Выбираем прокси из БД или bot_proxy
     selected_proxy = None
     if db_instance:
         try:
             active_proxies = await db_instance.get_active_proxies_urls()
-            if active_proxies:
+            if not active_proxies:
+                bot_proxy = await db_instance.get_app_setting("bot_proxy")
+                if bot_proxy:
+                    active_proxies = [bot_proxy]
+            valid_urls = []
+            for raw in (active_proxies or []):
+                url = _normalize_proxy_for_httpx(raw)
+                if url and _valid_proxy(url):
+                    valid_urls.append(url)
+            if valid_urls:
                 import random
-                raw = random.choice(active_proxies)
-                selected_proxy = _normalize_proxy(raw) or raw
-                logger.info(f"[Gemini] Using proxy from DB: {selected_proxy[:30]}...")
+                selected_proxy = random.choice(valid_urls)
+                logger.info(f"[Gemini] Using proxy: {selected_proxy[:50]}...")
         except Exception as e:
-            logger.error(f"[Gemini] Error getting proxies from DB: {e}")
+            logger.error(f"[Gemini] Error getting proxies: {e}")
 
     # Вызываем синхронную обертку
     result_bytes = await asyncio.to_thread(

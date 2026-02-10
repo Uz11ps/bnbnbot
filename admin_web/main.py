@@ -75,6 +75,15 @@ async def run_migrations(db: aiosqlite.Connection):
         from scripts.migrate_proxies import migrate_proxies
         await migrate_proxies()
         
+        # Стандартный прокси по умолчанию (datacenter, Germany)
+        DEFAULT_PROXY = "http://BKM30EMK:Z7DGJIDF@141.11.162.29:47066"
+        async with db.execute("SELECT COUNT(*) FROM proxies WHERE url LIKE ?", ("%141.11.162.29%",)) as cur:
+            has_default = (await cur.fetchone())[0] > 0
+        if not has_default:
+            await db.execute("INSERT INTO proxies (url, is_active, status) VALUES (?, 1, 'unknown')", (DEFAULT_PROXY,))
+            await db.commit()
+            print("Added default proxy (141.11.162.29)")
+        
         # Авто-исправление неверных форматов в БД
         async with db.execute("SELECT id, url FROM proxies") as cur:
             rows = await cur.fetchall()

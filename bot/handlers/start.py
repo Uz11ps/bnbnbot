@@ -4063,6 +4063,7 @@ async def _do_generate_real(message_or_callback: Message | CallbackQuery, state:
 
                 logger.info(f"[_do_generate] Запуск генерации (ключ {kid}, фото: {len(images_data)})")
                 from bot.gemini import generate_image
+                import uuid
                 # Исправляем передачу формата: Gemini ожидает 1x1, 9x16 и т.д.
                 raw_aspect = data.get("aspect") or "1:1"
                 aspect = raw_aspect.replace(":", "x")

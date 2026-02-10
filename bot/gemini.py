@@ -136,11 +136,11 @@ def _generate_sync(
     last_text = None
     last_exception = None
     is_network_error = False
-    # Увеличиваем таймаут до 120 секунд для тяжелых генераций
+    # Увеличиваем таймаут до 180 секунд (3 минуты)
     for attempt in range(1, 2):
         try:
             is_network_error = False
-            resp = session.post(endpoint, headers=headers, json=payload, timeout=120, proxies=proxies or None)
+            resp = session.post(endpoint, headers=headers, json=payload, timeout=180, proxies=proxies or None)
             if resp.status_code >= 500:
                 last_text = resp.text
                 logger.warning("[Gemini] 5xx on attempt %d: %s", attempt, (resp.text or '')[:200])

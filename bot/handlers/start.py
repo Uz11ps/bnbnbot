@@ -3989,7 +3989,8 @@ async def _do_generate_real(message_or_callback: Message | CallbackQuery, state:
                             f"Результат вас приятно удивит"
                         )
                         await msg.edit_text(text)
-                        await asyncio.sleep(1.5)
+                        # Увеличиваем паузу между обновлениями анимации, чтобы не спамить в API Telegram
+                        await asyncio.sleep(3.0)
             except: pass
 
         anim_task = asyncio.create_task(animate_gen(process_msg, lang))

@@ -4091,7 +4091,8 @@ async def _do_generate_real(message_or_callback: Message | CallbackQuery, state:
                     from aiogram.types import FSInputFile
                     from bot.keyboards import result_actions_keyboard, result_actions_own_keyboard
                     
-                    # Определяем клавиатуру ЗАРАНЕЕ
+                    file_size = os.path.getsize(result_path)
+                    logger.info(f"[_do_generate] Отправка результата %d байт в Telegram...", file_size)
                     kb_res = result_actions_own_keyboard(lang) if (data.get("own_mode") or category == "own_variant") else result_actions_keyboard(lang)
                     
                     res_msg = await ans_obj.answer_document(

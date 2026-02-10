@@ -152,44 +152,34 @@ async def main() -> None:
 
     # Пробуем получить прокси из БД
     proxy_url = await db.get_app_setting("bot_proxy")
-    
-    # Если в БД нет, берем из .env
     if not proxy_url:
-        proxy_url = os.getenv("BOT_HTTP_PROXY")
-    
-    if proxy_url and ":" in proxy_url and "://" not in proxy_url:
-        # Приводим к формату URL
-        parts = proxy_url.split(":")
+        proxy_url = os.getenv("BOT_HTTP_PROXY", "").strip()
+    # Фолбэк: берём первый активный прокси из таблицы (стандартный германский)
+    if not proxy_url:
+        for url in (await db.get_active_proxies_urls() or [])[:1]:
+            proxy_url = url
+            break
+
+    def _parse_proxy(raw: str) -> str | None:
+        if not raw or not raw.strip():
+            return None
+        raw = raw.strip()
+        # Уже в формате URL
+        if raw.startswith("http://") or raw.startswith("https://"):
+            return raw.split(",")[0].strip()
+        # Список через запятую — берём первый
+        first = raw.split(",")[0].strip()
+        parts = first.split(":")
         if len(parts) == 4:
-            proxy_url = f"http://{parts[2]}:{parts[3]}@{parts[0]}:{parts[1]}"
-        elif len(parts) == 2:
-            proxy_url = f"http://{parts[0]}:{parts[1]}"
+            return f"http://{parts[2]}:{parts[3]}@{parts[0]}:{parts[1]}"
+        if len(parts) == 2:
+            return f"http://{parts[0]}:{parts[1]}"
+        return None
 
-    if proxy_url:
+    selected_proxy = _parse_proxy(proxy_url) if proxy_url else None
+
+    if selected_proxy:
         from aiogram.client.session.aiohttp import AiohttpSession
-        import random
-        
-        # Поддержка списка прокси через запятую (берем только первый для связи с ТГ)
-        proxy_list = [p.strip() for p in proxy_url.split(",") if p.strip()]
-        raw_proxy = proxy_list[0] if proxy_list else proxy_url
-        
-        selected_proxy = raw_proxy
-        if raw_proxy and "://" not in raw_proxy:
-            parts = raw_proxy.split(":")
-            if len(parts) == 4:
-                # host:port:user:pass -> http://user:pass@host:port
-                selected_proxy = f"http://{parts[2]}:{parts[3]}@{parts[0]}:{parts[1]}"
-            elif len(parts) == 2:
-                # host:port -> http://host:port
-                selected_proxy = f"http://{parts[0]}:{parts[1]}"
-
-        # Финальная проверка формата для aiogram
-        if selected_proxy and not str(selected_proxy).startswith("http"):
-            selected_proxy = f"http://{selected_proxy}"
-
-        # Удаляем лишние пробелы и символы, которые могут вызвать Invalid port
-        selected_proxy = str(selected_proxy).strip().rstrip('/')
-
         try:
             session = AiohttpSession(proxy=selected_proxy)
             bot = Bot(
@@ -197,8 +187,7 @@ async def main() -> None:
                 session=session,
                 default=DefaultBotProperties(parse_mode=ParseMode.HTML),
             )
-            # Логируем только хост для безопасности
-            host_log = selected_proxy.split('@')[-1] if '@' in selected_proxy else selected_proxy
+            host_log = selected_proxy.split("@")[-1] if "@" in selected_proxy else selected_proxy
             logger.info(f"Бот запущен через прокси: {host_log}")
         except Exception as e:
             logger.error(f"Ошибка настройки прокси: {e}. Запуск без прокси.")

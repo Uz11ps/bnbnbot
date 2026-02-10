@@ -210,12 +210,14 @@ def _generate_sync(
     last_text = None
     last_exception = None
     is_network_error = False
+    # Сначала через прокси (если есть) — на многих серверах нет прямого доступа к Google
     for attempt in range(1, 3):
         try:
             is_network_error = False
-            use_proxy = None if attempt == 1 else proxy_url_used
-            if attempt == 2 and proxy_url_used:
-                logger.info("[Gemini] Retry WITH proxy (direct failed)")
+            use_proxy = proxy_url_used if attempt == 1 else None
+            if attempt == 2:
+                use_proxy = None
+                logger.info("[Gemini] Retry without proxy")
             with httpx.Client(proxy=use_proxy, timeout=timeout_cfg, verify=True) as client:
                 resp = client.post(endpoint, headers=headers, json=payload)
             if resp.status_code >= 500:
@@ -294,14 +296,18 @@ def _generate_sync(
         error_obj.error_type = error_type
         raise error_obj
 
+    logger.info("[Gemini] Response 200 OK, parsing JSON...")
     data = resp.json()
+    logger.info("[Gemini] JSON parsed, candidates: %d", len(data.get("candidates") or []))
     # Извлечение inlineData из ответа
     for cand in data.get("candidates", []) or []:
         content = cand.get("content") or {}
         for part in content.get("parts", []) or []:
             inline = part.get("inlineData") or part.get("inline_data")
             if inline and inline.get("data"):
-                return base64.b64decode(inline["data"])  
+                img_bytes = base64.b64decode(inline["data"])
+                logger.info("[Gemini] Image extracted, size: %d bytes", len(img_bytes))
+                return img_bytes
 
     # Если вернулся текст вместо картинки — пробуем взять любой текст для диагностики
     text_parts = []
@@ -313,6 +319,7 @@ def _generate_sync(
         logger.warning("[Gemini] returned text instead of image: %s", (text_parts[0] or '')[:500])
         raise RuntimeError("Gemini returned text instead of image: " + text_parts[0][:200])
 
+    logger.warning("[Gemini] No inlineData in response, keys: %s", list(data.keys())[:10])
     return None
 
 

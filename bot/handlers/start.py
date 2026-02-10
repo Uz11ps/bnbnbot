@@ -3853,7 +3853,7 @@ async def _do_generate_real(message_or_callback: Message | CallbackQuery, state:
         input_photos = [bg, prod]
     elif category == "storefront":
         # Витринное фото: Фото 1 — выбранный фон (модель), Фото 2 — товар
-        model_id = data.get("model_id")
+        model_id = data.get("model_id") or data.get("model_select")
         bg = None
         if model_id:
             async with aiosqlite.connect(db._db_path) as conn:

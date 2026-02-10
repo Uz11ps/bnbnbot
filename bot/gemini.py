@@ -49,6 +49,46 @@ def _valid_proxy(url: str) -> bool:
         return False
 
 
+def _normalize_proxy(raw: str | None) -> str | None:
+    """Нормализует прокси в http://host:port или http://user:pass@host:port для httpx."""
+    if not raw or not (s := raw.strip().split(",")[0].strip()):
+        return None
+    if s.startswith("http://") or s.startswith("https://"):
+        try:
+            from urllib.parse import urlparse
+            p = urlparse(s)
+            if p.hostname:
+                port = p.port if p.port is not None else (80 if p.scheme == "http" else 443)
+                base = f"{p.scheme}://{p.hostname}:{port}"
+                if p.username is not None and p.password is not None:
+                    return f"{p.scheme}://{p.username}:{p.password}@{p.hostname}:{port}"
+                return base
+        except (ValueError, TypeError):
+            pass
+        rest = s.split("://", 1)[-1].split("/")[0]
+        if "@" in rest:
+            auth_part, host_part = rest.rsplit("@", 1)
+            hp = host_part.split(":")
+            if len(hp) == 2 and hp[1].isdigit():
+                up = auth_part.split(":", 1)
+                user, password = up[0], up[1] if len(up) > 1 else ""
+                return f"http://{user}:{password}@{hp[0]}:{hp[1]}"
+        parts = rest.split(":")
+        if len(parts) == 4 and parts[1].isdigit():
+            return f"http://{parts[2]}:{parts[3]}@{parts[0]}:{parts[1]}"
+        if len(parts) == 3 and parts[2].isdigit():
+            return f"http://{parts[0]}@{parts[1]}:{parts[2]}"
+        if len(parts) == 2 and parts[1].isdigit():
+            return f"http://{parts[0]}:{parts[1]}"
+    else:
+        parts = s.split(":")
+        if len(parts) == 4 and parts[1].isdigit():
+            return f"http://{parts[2]}:{parts[3]}@{parts[0]}:{parts[1]}"
+        if len(parts) == 2 and parts[1].isdigit():
+            return f"http://{parts[0]}:{parts[1]}"
+    return None
+
+
 def _build_proxies(proxy_url: str | None) -> dict:
     if not proxy_url or not _valid_proxy(proxy_url):
         return {}
@@ -142,7 +182,7 @@ def _generate_sync(
         ]
     }
 
-    proxy_url_used = proxy_url if _valid_proxy(proxy_url or "") else None
+    proxy_url_used = _normalize_proxy(proxy_url or "") if proxy_url else None
     timeout_cfg = httpx.Timeout(connect=30.0, read=600.0)  # 10 мин на чтение
 
     logger.info(
@@ -313,7 +353,8 @@ async def generate_image(
             active_proxies = await db_instance.get_active_proxies_urls()
             if active_proxies:
                 import random
-                selected_proxy = random.choice(active_proxies)
+                raw = random.choice(active_proxies)
+                selected_proxy = _normalize_proxy(raw) or raw
                 logger.info(f"[Gemini] Using proxy from DB: {selected_proxy[:30]}...")
         except Exception as e:
             logger.error(f"[Gemini] Error getting proxies from DB: {e}")

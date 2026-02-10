@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
+from urllib.parse import urlparse
 from logging.handlers import RotatingFileHandler
 
 from aiogram import Bot, Dispatcher
@@ -161,36 +162,37 @@ async def main() -> None:
             break
 
     def _parse_proxy(raw: str) -> tuple[str, object] | str | None:
-        """Возвращает (url, BasicAuth) или url для AiohttpSession.
-        BasicAuth используется при наличии user:pass — обходит Invalid port component в yarl."""
+        """Возвращает (url, BasicAuth) или url. Всегда (url, auth) при наличии учётки — иначе Invalid port component."""
         if not raw or not raw.strip():
             return None
         raw = raw.strip().split(",")[0].strip()
+        from aiohttp import BasicAuth
 
+        # URL-формат: http://user:pass@host:port — используем urlparse
         if raw.startswith("http://") or raw.startswith("https://"):
-            url = raw
-            # Парсим user:pass@host:port
-            if "@" in url:
-                auth_part, host_part = url.rsplit("@", 1)
-                scheme = url.split("://", 1)[0]
-                host_port = host_part.split("/")[0]
-                proxy_base = f"{scheme}://{host_port}"
-                try:
-                    user_pass = auth_part.split("://", 1)[1]
-                    if ":" in user_pass:
-                        user, password = user_pass.split(":", 1)
-                        from aiohttp import BasicAuth
-                        return (proxy_base, BasicAuth(login=user, password=password))
-                except Exception:
-                    pass
-            return url
+            p = urlparse(raw)
+            if p.hostname:
+                port = p.port if p.port is not None else (80 if p.scheme == "http" else 443)
+                proxy_base = f"{p.scheme}://{p.hostname}:{port}"
+                if p.username is not None and p.password is not None:
+                    return (proxy_base, BasicAuth(login=p.username, password=p.password))
+                return proxy_base
+            return raw
+
+        # IP:PORT:USER:PASS
         parts = raw.split(":")
         if len(parts) == 4:
             host, port, user, password = parts[0], parts[1], parts[2], parts[3]
-            proxy_base = f"http://{host}:{port}"
-            from aiohttp import BasicAuth
-            return (proxy_base, BasicAuth(login=user, password=password))
+            try:
+                int(port)
+            except ValueError:
+                return None
+            return (f"http://{host}:{port}", BasicAuth(login=user, password=password))
         if len(parts) == 2:
+            try:
+                int(parts[1])
+            except ValueError:
+                return None
             return f"http://{parts[0]}:{parts[1]}"
         return None
 

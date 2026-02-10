@@ -137,7 +137,7 @@ def _generate_sync(
     last_exception = None
     is_network_error = False
     # Увеличиваем таймаут до 120 секунд для тяжелых генераций
-    for attempt in range(1, 3):
+    for attempt in range(1, 2):
         try:
             is_network_error = False
             resp = session.post(endpoint, headers=headers, json=payload, timeout=120, proxies=proxies or None)

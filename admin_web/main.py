@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, Form, Depends, HTTPException, status, BackgroundTasks, File, UploadFile
+from fastapi import FastAPI, Request, Form, Depends, HTTPException, status, BackgroundTasks, File, UploadFile, Query
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, Response
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
@@ -2032,6 +2032,9 @@ templates.env.filters["from_json"] = json.loads
 templates.env.globals["is_site_admin"] = lambda email: email == ADMIN_USER if email else False
 templates.env.globals["base_url"] = BASE_URL
 templates.env.globals["user"] = None  # по умолчанию для страниц без авторизации
+from admin_web.site_strings import get_site_string, SITE_STRINGS
+templates.env.globals["get_site_string"] = get_site_string
+templates.env.globals["SITE_STRINGS"] = SITE_STRINGS
 security = HTTPBasic()
 
 try:
@@ -2120,6 +2123,14 @@ async def health():
     return {"status": "ok", "base_url": BASE_URL}
 
 
+@app.get("/api/site/strings")
+async def api_site_strings(lang: str = "ru"):
+    """Строки для текущего языка (welcome, profile и т.д.)"""
+    from admin_web.site_strings import SITE_STRINGS
+    strings = SITE_STRINGS.get(lang, SITE_STRINGS["ru"])
+    return {"lang": lang, "strings": strings}
+
+
 @app.get("/api/site/status")
 async def api_site_status():
     """Диагностика: проверка API ключей и БД"""
@@ -2138,7 +2149,7 @@ async def api_site_status():
 
 # === Сайт: авторизация, регистрация, профиль, welcome ===
 @app.get("/login", response_class=HTMLResponse)
-async def login_page(request: Request, next_url: str = "/welcome"):
+async def login_page(request: Request, next_url: str = Query("/welcome", alias="next")):
     if _get_site_user_from_session(request):
         return RedirectResponse(url=next_url or "/welcome", status_code=302)
     return templates.TemplateResponse("login.html", {"request": request, "next_url": next_url, "user": None})
@@ -2225,20 +2236,76 @@ async def profile_page(request: Request, user=Depends(require_site_user), db: ai
 
 
 @app.post("/profile/lang")
-async def profile_lang(request: Request, lang: str = Form(...), user=Depends(require_site_user), db: aiosqlite.Connection = Depends(get_db)):
+async def profile_lang(request: Request, lang: str = Form(...), next_url: str = Form("/profile"), user=Depends(require_site_user), db: aiosqlite.Connection = Depends(get_db)):
+    if lang not in ("ru", "en", "vi"):
+        lang = "ru"
     await db.execute("UPDATE site_users SET language=? WHERE id=?", (lang, user["id"]))
     await db.execute("UPDATE users SET language=? WHERE id=?", (lang, -user["id"]))
     await db.commit()
     if request.session.get("site_user"):
         request.session["site_user"]["language"] = lang
-    return RedirectResponse(url="/profile", status_code=302)
+    return RedirectResponse(url=next_url or "/profile", status_code=302)
+
+
+@app.post("/site/lang")
+async def site_lang_guest(request: Request, lang: str = Form(...), next_url: str = Form("/welcome")):
+    """Смена языка для неавторизованных — сохраняем в сессию"""
+    if lang in ("ru", "en", "vi"):
+        request.session["preferred_lang"] = lang
+    return RedirectResponse(url=next_url or "/welcome", status_code=302)
 
 
 @app.get("/welcome", response_class=HTMLResponse)
 async def welcome_page(request: Request, user=Depends(get_current_site_user)):
     if not user:
         return RedirectResponse(url="/login?next=/welcome", status_code=302)
-    return templates.TemplateResponse("welcome.html", {"request": request, "user": user})
+    from admin_web.site_strings import SITE_STRINGS
+    lang = user.get("language", "ru") or "ru"
+    return templates.TemplateResponse("welcome.html", {
+        "request": request, "user": user,
+        "lang": lang,
+        "site_strings": SITE_STRINGS.get(lang, SITE_STRINGS["ru"])
+    })
+
+
+@app.get("/balance", response_class=HTMLResponse)
+async def site_balance_page(request: Request, user=Depends(require_site_user), db: aiosqlite.Connection = Depends(get_db)):
+    contact = "https://t.me/bnbslow"
+    async with db.execute("SELECT value FROM app_settings WHERE key='support_contact'") as cur:
+        row = await cur.fetchone()
+        if row and row[0]:
+            contact = row[0]
+    return templates.TemplateResponse("site_balance.html", {"request": request, "user": user, "contact": contact})
+
+
+@app.get("/help", response_class=HTMLResponse)
+async def site_support_page(request: Request, user=Depends(get_current_site_user), db: aiosqlite.Connection = Depends(get_db)):
+    contact = "https://t.me/bnbslow"
+    async with db.execute("SELECT value FROM app_settings WHERE key='support_contact'") as cur:
+        row = await cur.fetchone()
+        if row and row[0]:
+            contact = row[0]
+    return templates.TemplateResponse("site_support.html", {"request": request, "user": user, "contact": contact})
+
+
+@app.get("/instructions", response_class=HTMLResponse)
+async def site_instructions_page(request: Request, user=Depends(get_current_site_user), db: aiosqlite.Connection = Depends(get_db)):
+    content = ""
+    async with db.execute("SELECT value FROM app_settings WHERE key='howto_text'") as cur:
+        row = await cur.fetchone()
+        if row and row[0]:
+            content = row[0]
+    return templates.TemplateResponse("site_instructions.html", {"request": request, "user": user, "content": content})
+
+
+@app.get("/terms", response_class=HTMLResponse)
+async def site_terms_page(request: Request, user=Depends(get_current_site_user), db: aiosqlite.Connection = Depends(get_db)):
+    content = ""
+    async with db.execute("SELECT value FROM app_settings WHERE key='agreement_text'") as cur:
+        row = await cur.fetchone()
+        if row and row[0]:
+            content = row[0]
+    return templates.TemplateResponse("site_terms.html", {"request": request, "user": user, "content": content})
 
 
 @app.get("/api/site/categories")
@@ -3052,7 +3119,7 @@ async def delete_model_photo(model_id: int, db: aiosqlite.Connection = Depends(g
 @app.get("/settings", response_class=HTMLResponse)
 async def settings_page(request: Request, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
     try:
-        async with db.execute("SELECT key, value FROM app_settings WHERE key IN ('agreement_text', 'howto_text', 'required_channel_id', 'required_channel_url')") as cur:
+        async with db.execute("SELECT key, value FROM app_settings WHERE key IN ('agreement_text', 'howto_text', 'required_channel_id', 'required_channel_url', 'support_contact')") as cur:
             rows = await cur.fetchall()
             settings_dict = {r[0]: r[1] for r in rows}
     except Exception: settings_dict = {}
@@ -3061,7 +3128,8 @@ async def settings_page(request: Request, db: aiosqlite.Connection = Depends(get
         "agreement": settings_dict.get('agreement_text', ""), 
         "howto": settings_dict.get('howto_text', ""),
         "channel_id": settings_dict.get('required_channel_id', ""),
-        "channel_url": settings_dict.get('required_channel_url', "https://t.me/bnbslow")
+        "channel_url": settings_dict.get('required_channel_url', "https://t.me/bnbslow"),
+        "support_contact": settings_dict.get('support_contact', "https://t.me/bnbslow")
     })
 
 @app.post("/settings/update")
@@ -3070,6 +3138,7 @@ async def update_app_settings(
     howto: str = Form(""), 
     channel_id: str = Form(None),
     channel_url: str = Form(None),
+    support_contact: str = Form(None),
     db: aiosqlite.Connection = Depends(get_db), 
     user: str = Depends(get_current_username)
 ):
@@ -3087,6 +3156,7 @@ async def update_app_settings(
     await db.execute("INSERT INTO app_settings (key, value) VALUES ('howto_text', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (howto,))
     await db.execute("INSERT INTO app_settings (key, value) VALUES ('required_channel_id', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (channel_id or "",))
     await db.execute("INSERT INTO app_settings (key, value) VALUES ('required_channel_url', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (channel_url or "https://t.me/bnbslow",))
+    await db.execute("INSERT INTO app_settings (key, value) VALUES ('support_contact', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (support_contact or "https://t.me/bnbslow",))
     await db.commit()
     return RedirectResponse(url="/settings", status_code=303)
 

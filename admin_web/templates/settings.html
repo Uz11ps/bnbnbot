@@ -47,7 +47,13 @@
         <div class="mb-4">
             <label class="form-label fw-bold">📖 Инструкция (Как пользоваться)</label>
             <textarea name="howto" class="form-control" rows="10">{{ howto }}</textarea>
-            <div class="form-text">Отображается при нажатии кнопки "Инструкция" в боте.</div>
+            <div class="form-text">Отображается при нажатии кнопки "Инструкция" в боте и на сайте.</div>
+        </div>
+
+        <div class="mb-4">
+            <label class="form-label fw-bold">💬 Контакт для поддержки и пополнения</label>
+            <input type="text" name="support_contact" class="form-control" value="{{ support_contact }}" placeholder="https://t.me/bnbslow или @username или email@example.com">
+            <div class="form-text">Ссылка на Telegram, email — для техподдержки и пополнения баланса на сайте.</div>
         </div>
 
         <button type="submit" class="btn btn-primary">Сохранить изменения</button>

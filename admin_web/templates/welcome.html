@@ -1,95 +1,98 @@
 {% extends "base_site.html" %}
-{% block title %}Создать — AI-ROOM{% endblock %}
+{% set lang = lang|default('ru') %}
+{% block title %}{{ get_site_string('nav_create', lang) }} — AI-ROOM{% endblock %}
 {% block content %}
 <div class="row">
     <div class="col-12">
         <div class="card p-4 mb-4">
-            <h4 class="text-bright"><i class="bi bi-magic"></i> Генерация изображений</h4>
-            <p class="text-muted">Выберите категорию и следуйте шагам для создания изображения</p>
+            <h4 class="text-bright"><i class="bi bi-magic"></i> {{ get_site_string('welcome_title', lang) }}</h4>
+            <p class="text-muted">{{ get_site_string('welcome_subtitle', lang) }}</p>
         </div>
 
         <div id="wizard" class="card p-4">
             <!-- Шаг 1: Выбор категории -->
             <div id="step-category" class="wizard-step">
-                <h5 class="mb-3">1. Выберите категорию</h5>
+                <h5 class="mb-3">1. {{ get_site_string('welcome_step1', lang) }}</h5>
                 <div class="row g-3" id="categories-list"></div>
             </div>
 
             <!-- Шаг 2: Выбор модели (для female/male/child/presets) -->
             <div id="step-model" class="wizard-step d-none">
-                <h5 class="mb-3">2. Выберите модель</h5>
+                <h5 class="mb-3">2. {{ get_site_string('welcome_step2', lang) }}</h5>
                 <div class="row g-3" id="models-list"></div>
-                <button type="button" class="btn btn-outline-secondary mt-2" onclick="showStep('category')"><i class="bi bi-arrow-left"></i> Назад</button>
+                <button type="button" class="btn btn-outline-secondary mt-2" onclick="showStep('category')"><i class="bi bi-arrow-left"></i> {{ get_site_string('welcome_back', lang) }}</button>
             </div>
 
             <!-- Шаг 3: Загрузка фото (одно фото) -->
             <div id="step-photos" class="wizard-step d-none">
-                <h5 class="mb-3">3. Загрузите фото товара</h5>
-                <p class="text-muted" id="photos-hint">Загрузите фото товара</p>
+                <h5 class="mb-3">3. {{ get_site_string('welcome_upload_product', lang) }}</h5>
+                <p class="text-muted" id="photos-hint">{{ get_site_string('welcome_upload_product', lang) }}</p>
                 <div class="mb-3">
                     <input type="file" id="photo-input" class="form-control" accept="image/*">
                 </div>
                 <div id="photo-preview" class="d-flex flex-wrap gap-2 mb-3"></div>
-                <button type="button" class="btn btn-primary d-none" id="photos-next" onclick="goFromPhotos()">Далее</button>
-                <button type="button" class="btn btn-outline-secondary" onclick="showStep(wizardData.modelId !== null ? 'model' : 'category')"><i class="bi bi-arrow-left"></i> Назад</button>
+                <button type="button" class="btn btn-primary d-none" id="photos-next" onclick="goFromPhotos()">{{ get_site_string('welcome_next', lang) }}</button>
+                <button type="button" class="btn btn-outline-secondary" onclick="showStep(wizardData.modelId !== null ? 'model' : 'category')"><i class="bi bi-arrow-left"></i> {{ get_site_string('welcome_back', lang) }}</button>
             </div>
 
             <!-- Шаг 3a: Фото 1 — фон/сцена (только own_variant) -->
             <div id="step-photo1" class="wizard-step d-none">
-                <h5 class="mb-3">3. Загрузите фото фона или сцены</h5>
-                <p class="text-muted">Фото интерьера, локации или фона, куда будет помещён товар</p>
+                <h5 class="mb-3">3. {{ get_site_string('welcome_step3a', lang) }}</h5>
+                <p class="text-muted">{{ get_site_string('welcome_upload_bg', lang) }}</p>
                 <div class="mb-3">
                     <input type="file" id="photo1-input" class="form-control" accept="image/*">
                 </div>
                 <div id="photo1-preview" class="d-flex flex-wrap gap-2 mb-3"></div>
-                <button type="button" class="btn btn-primary d-none" id="photo1-next" onclick="showStep('photo2')">Далее</button>
-                <button type="button" class="btn btn-outline-secondary" onclick="showStep('category')"><i class="bi bi-arrow-left"></i> Назад</button>
+                <button type="button" class="btn btn-primary d-none" id="photo1-next" onclick="showStep('photo2')">{{ get_site_string('welcome_next', lang) }}</button>
+                <button type="button" class="btn btn-outline-secondary" onclick="showStep('category')"><i class="bi bi-arrow-left"></i> {{ get_site_string('welcome_back', lang) }}</button>
             </div>
 
             <!-- Шаг 3b: Фото 2 — товар (только own_variant) -->
             <div id="step-photo2" class="wizard-step d-none">
-                <h5 class="mb-3">4. Загрузите фото товара</h5>
-                <p class="text-muted">Фото товара, который нужно разместить на выбранном фоне</p>
+                <h5 class="mb-3">4. {{ get_site_string('welcome_step4', lang) }}</h5>
+                <p class="text-muted">{{ get_site_string('welcome_upload_product_on_bg', lang) }}</p>
                 <div class="mb-3">
                     <input type="file" id="photo2-input" class="form-control" accept="image/*">
                 </div>
                 <div id="photo2-preview" class="d-flex flex-wrap gap-2 mb-3"></div>
-                <button type="button" class="btn btn-primary d-none" id="photo2-next" onclick="showStep('aspect')">Далее</button>
-                <button type="button" class="btn btn-outline-secondary" onclick="showStep('photo1')"><i class="bi bi-arrow-left"></i> Назад</button>
+                <button type="button" class="btn btn-primary d-none" id="photo2-next" onclick="showStep('aspect')">{{ get_site_string('welcome_next', lang) }}</button>
+                <button type="button" class="btn btn-outline-secondary" onclick="showStep('photo1')"><i class="bi bi-arrow-left"></i> {{ get_site_string('welcome_back', lang) }}</button>
             </div>
 
             <!-- Шаг 4/5: Аспект -->
             <div id="step-aspect" class="wizard-step d-none">
-                <h5 class="mb-3" id="aspect-step-num">4. Формат фото</h5>
+                <h5 class="mb-3" id="aspect-step-num">4. {{ get_site_string('welcome_format', lang) }}</h5>
                 <div class="row g-2" id="aspect-list"></div>
-                <button type="button" class="btn btn-outline-secondary mt-2" id="aspect-back-btn"><i class="bi bi-arrow-left"></i> Назад</button>
+                <button type="button" class="btn btn-outline-secondary mt-2" id="aspect-back-btn"><i class="bi bi-arrow-left"></i> {{ get_site_string('welcome_back', lang) }}</button>
             </div>
 
             <!-- Шаг 5/6: Генерация -->
             <div id="step-generate" class="wizard-step d-none">
-                <h5 class="mb-3" id="gen-step-num">5. Генерация</h5>
-                <p class="text-muted">Стоимость: <strong id="gen-price">20</strong> ₽</p>
+                <h5 class="mb-3" id="gen-step-num">5. {{ get_site_string('welcome_generate', lang) }}</h5>
+                <p class="text-muted">{{ get_site_string('welcome_cost', lang) }}: <strong id="gen-price">20</strong> ₽</p>
                 <button type="button" class="btn btn-primary btn-lg" id="btn-generate" onclick="runGenerate()">
-                    <i class="bi bi-stars"></i> Сгенерировать
+                    <i class="bi bi-stars"></i> {{ get_site_string('welcome_generate_btn', lang) }}
                 </button>
-                <button type="button" class="btn btn-outline-secondary mt-2" id="gen-back-btn"><i class="bi bi-arrow-left"></i> Назад</button>
+                <button type="button" class="btn btn-outline-secondary mt-2" id="gen-back-btn"><i class="bi bi-arrow-left"></i> {{ get_site_string('welcome_back', lang) }}</button>
             </div>
 
             <!-- Результат -->
             <div id="step-result" class="wizard-step d-none">
-                <h5 class="mb-3 text-success"><i class="bi bi-check-circle"></i> Готово!</h5>
+                <h5 class="mb-3 text-success"><i class="bi bi-check-circle"></i> {{ get_site_string('welcome_done', lang) }}!</h5>
                 <div class="text-center mb-3">
                     <img id="result-img" src="" alt="Результат" class="img-fluid rounded" style="max-height: 400px;">
                 </div>
-                <a href="/welcome" class="btn btn-primary">Создать ещё</a>
+                <a href="/welcome" class="btn btn-primary">{{ get_site_string('welcome_create_more', lang) }}</a>
             </div>
         </div>
     </div>
 </div>
 
 <script>
+window.S = {{ site_strings | tojson }};
 const ASPECTS = ["1:1", "9:16", "16:9", "3:4", "4:3", "3:2", "2:3"];
 let wizardData = { category: null, categoryKey: null, modelId: null, photos: [], aspect: "1:1" };
+function s(k) { return (window.S && window.S[k]) || k; }
 
 async function loadCategories() {
     const r = await fetch('/api/site/categories');
@@ -150,7 +153,7 @@ async function loadModels(categoryKey) {
             <div class="card h-100 cursor-pointer" onclick="selectModel(${m.id})" style="cursor:pointer">
                 <div class="card-body text-center p-2">
                     ${img}
-                    <small class="text-bright">${m.name || 'Модель'}</small>
+                    <small class="text-bright">${m.name || s('welcome_model')}</small>
                 </div>
             </div>`;
         el.appendChild(card);
@@ -166,9 +169,9 @@ function selectModel(id) {
 function updatePhotosHint() {
     const h = document.getElementById('photos-hint');
     if (wizardData.categoryKey === 'storefront' && wizardData.modelId) {
-        h.textContent = 'Фон возьмём из выбранной модели. Загрузите фото товара';
+        h.textContent = s('welcome_storefront_hint');
     } else {
-        h.textContent = 'Загрузите фото товара';
+        h.textContent = s('welcome_upload_product');
     }
 }
 
@@ -246,13 +249,13 @@ function showStep(step) {
         }
         document.getElementById('aspect-back-btn').onclick = () => showStep(wizardData.categoryKey === 'own_variant' ? 'photo2' : 'photos');
         const n = wizardData.categoryKey === 'own_variant' ? 5 : 4;
-        document.getElementById('aspect-step-num').textContent = n + '. Формат фото';
+        document.getElementById('aspect-step-num').textContent = n + '. ' + s('welcome_format');
     }
     if (step === 'generate') {
         document.getElementById('gen-price').textContent = '20';
         document.getElementById('gen-back-btn').onclick = () => showStep('aspect');
         const n = wizardData.categoryKey === 'own_variant' ? 6 : 5;
-        document.getElementById('gen-step-num').textContent = n + '. Генерация';
+        document.getElementById('gen-step-num').textContent = n + '. ' + s('welcome_generate');
     }
 }
 
@@ -266,7 +269,7 @@ document.getElementById('step-aspect').appendChild(aspectNextBtn);
 async function runGenerate() {
     const btn = document.getElementById('btn-generate');
     btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Генерация...';
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> ' + s('welcome_generate') + '...';
     try {
         const formData = new FormData();
         formData.append('category', wizardData.categoryKey);
@@ -297,7 +300,7 @@ async function runGenerate() {
         alert(e.message || 'Ошибка генерации');
     }
     btn.disabled = false;
-    btn.innerHTML = '<i class="bi bi-stars"></i> Сгенерировать';
+    btn.innerHTML = '<i class="bi bi-stars"></i> ' + s('welcome_generate_btn');
 }
 
 function base64ToBlob(b64) {

@@ -8,5 +8,5 @@ pydantic
 pydantic-settings
 python-dotenv
 httpx[socks]
-passlib[bcrypt]
+bcrypt
 itsdangerous

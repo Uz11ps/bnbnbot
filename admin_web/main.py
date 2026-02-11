@@ -5,7 +5,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from starlette.middleware.sessions import SessionMiddleware
 import secrets
-from passlib.hash import bcrypt
+import bcrypt
 import aiosqlite
 import os
 import asyncio
@@ -2127,7 +2127,7 @@ async def login_submit(
 ):
     async with db.execute("SELECT id, email, password_hash, balance, language FROM site_users WHERE LOWER(email)=?", (email.lower(),)) as cur:
         row = await cur.fetchone()
-    if not row or not bcrypt.verify(password, row[2]):
+    if not row or not bcrypt.checkpw(password.encode("utf-8"), row[2].encode("utf-8") if isinstance(row[2], str) else row[2]):
         return templates.TemplateResponse("login.html", {"request": request, "error": "Неверный email или пароль", "next_url": next, "user": None})
     request.session["site_user"] = {"id": row[0], "email": row[1], "balance": row[3], "language": row[4] or "ru"}
     return RedirectResponse(url=next or "/welcome", status_code=302)
@@ -2152,21 +2152,30 @@ async def register_submit(
         return templates.TemplateResponse("register.html", {"request": request, "error": "Пароли не совпадают", "user": None})
     if len(password) < 6:
         return templates.TemplateResponse("register.html", {"request": request, "error": "Пароль должен быть не менее 6 символов", "user": None})
-    async with db.execute("SELECT id FROM site_users WHERE LOWER(email)=?", (email.lower(),)) as cur:
-        if await cur.fetchone():
-            return templates.TemplateResponse("register.html", {"request": request, "error": "Пользователь с таким email уже существует", "user": None})
-    ph = bcrypt.hash(password)
-    await db.execute("INSERT INTO site_users (email, password_hash, balance, language) VALUES (?, ?, 0, 'ru')", (email, ph))
-    await db.commit()
-    async with db.execute("SELECT last_insert_rowid()") as cur:
-        site_id = (await cur.fetchone())[0]
-    await db.execute(
-        "INSERT INTO users (id, balance, language, blocked) VALUES (?, 0, 'ru', 0)",
-        (-site_id,),
-    )
-    await db.commit()
-    request.session["site_user"] = {"id": site_id, "email": email, "balance": 0, "language": "ru"}
-    return RedirectResponse(url="/welcome", status_code=302)
+    try:
+        async with db.execute("SELECT id FROM site_users WHERE LOWER(email)=?", (email.lower(),)) as cur:
+            if await cur.fetchone():
+                return templates.TemplateResponse("register.html", {"request": request, "error": "Пользователь с таким email уже существует", "user": None})
+        ph = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+        await db.execute("INSERT INTO site_users (email, password_hash, balance, language) VALUES (?, ?, 0, 'ru')", (email, ph))
+        await db.commit()
+        async with db.execute("SELECT last_insert_rowid()") as cur:
+            site_id = (await cur.fetchone())[0]
+        await db.execute(
+            "INSERT INTO users (id, balance, language, blocked, accepted_terms, trial_used) VALUES (?, 0, 'ru', 0, 0, 0)",
+            (-site_id,),
+        )
+        await db.commit()
+        request.session["site_user"] = {"id": site_id, "email": email, "balance": 0, "language": "ru"}
+        return RedirectResponse(url="/welcome", status_code=302)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return templates.TemplateResponse("register.html", {
+            "request": request,
+            "error": "Ошибка регистрации. Попробуйте позже.",
+            "user": None
+        })
 
 
 @app.get("/logout", response_class=RedirectResponse)

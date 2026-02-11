@@ -2031,6 +2031,7 @@ templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "admin_web", "templ
 templates.env.filters["from_json"] = json.loads
 templates.env.globals["is_site_admin"] = lambda email: email == ADMIN_USER if email else False
 templates.env.globals["base_url"] = BASE_URL
+templates.env.globals["user"] = None  # по умолчанию для страниц без авторизации
 security = HTTPBasic()
 
 try:
@@ -2113,7 +2114,7 @@ async def health():
 async def login_page(request: Request, next_url: str = "/welcome"):
     if _get_site_user_from_session(request):
         return RedirectResponse(url=next_url or "/welcome", status_code=302)
-    return templates.TemplateResponse("login.html", {"request": request, "next_url": next_url})
+    return templates.TemplateResponse("login.html", {"request": request, "next_url": next_url, "user": None})
 
 
 @app.post("/login", response_class=RedirectResponse)
@@ -2127,7 +2128,7 @@ async def login_submit(
     async with db.execute("SELECT id, email, password_hash, balance, language FROM site_users WHERE LOWER(email)=?", (email.lower(),)) as cur:
         row = await cur.fetchone()
     if not row or not bcrypt.verify(password, row[2]):
-        return templates.TemplateResponse("login.html", {"request": request, "error": "Неверный email или пароль", "next_url": next})
+        return templates.TemplateResponse("login.html", {"request": request, "error": "Неверный email или пароль", "next_url": next, "user": None})
     request.session["site_user"] = {"id": row[0], "email": row[1], "balance": row[3], "language": row[4] or "ru"}
     return RedirectResponse(url=next or "/welcome", status_code=302)
 
@@ -2136,7 +2137,7 @@ async def login_submit(
 async def register_page(request: Request):
     if _get_site_user_from_session(request):
         return RedirectResponse(url="/welcome", status_code=302)
-    return templates.TemplateResponse("register.html", {"request": request})
+    return templates.TemplateResponse("register.html", {"request": request, "user": None})
 
 
 @app.post("/register", response_class=HTMLResponse)
@@ -2148,12 +2149,12 @@ async def register_submit(
     db: aiosqlite.Connection = Depends(get_db),
 ):
     if password != password2:
-        return templates.TemplateResponse("register.html", {"request": request, "error": "Пароли не совпадают"})
+        return templates.TemplateResponse("register.html", {"request": request, "error": "Пароли не совпадают", "user": None})
     if len(password) < 6:
-        return templates.TemplateResponse("register.html", {"request": request, "error": "Пароль должен быть не менее 6 символов"})
+        return templates.TemplateResponse("register.html", {"request": request, "error": "Пароль должен быть не менее 6 символов", "user": None})
     async with db.execute("SELECT id FROM site_users WHERE LOWER(email)=?", (email.lower(),)) as cur:
         if await cur.fetchone():
-            return templates.TemplateResponse("register.html", {"request": request, "error": "Пользователь с таким email уже существует"})
+            return templates.TemplateResponse("register.html", {"request": request, "error": "Пользователь с таким email уже существует", "user": None})
     ph = bcrypt.hash(password)
     await db.execute("INSERT INTO site_users (email, password_hash, balance, language) VALUES (?, ?, 0, 'ru')", (email, ph))
     await db.commit()

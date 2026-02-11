@@ -2712,22 +2712,24 @@ async def index(request: Request, db: aiosqlite.Connection = Depends(get_db), us
 async def list_users(request: Request, q: str = "", db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
     if q:
         query = """
-            SELECT u.id, u.username, u.blocked, u.balance, u.generation_price
+            SELECT u.id, u.username, u.blocked, u.balance, u.generation_price, su.email as site_email
             FROM users u 
-            WHERE u.id LIKE ? OR u.username LIKE ? 
+            LEFT JOIN site_users su ON su.id = -u.id
+            WHERE CAST(u.id AS TEXT) LIKE ? OR u.username LIKE ? OR su.email LIKE ?
             ORDER BY u.created_at DESC LIMIT 100
         """
-        async with db.execute(query, (f"%{q}%", f"%{q}%")) as cur:
-            users = await cur.fetchall()
+        async with db.execute(query, (f"%{q}%", f"%{q}%", f"%{q}%")) as cur:
+            rows = await cur.fetchall()
     else:
         query = """
-            SELECT u.id, u.username, u.blocked, u.balance, u.generation_price
+            SELECT u.id, u.username, u.blocked, u.balance, u.generation_price, su.email as site_email
             FROM users u 
+            LEFT JOIN site_users su ON su.id = -u.id
             ORDER BY u.created_at DESC LIMIT 50
         """
         async with db.execute(query) as cur:
-            users = await cur.fetchall()
-            
+            rows = await cur.fetchall()
+    users = [dict(zip(r.keys(), r)) for r in rows]
     return templates.TemplateResponse("users.html", {
         "request": request, 
         "users": users, 

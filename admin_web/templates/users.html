@@ -2,7 +2,7 @@
 {% block content %}
 <div class="card p-3 mb-4">
     <form class="d-flex gap-2">
-        <input type="text" name="q" class="form-control" placeholder="Поиск по ID или username..." value="{{ q }}">
+        <input type="text" name="q" class="form-control" placeholder="Поиск по ID, username или email..." value="{{ q }}">
         <button type="submit" class="btn btn-primary"><i class="bi bi-search"></i></button>
     </form>
 </div>
@@ -13,8 +13,8 @@
         <div class="card p-3 h-100">
             <div class="d-flex justify-content-between align-items-start">
                 <div>
-                    <h5 class="mb-0">ID: {{ user.id }}</h5>
-                    <div class="text-muted">@{{ user.username or "нет" }}</div>
+                    <h5 class="mb-0">{% if user.site_email %}{{ user.site_email }}{% else %}ID: {{ user.id }}{% endif %}</h5>
+                    <div class="text-muted">{% if user.site_email %}ID: {{ user.id }}{% else %}@{{ user.username or "нет" }}{% endif %}</div>
                 </div>
                 <div class="badge bg-primary fs-6">Баланс: {{ user.balance }} ₽</div>
             </div>

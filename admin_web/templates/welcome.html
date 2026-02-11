@@ -210,7 +210,12 @@ async function runGenerate() {
             formData.append('photos', b, `photo${i}.jpg`);
         }
         const r = await fetch('/api/site/generate', { method: 'POST', body: formData, credentials: 'same-origin' });
-        const data = await r.json();
+        let data;
+        try {
+            data = await r.json();
+        } catch (_) {
+            throw new Error(r.status === 500 ? 'Ошибка сервера. Попробуйте позже.' : 'Ошибка запроса');
+        }
         if (data.error) throw new Error(data.error);
         document.getElementById('result-img').src = data.result_url || '/data/' + data.result_path;
         showStep('result');

@@ -2255,6 +2255,15 @@ async def api_site_generate(
     user=Depends(require_site_user),
     db: aiosqlite.Connection = Depends(get_db),
 ):
+    try:
+        return await _api_site_generate_impl(request, user, db)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+async def _api_site_generate_impl(request: Request, user: dict, db):
     form = await request.form()
     category = form.get("category", "")
     model_id = form.get("model_id") or None

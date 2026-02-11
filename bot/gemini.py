@@ -400,11 +400,13 @@ async def generate_image(
     if result_bytes:
         # Сжимаем для быстрой загрузки в Telegram (через прокси может быть медленно)
         result_bytes = _compress_image(result_bytes)
-        out_path = f"data/result_{uuid.uuid4()}.jpg"
-        os.makedirs("data", exist_ok=True)
+        _base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        data_dir = os.path.join(_base, "data")
+        os.makedirs(data_dir, exist_ok=True)
+        out_path = os.path.join(data_dir, f"result_{uuid.uuid4()}.jpg")
         with open(out_path, "wb") as f:
             f.write(result_bytes)
-        return out_path
+        return f"data/{os.path.basename(out_path)}"
         
     return None
 

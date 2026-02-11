@@ -8,5 +8,7 @@ pydantic
 pydantic-settings
 python-dotenv
 httpx[socks]
+requests
 bcrypt
 itsdangerous
+Pillow>=10.0

@@ -143,30 +143,6 @@ async def run_migrations(db: aiosqlite.Connection):
     """)
     await db.commit()
 
-    # api_keys и api_usage_log (может не существовать если бот не запускался)
-    await db.execute("""
-    CREATE TABLE IF NOT EXISTS api_keys (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        token TEXT NOT NULL,
-        is_active INTEGER NOT NULL DEFAULT 1,
-        priority INTEGER NOT NULL DEFAULT 0,
-        daily_usage INTEGER NOT NULL DEFAULT 0,
-        total_usage INTEGER NOT NULL DEFAULT 0,
-        last_usage_reset TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-    """)
-    await db.execute("""
-    CREATE TABLE IF NOT EXISTS api_usage_log (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        key_id INTEGER NOT NULL,
-        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY(key_id) REFERENCES api_keys(id)
-    );
-    """)
-    await db.commit()
-
     # Таблица веб-пользователей (user_id = -site_users.id в users/balance_history/generation_history)
     await db.execute("""
     CREATE TABLE IF NOT EXISTS site_users (
@@ -2127,10 +2103,37 @@ async def require_site_user(request: Request, db: aiosqlite.Connection = Depends
 CATEGORIES = ["presets", "female", "male", "child", "boy", "girl", "storefront", "whitebg", "random", "random_other", "own", "own_variant", "infographic_clothing", "infographic_other"]
 
 
+# Глобальный обработчик всех необработанных исключений — возвращаем JSON
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    import traceback
+    traceback.print_exc()
+    return JSONResponse(
+        status_code=500,
+        content={"error": str(exc), "type": type(exc).__name__}
+    )
+
+
 # === Проверка работы приложения ===
 @app.get("/health")
 async def health():
     return {"status": "ok", "base_url": BASE_URL}
+
+
+@app.get("/api/site/status")
+async def api_site_status():
+    """Диагностика: проверка API ключей и БД"""
+    try:
+        import sys
+        if BASE_DIR not in sys.path:
+            sys.path.insert(0, BASE_DIR)
+        from bot.db import Database
+        bot_db = Database(DB_PATH)
+        keys = await bot_db.list_api_keys()
+        active = sum(1 for k in keys if k[2])
+        return {"api_keys_total": len(keys), "api_keys_active": active, "db_path": DB_PATH}
+    except Exception as e:
+        return {"error": str(e), "db_path": DB_PATH}
 
 
 # === Сайт: авторизация, регистрация, профиль, welcome ===

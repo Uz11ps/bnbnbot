@@ -78,9 +78,9 @@ async function loadCategories() {
         const card = document.createElement('div');
         card.className = 'col-md-4 col-6';
         card.innerHTML = `
-            <div class="card h-100 cursor-pointer" onclick="selectCategory('${c.key}', '${(c.name_ru || c.key).replace(/'/g, "\\'")}')" style="cursor:pointer">
+            <div class="card h-100 cursor-pointer category-card" onclick="selectCategory('${c.key}', '${(c.name_ru || c.key).replace(/'/g, "\\'")}')" style="cursor:pointer">
                 <div class="card-body text-center">
-                    <h6>${c.name_ru || c.key}</h6>
+                    <h6 class="text-bright">${c.name_ru || c.key}</h6>
                 </div>
             </div>`;
         el.appendChild(card);
@@ -122,7 +122,7 @@ async function loadModels(categoryKey) {
             <div class="card h-100 cursor-pointer" onclick="selectModel(${m.id})" style="cursor:pointer">
                 <div class="card-body text-center p-2">
                     ${img}
-                    <small>${m.name || 'Модель'}</small>
+                    <small class="text-bright">${m.name || 'Модель'}</small>
                 </div>
             </div>`;
         el.appendChild(card);

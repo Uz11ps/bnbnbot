@@ -143,6 +143,30 @@ async def run_migrations(db: aiosqlite.Connection):
     """)
     await db.commit()
 
+    # api_keys и api_usage_log (может не существовать если бот не запускался)
+    await db.execute("""
+    CREATE TABLE IF NOT EXISTS api_keys (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        token TEXT NOT NULL,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        priority INTEGER NOT NULL DEFAULT 0,
+        daily_usage INTEGER NOT NULL DEFAULT 0,
+        total_usage INTEGER NOT NULL DEFAULT 0,
+        last_usage_reset TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+    await db.execute("""
+    CREATE TABLE IF NOT EXISTS api_usage_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        key_id INTEGER NOT NULL,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(key_id) REFERENCES api_keys(id)
+    );
+    """)
+    await db.commit()
+
     # Таблица веб-пользователей (user_id = -site_users.id в users/balance_history/generation_history)
     await db.execute("""
     CREATE TABLE IF NOT EXISTS site_users (

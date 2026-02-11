@@ -22,26 +22,50 @@
                 <button type="button" class="btn btn-outline-secondary mt-2" onclick="showStep('category')"><i class="bi bi-arrow-left"></i> Назад</button>
             </div>
 
-            <!-- Шаг 3: Загрузка фото -->
+            <!-- Шаг 3a: Фото 1 (фон) — только для own_variant -->
+            <div id="step-photo1" class="wizard-step d-none">
+                <h5 class="mb-3">3. Загрузите фото 1: фон/сцена</h5>
+                <p class="text-muted">Выберите изображение с фоном или сценой, куда будет помещён товар</p>
+                <div class="mb-3">
+                    <input type="file" id="photo1-input" class="form-control" accept="image/*">
+                </div>
+                <div id="photo1-preview" class="mb-3"></div>
+                <button type="button" class="btn btn-primary d-none" id="photo1-next" onclick="onPhoto1Ready()">Далее</button>
+                <button type="button" class="btn btn-outline-secondary" onclick="showStep('category')"><i class="bi bi-arrow-left"></i> Назад</button>
+            </div>
+
+            <!-- Шаг 3b: Фото 2 (товар) — только для own_variant -->
+            <div id="step-photo2" class="wizard-step d-none">
+                <h5 class="mb-3">4. Загрузите фото 2: товар</h5>
+                <p class="text-muted">Выберите изображение товара, который нужно разместить на фоне</p>
+                <div class="mb-3">
+                    <input type="file" id="photo2-input" class="form-control" accept="image/*">
+                </div>
+                <div id="photo2-preview" class="mb-3"></div>
+                <button type="button" class="btn btn-primary d-none" id="photo2-next" onclick="onPhoto2Ready()">Далее</button>
+                <button type="button" class="btn btn-outline-secondary" onclick="showStep('photo1')"><i class="bi bi-arrow-left"></i> Назад</button>
+            </div>
+
+            <!-- Шаг 3: Загрузка фото (одно фото для остальных категорий) -->
             <div id="step-photos" class="wizard-step d-none">
                 <h5 class="mb-3">3. Загрузите фото</h5>
                 <p class="text-muted" id="photos-hint">Загрузите фото товара</p>
                 <div class="mb-3">
-                    <input type="file" id="photo-input" class="form-control" accept="image/*" multiple>
+                    <input type="file" id="photo-input" class="form-control" accept="image/*">
                 </div>
                 <div id="photo-preview" class="d-flex flex-wrap gap-2 mb-3"></div>
                 <button type="button" class="btn btn-primary d-none" id="photos-next" onclick="showStep('aspect')">Далее</button>
                 <button type="button" class="btn btn-outline-secondary" onclick="showStep(wizardData.modelId !== null ? 'model' : 'category')"><i class="bi bi-arrow-left"></i> Назад</button>
             </div>
 
-            <!-- Шаг 4: Аспект -->
+            <!-- Шаг 4/5: Аспект -->
             <div id="step-aspect" class="wizard-step d-none">
-                <h5 class="mb-3">4. Формат фото</h5>
+                <h5 class="mb-3" id="aspect-step-title">4. Формат фото</h5>
                 <div class="row g-2" id="aspect-list"></div>
-                <button type="button" class="btn btn-outline-secondary mt-2" onclick="showStep('photos')"><i class="bi bi-arrow-left"></i> Назад</button>
+                <button type="button" class="btn btn-outline-secondary mt-2" id="aspect-back-btn"><i class="bi bi-arrow-left"></i> Назад</button>
             </div>
 
-            <!-- Шаг 5: Генерация -->
+            <!-- Шаг 5/6: Генерация -->
             <div id="step-generate" class="wizard-step d-none">
                 <h5 class="mb-3">5. Генерация</h5>
                 <p class="text-muted">Стоимость: <strong id="gen-price">20</strong> ₽</p>
@@ -98,10 +122,19 @@ async function checkCategoryEnabled(key) {
 function selectCategory(key, name) {
     wizardData.categoryKey = key;
     wizardData.category = name;
+    wizardData.photos = [];
     const needsModel = ['female', 'male', 'child', 'boy', 'girl', 'presets', 'storefront', 'own'].includes(key);
     if (needsModel) {
         loadModels(key);
         showStep('model');
+    } else if (key === 'own_variant') {
+        document.getElementById('photo1-input').value = '';
+        document.getElementById('photo2-input').value = '';
+        document.getElementById('photo1-preview').innerHTML = '';
+        document.getElementById('photo2-preview').innerHTML = '';
+        document.getElementById('photo1-next').classList.add('d-none');
+        document.getElementById('photo2-next').classList.add('d-none');
+        showStep('photo1');
     } else {
         wizardData.modelId = null;
         updatePhotosHint();
@@ -137,35 +170,72 @@ function selectModel(id) {
 
 function updatePhotosHint() {
     const h = document.getElementById('photos-hint');
-    if (wizardData.categoryKey === 'own_variant') {
-        h.textContent = 'Загрузите 2 фото: 1) фон/сцена, 2) товар';
-    } else if (wizardData.categoryKey === 'storefront' && wizardData.modelId) {
+    if (wizardData.categoryKey === 'storefront' && wizardData.modelId) {
         h.textContent = 'Загрузите фото товара (фон возьмём из выбранной модели)';
     } else {
-        h.textContent = wizardData.modelId ? 'Загрузите фото товара' : 'Загрузите фото товара';
+        h.textContent = 'Загрузите фото товара';
     }
+}
+
+function onPhoto1Ready() {
+    showStep('photo2');
+}
+
+function onPhoto2Ready() {
+    showStep('aspect');
 }
 
 document.getElementById('photo-input').addEventListener('change', function(e) {
     const files = Array.from(e.target.files || []);
-    wizardData.photos = [];
+    if (files.length === 0) return;
+    wizardData.photos = [files[0]];
     const preview = document.getElementById('photo-preview');
     preview.innerHTML = '';
-    const minPhotos = wizardData.categoryKey === 'own_variant' ? 2 : 1;
-    for (const f of files) {
-        const reader = new FileReader();
-        reader.onload = (ev) => {
-            wizardData.photos.push(ev.target.result.split(',')[1]);
-            const img = document.createElement('img');
-            img.src = ev.target.result;
-            img.style.cssText = 'width:80px;height:80px;object-fit:cover;border-radius:8px';
-            preview.appendChild(img);
-            if (wizardData.photos.length >= minPhotos) {
-                document.getElementById('photos-next').classList.remove('d-none');
-            }
-        };
-        reader.readAsDataURL(f);
-    }
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+        wizardData.photos[0] = ev.target.result.split(',')[1];
+        const img = document.createElement('img');
+        img.src = ev.target.result;
+        img.style.cssText = 'width:80px;height:80px;object-fit:cover;border-radius:8px';
+        preview.appendChild(img);
+        document.getElementById('photos-next').classList.remove('d-none');
+    };
+    reader.readAsDataURL(files[0]);
+});
+
+document.getElementById('photo1-input').addEventListener('change', function(e) {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    const preview = document.getElementById('photo1-preview');
+    preview.innerHTML = '';
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+        if (!wizardData.photos) wizardData.photos = [];
+        wizardData.photos[0] = ev.target.result.split(',')[1];
+        const img = document.createElement('img');
+        img.src = ev.target.result;
+        img.style.cssText = 'width:120px;height:120px;object-fit:cover;border-radius:8px';
+        preview.appendChild(img);
+        document.getElementById('photo1-next').classList.remove('d-none');
+    };
+    reader.readAsDataURL(f);
+});
+
+document.getElementById('photo2-input').addEventListener('change', function(e) {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    const preview = document.getElementById('photo2-preview');
+    preview.innerHTML = '';
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+        wizardData.photos[1] = ev.target.result.split(',')[1];
+        const img = document.createElement('img');
+        img.src = ev.target.result;
+        img.style.cssText = 'width:120px;height:120px;object-fit:cover;border-radius:8px';
+        preview.appendChild(img);
+        document.getElementById('photo2-next').classList.remove('d-none');
+    };
+    reader.readAsDataURL(f);
 });
 
 function showStep(step) {
@@ -175,6 +245,13 @@ function showStep(step) {
     if (step === 'aspect') {
         const list = document.getElementById('aspect-list');
         list.innerHTML = '';
+        const aspectNum = 4;
+        const titleEl = document.getElementById('aspect-step-title');
+        if (titleEl) titleEl.textContent = aspectNum + '. Формат фото';
+        const backBtn = document.getElementById('aspect-back-btn');
+        if (backBtn) {
+            backBtn.onclick = () => showStep(wizardData.categoryKey === 'own_variant' ? 'photo2' : 'photos');
+        }
         for (const a of ASPECTS) {
             const btn = document.createElement('button');
             btn.type = 'button';

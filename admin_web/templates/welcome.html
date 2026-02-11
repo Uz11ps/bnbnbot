@@ -1,0 +1,237 @@
+{% extends "base_site.html" %}
+{% block title %}Создать — AI-ROOM{% endblock %}
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="card p-4 mb-4">
+            <h4><i class="bi bi-magic"></i> Генерация изображений</h4>
+            <p class="text-muted">Выберите категорию и следуйте шагам для создания изображения</p>
+        </div>
+
+        <div id="wizard" class="card p-4">
+            <!-- Шаг 1: Выбор категории -->
+            <div id="step-category" class="wizard-step">
+                <h5 class="mb-3">1. Выберите категорию</h5>
+                <div class="row g-3" id="categories-list"></div>
+            </div>
+
+            <!-- Шаг 2: Выбор модели (для female/male/child/presets) -->
+            <div id="step-model" class="wizard-step d-none">
+                <h5 class="mb-3">2. Выберите модель</h5>
+                <div class="row g-3" id="models-list"></div>
+                <button type="button" class="btn btn-outline-secondary mt-2" onclick="showStep('category')"><i class="bi bi-arrow-left"></i> Назад</button>
+            </div>
+
+            <!-- Шаг 3: Загрузка фото -->
+            <div id="step-photos" class="wizard-step d-none">
+                <h5 class="mb-3">3. Загрузите фото</h5>
+                <p class="text-muted" id="photos-hint">Загрузите фото товара</p>
+                <div class="mb-3">
+                    <input type="file" id="photo-input" class="form-control" accept="image/*" multiple>
+                </div>
+                <div id="photo-preview" class="d-flex flex-wrap gap-2 mb-3"></div>
+                <button type="button" class="btn btn-primary d-none" id="photos-next" onclick="showStep('aspect')">Далее</button>
+                <button type="button" class="btn btn-outline-secondary" onclick="showStep(wizardData.modelId !== null ? 'model' : 'category')"><i class="bi bi-arrow-left"></i> Назад</button>
+            </div>
+
+            <!-- Шаг 4: Аспект -->
+            <div id="step-aspect" class="wizard-step d-none">
+                <h5 class="mb-3">4. Формат фото</h5>
+                <div class="row g-2" id="aspect-list"></div>
+                <button type="button" class="btn btn-outline-secondary mt-2" onclick="showStep('photos')"><i class="bi bi-arrow-left"></i> Назад</button>
+            </div>
+
+            <!-- Шаг 5: Генерация -->
+            <div id="step-generate" class="wizard-step d-none">
+                <h5 class="mb-3">5. Генерация</h5>
+                <p class="text-muted">Стоимость: <strong id="gen-price">20</strong> ₽</p>
+                <button type="button" class="btn btn-primary btn-lg" id="btn-generate" onclick="runGenerate()">
+                    <i class="bi bi-stars"></i> Сгенерировать
+                </button>
+                <button type="button" class="btn btn-outline-secondary mt-2" onclick="showStep('aspect')"><i class="bi bi-arrow-left"></i> Назад</button>
+            </div>
+
+            <!-- Результат -->
+            <div id="step-result" class="wizard-step d-none">
+                <h5 class="mb-3 text-success"><i class="bi bi-check-circle"></i> Готово!</h5>
+                <div class="text-center mb-3">
+                    <img id="result-img" src="" alt="Результат" class="img-fluid rounded" style="max-height: 400px;">
+                </div>
+                <a href="/welcome" class="btn btn-primary">Создать ещё</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+const ASPECTS = ["1:1", "9:16", "16:9", "3:4", "4:3", "3:2", "2:3"];
+let wizardData = { category: null, categoryKey: null, modelId: null, photos: [], aspect: "1:1" };
+
+async function loadCategories() {
+    const r = await fetch('/api/site/categories');
+    const data = await r.json();
+    const el = document.getElementById('categories-list');
+    el.innerHTML = '';
+    for (const c of data.categories || []) {
+        const enabled = await checkCategoryEnabled(c.key);
+        if (!enabled) continue;
+        const card = document.createElement('div');
+        card.className = 'col-md-4 col-6';
+        card.innerHTML = `
+            <div class="card h-100 cursor-pointer" onclick="selectCategory('${c.key}', '${(c.name_ru || c.key).replace(/'/g, "\\'")}')" style="cursor:pointer">
+                <div class="card-body text-center">
+                    <h6>${c.name_ru || c.key}</h6>
+                </div>
+            </div>`;
+        el.appendChild(card);
+    }
+}
+
+async function checkCategoryEnabled(key) {
+    try {
+        const r = await fetch(`/api/site/category/${key}/enabled`);
+        const d = await r.json();
+        return d.enabled !== false;
+    } catch { return true; }
+}
+
+function selectCategory(key, name) {
+    wizardData.categoryKey = key;
+    wizardData.category = name;
+    const needsModel = ['female', 'male', 'child', 'boy', 'girl', 'presets', 'storefront', 'own'].includes(key);
+    if (needsModel) {
+        loadModels(key);
+        showStep('model');
+    } else {
+        wizardData.modelId = null;
+        updatePhotosHint();
+        showStep('photos');
+    }
+}
+
+async function loadModels(categoryKey) {
+    const r = await fetch(`/api/site/models?category=${categoryKey}`);
+    const data = await r.json();
+    const el = document.getElementById('models-list');
+    el.innerHTML = '';
+    for (const m of data.models || []) {
+        const card = document.createElement('div');
+        card.className = 'col-md-3 col-4';
+        const img = m.photo_url ? `<img src="${m.photo_url}" class="img-fluid rounded" style="height:80px;object-fit:cover">` : '';
+        card.innerHTML = `
+            <div class="card h-100 cursor-pointer" onclick="selectModel(${m.id})" style="cursor:pointer">
+                <div class="card-body text-center p-2">
+                    ${img}
+                    <small>${m.name || 'Модель'}</small>
+                </div>
+            </div>`;
+        el.appendChild(card);
+    }
+}
+
+function selectModel(id) {
+    wizardData.modelId = id;
+    updatePhotosHint();
+    showStep('photos');
+}
+
+function updatePhotosHint() {
+    const h = document.getElementById('photos-hint');
+    if (wizardData.categoryKey === 'own_variant') {
+        h.textContent = 'Загрузите 2 фото: 1) фон/сцена, 2) товар';
+    } else if (wizardData.categoryKey === 'storefront' && wizardData.modelId) {
+        h.textContent = 'Загрузите фото товара (фон возьмём из выбранной модели)';
+    } else {
+        h.textContent = wizardData.modelId ? 'Загрузите фото товара' : 'Загрузите фото товара';
+    }
+}
+
+document.getElementById('photo-input').addEventListener('change', function(e) {
+    const files = Array.from(e.target.files || []);
+    wizardData.photos = [];
+    const preview = document.getElementById('photo-preview');
+    preview.innerHTML = '';
+    const minPhotos = wizardData.categoryKey === 'own_variant' ? 2 : 1;
+    for (const f of files) {
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            wizardData.photos.push(ev.target.result.split(',')[1]);
+            const img = document.createElement('img');
+            img.src = ev.target.result;
+            img.style.cssText = 'width:80px;height:80px;object-fit:cover;border-radius:8px';
+            preview.appendChild(img);
+            if (wizardData.photos.length >= minPhotos) {
+                document.getElementById('photos-next').classList.remove('d-none');
+            }
+        };
+        reader.readAsDataURL(f);
+    }
+});
+
+function showStep(step) {
+    document.querySelectorAll('.wizard-step').forEach(s => s.classList.add('d-none'));
+    const el = document.getElementById('step-' + step);
+    if (el) el.classList.remove('d-none');
+    if (step === 'aspect') {
+        const list = document.getElementById('aspect-list');
+        list.innerHTML = '';
+        for (const a of ASPECTS) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'col-4 col-md-2 btn ' + (wizardData.aspect === a ? 'btn-success' : 'btn-outline-secondary');
+            btn.textContent = a;
+            btn.onclick = () => { wizardData.aspect = a; document.querySelectorAll('#aspect-list .btn').forEach(b => b.className = 'col-4 col-md-2 btn btn-outline-secondary'); btn.className = 'col-4 col-md-2 btn btn-success'; };
+            list.appendChild(btn);
+        }
+    }
+    if (step === 'generate') {
+        document.getElementById('gen-price').textContent = '20';
+    }
+}
+
+const aspectNextBtn = document.createElement('button');
+aspectNextBtn.id = 'aspect-next';
+aspectNextBtn.className = 'btn btn-primary mt-2';
+aspectNextBtn.textContent = 'Далее';
+aspectNextBtn.onclick = () => showStep('generate');
+document.getElementById('step-aspect').appendChild(aspectNextBtn);
+
+async function runGenerate() {
+    const btn = document.getElementById('btn-generate');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Генерация...';
+    try {
+        const formData = new FormData();
+        formData.append('category', wizardData.categoryKey);
+        formData.append('model_id', wizardData.modelId || '');
+        formData.append('aspect', wizardData.aspect);
+        for (let i = 0; i < wizardData.photos.length; i++) {
+            const b = base64ToBlob(wizardData.photos[i]);
+            formData.append('photos', b, `photo${i}.jpg`);
+        }
+        const r = await fetch('/api/site/generate', { method: 'POST', body: formData, credentials: 'same-origin' });
+        const data = await r.json();
+        if (data.error) throw new Error(data.error);
+        document.getElementById('result-img').src = data.result_url || '/data/' + data.result_path;
+        showStep('result');
+        if (data.new_balance !== undefined) {
+            const badge = document.querySelector('.balance-badge');
+            if (badge) badge.textContent = data.new_balance + ' ₽';
+        }
+    } catch (e) {
+        alert(e.message || 'Ошибка генерации');
+    }
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-stars"></i> Сгенерировать';
+}
+
+function base64ToBlob(b64) {
+    const binary = atob(b64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return new Blob([bytes], { type: 'image/jpeg' });
+}
+
+loadCategories();
+</script>
+{% endblock %}

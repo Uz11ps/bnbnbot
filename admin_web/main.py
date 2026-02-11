@@ -3,7 +3,9 @@ from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, Resp
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from starlette.middleware.sessions import SessionMiddleware
 import secrets
+from passlib.hash import bcrypt
 import aiosqlite
 import os
 import asyncio
@@ -137,6 +139,19 @@ async def run_migrations(db: aiosqlite.Connection):
         admin_id TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(user_id) REFERENCES users(id)
+    );
+    """)
+    await db.commit()
+
+    # Таблица веб-пользователей (user_id = -site_users.id в users/balance_history/generation_history)
+    await db.execute("""
+    CREATE TABLE IF NOT EXISTS site_users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        balance INTEGER NOT NULL DEFAULT 0,
+        language TEXT NOT NULL DEFAULT 'ru',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     """)
     await db.commit()
@@ -1979,7 +1994,32 @@ async def lifespan(app: FastAPI):
         
     yield
 
-app = FastAPI(title="AI-ROOM Admin Panel", lifespan=lifespan)
+# Домен и путь для g-box.space
+BASE_URL = os.getenv("BASE_URL", "https://g-box.space").rstrip("/")
+BASE_PATH = os.getenv("BASE_PATH", "").rstrip("/")  # Если приложение под подпутём, напр. /app
+
+app = FastAPI(title="AI-ROOM Admin Panel", lifespan=lifespan, root_path=BASE_PATH or None)
+
+# Сессии для веб-пользователей
+SESSION_SECRET = os.getenv("SESSION_SECRET", "change-me-in-production-" + secrets.token_hex(16))
+app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, max_age=86400 * 7)
+
+# Переписывание пути: если прокси передаёт /admin/welcome, убираем BASE_PATH -> /welcome
+if BASE_PATH:
+    from starlette.types import ASGIApp, Receive, Scope, Send
+    class PathStripMiddleware:
+        def __init__(self, app: ASGIApp) -> None:
+            self.app = app
+        async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+            path = scope.get("path", "")
+            if path.startswith(BASE_PATH):
+                scope = dict(scope)
+                new_path = path[len(BASE_PATH):] or "/"
+                scope["path"] = new_path
+                if scope.get("root_path"):
+                    scope["root_path"] = (scope["root_path"] or "") + BASE_PATH
+            await self.app(scope, receive, send)
+    app.add_middleware(PathStripMiddleware)
 
 # --- Статика ---
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -1989,6 +2029,8 @@ app.mount("/uploads", StaticFiles(directory=os.path.join(BASE_DIR, "data", "uplo
 # --- Шаблоны ---
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "admin_web", "templates"))
 templates.env.filters["from_json"] = json.loads
+templates.env.globals["is_site_admin"] = lambda email: email == ADMIN_USER if email else False
+templates.env.globals["base_url"] = BASE_URL
 security = HTTPBasic()
 
 try:
@@ -2030,7 +2072,335 @@ async def get_db():
     finally:
         await db.close()
 
+
+def _get_site_user_from_session(request: Request) -> dict | None:
+    return request.session.get("site_user")
+
+
+async def get_current_site_user(request: Request, db: aiosqlite.Connection = Depends(get_db)):
+    user = _get_site_user_from_session(request)
+    if not user:
+        return None
+    async with db.execute("SELECT id, email, language FROM site_users WHERE id=?", (user["id"],)) as cur:
+        row = await cur.fetchone()
+    if not row:
+        request.session.pop("site_user", None)
+        return None
+    async with db.execute("SELECT balance FROM users WHERE id=?", (-row[0],)) as cur:
+        bal = await cur.fetchone()
+    balance = int(bal[0]) if bal and bal[0] is not None else 0
+    return {"id": row[0], "email": row[1], "balance": balance, "language": row[2] or "ru"}
+
+
+async def require_site_user(request: Request, db: aiosqlite.Connection = Depends(get_db)):
+    user = await get_current_site_user(request, db)
+    if not user:
+        raise HTTPException(status_code=302, headers={"Location": "/login?next=" + request.url.path})
+    return user
+
+
 CATEGORIES = ["presets", "female", "male", "child", "boy", "girl", "storefront", "whitebg", "random", "random_other", "own", "own_variant", "infographic_clothing", "infographic_other"]
+
+
+# === Проверка работы приложения ===
+@app.get("/health")
+async def health():
+    return {"status": "ok", "base_url": BASE_URL}
+
+
+# === Сайт: авторизация, регистрация, профиль, welcome ===
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request, next_url: str = "/welcome"):
+    if _get_site_user_from_session(request):
+        return RedirectResponse(url=next_url or "/welcome", status_code=302)
+    return templates.TemplateResponse("login.html", {"request": request, "next_url": next_url})
+
+
+@app.post("/login", response_class=RedirectResponse)
+async def login_submit(
+    request: Request,
+    email: str = Form(...),
+    password: str = Form(...),
+    next: str = Form("/welcome"),
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    async with db.execute("SELECT id, email, password_hash, balance, language FROM site_users WHERE LOWER(email)=?", (email.lower(),)) as cur:
+        row = await cur.fetchone()
+    if not row or not bcrypt.verify(password, row[2]):
+        return templates.TemplateResponse("login.html", {"request": request, "error": "Неверный email или пароль", "next_url": next})
+    request.session["site_user"] = {"id": row[0], "email": row[1], "balance": row[3], "language": row[4] or "ru"}
+    return RedirectResponse(url=next or "/welcome", status_code=302)
+
+
+@app.get("/register", response_class=HTMLResponse)
+async def register_page(request: Request):
+    if _get_site_user_from_session(request):
+        return RedirectResponse(url="/welcome", status_code=302)
+    return templates.TemplateResponse("register.html", {"request": request})
+
+
+@app.post("/register", response_class=HTMLResponse)
+async def register_submit(
+    request: Request,
+    email: str = Form(...),
+    password: str = Form(...),
+    password2: str = Form(...),
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    if password != password2:
+        return templates.TemplateResponse("register.html", {"request": request, "error": "Пароли не совпадают"})
+    if len(password) < 6:
+        return templates.TemplateResponse("register.html", {"request": request, "error": "Пароль должен быть не менее 6 символов"})
+    async with db.execute("SELECT id FROM site_users WHERE LOWER(email)=?", (email.lower(),)) as cur:
+        if await cur.fetchone():
+            return templates.TemplateResponse("register.html", {"request": request, "error": "Пользователь с таким email уже существует"})
+    ph = bcrypt.hash(password)
+    await db.execute("INSERT INTO site_users (email, password_hash, balance, language) VALUES (?, ?, 0, 'ru')", (email, ph))
+    await db.commit()
+    async with db.execute("SELECT last_insert_rowid()") as cur:
+        site_id = (await cur.fetchone())[0]
+    await db.execute(
+        "INSERT INTO users (id, balance, language, blocked) VALUES (?, 0, 'ru', 0)",
+        (-site_id,),
+    )
+    await db.commit()
+    request.session["site_user"] = {"id": site_id, "email": email, "balance": 0, "language": "ru"}
+    return RedirectResponse(url="/welcome", status_code=302)
+
+
+@app.get("/logout", response_class=RedirectResponse)
+async def logout(request: Request):
+    request.session.pop("site_user", None)
+    return RedirectResponse(url="/welcome", status_code=302)
+
+
+@app.get("/profile", response_class=HTMLResponse)
+async def profile_page(request: Request, user=Depends(require_site_user), db: aiosqlite.Connection = Depends(get_db)):
+    async with db.execute(
+        "SELECT pid, category, result_path, created_at FROM generation_history WHERE user_id=? ORDER BY created_at DESC LIMIT 50",
+        (-user["id"],),
+    ) as cur:
+        history = await cur.fetchall()
+    return templates.TemplateResponse(
+        "profile.html",
+        {"request": request, "user": user, "history": [dict(h) for h in history]},
+    )
+
+
+@app.post("/profile/lang")
+async def profile_lang(request: Request, lang: str = Form(...), user=Depends(require_site_user), db: aiosqlite.Connection = Depends(get_db)):
+    await db.execute("UPDATE site_users SET language=? WHERE id=?", (lang, user["id"]))
+    await db.execute("UPDATE users SET language=? WHERE id=?", (lang, -user["id"]))
+    await db.commit()
+    if request.session.get("site_user"):
+        request.session["site_user"]["language"] = lang
+    return RedirectResponse(url="/profile", status_code=302)
+
+
+@app.get("/welcome", response_class=HTMLResponse)
+async def welcome_page(request: Request, user=Depends(get_current_site_user)):
+    if not user:
+        return RedirectResponse(url="/login?next=/welcome", status_code=302)
+    return templates.TemplateResponse("welcome.html", {"request": request, "user": user})
+
+
+@app.get("/api/site/categories")
+async def api_site_categories(db: aiosqlite.Connection = Depends(get_db)):
+    async with db.execute(
+        "SELECT id, key, name_ru, is_active, order_index FROM categories WHERE is_active=1 ORDER BY order_index, id"
+    ) as cur:
+        rows = await cur.fetchall()
+    return {"categories": [{"id": r[0], "key": r[1], "name_ru": r[2], "is_active": r[3], "order_index": r[4]} for r in rows]}
+
+
+@app.get("/api/site/category/{key}/enabled")
+async def api_site_category_enabled(key: str, db: aiosqlite.Connection = Depends(get_db)):
+    async with db.execute("SELECT value FROM app_settings WHERE key=?", (key,)) as cur:
+        row = await cur.fetchone()
+    enabled = row is None or str(row[0]) != "0"
+    return {"enabled": enabled}
+
+
+@app.get("/api/site/models")
+async def api_site_models(category: str, db: aiosqlite.Connection = Depends(get_db)):
+    async with db.execute(
+        "SELECT m.id, m.name, m.photo_file_id, m.category FROM models m WHERE m.category=? AND m.is_active=1 ORDER BY m.position, m.id",
+        (category,),
+    ) as cur:
+        rows = await cur.fetchall()
+    models = []
+    for r in rows:
+        photo_url = None
+        if r[2] and str(r[2]).startswith("data/"):
+            photo_url = "/" + r[2].replace("\\", "/")
+        elif r[2]:
+            photo_url = f"/uploads/{r[2]}" if not str(r[2]).startswith("/") else r[2]
+        models.append({"id": r[0], "name": r[1], "photo_url": photo_url, "category": r[3]})
+    return {"models": models}
+
+
+@app.post("/api/site/generate")
+async def api_site_generate(
+    request: Request,
+    user=Depends(require_site_user),
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    form = await request.form()
+    category = form.get("category", "")
+    model_id = form.get("model_id") or None
+    if model_id:
+        try:
+            model_id = int(model_id)
+        except ValueError:
+            model_id = None
+    aspect = form.get("aspect", "1:1") or "1:1"
+    photos = form.getlist("photos")
+    if isinstance(photos, str):
+        photos = [photos] if photos else []
+
+    if not category:
+        return JSONResponse({"error": "Выберите категорию"}, status_code=400)
+    min_photos = 2 if category == "own_variant" else 1
+    if len(photos) < min_photos:
+        return JSONResponse({"error": f"Загрузите минимум {min_photos} фото"}, status_code=400)
+
+    import sys
+    if BASE_DIR not in sys.path:
+        sys.path.insert(0, BASE_DIR)
+    from bot.db import Database
+    from bot.gemini import generate_image
+
+    bot_db = Database(DB_PATH)
+    user_id = -user["id"]
+    price = 20
+
+    balance = await bot_db.get_user_balance(user_id)
+    if balance < price:
+        return JSONResponse({"error": "Недостаточно средств на балансе"}, status_code=402)
+    if await bot_db.get_maintenance():
+        return JSONResponse({"error": "Идут технические работы"}, status_code=503)
+    if await bot_db.get_user_blocked(user_id):
+        return JSONResponse({"error": "Доступ заблокирован"}, status_code=403)
+
+    images_bytes = []
+    needs_model_photo = category in ("storefront", "female", "male", "child", "boy", "girl", "presets", "own") and model_id
+    if needs_model_photo:
+        async with db.execute("SELECT photo_file_id FROM models WHERE id=?", (model_id,)) as cur:
+            row = await cur.fetchone()
+        if row and row[0]:
+            bg_path = str(row[0]).replace("\\", "/")
+            full = os.path.join(BASE_DIR, bg_path) if not os.path.isabs(bg_path) else bg_path
+            if not os.path.exists(full):
+                full = os.path.join(UPLOAD_DIR, bg_path.split("/")[-1])
+            if os.path.exists(full):
+                with open(full, "rb") as f:
+                    images_bytes.append(f.read())
+    for p in photos[:5]:
+        if hasattr(p, "read"):
+            images_bytes.append(await p.read())
+        elif isinstance(p, str) and len(p) > 100:
+            import base64
+            try:
+                images_bytes.append(base64.b64decode(p))
+            except Exception:
+                pass
+
+    if len(images_bytes) < min_photos:
+        return JSONResponse({"error": "Не удалось прочитать фото"}, status_code=400)
+
+    prompt = await _build_web_prompt(category, model_id, aspect, bot_db)
+    if not prompt:
+        return JSONResponse({"error": "Не удалось сформировать промпт"}, status_code=500)
+
+    api_keys = await bot_db.list_api_keys()
+    active_keys = [(k[0], k[1]) for k in api_keys if k[2]]
+    if not active_keys:
+        return JSONResponse({"error": "Нет активных API ключей"}, status_code=503)
+
+    import random
+    import uuid
+    random.shuffle(active_keys)
+    last_err = None
+    for kid, token in active_keys[:5]:
+        ok, _ = await bot_db.check_api_key_limits(kid)
+        if not ok:
+            continue
+        try:
+            result_path = await generate_image(
+                api_key=token,
+                prompt=prompt,
+                images_bytes=images_bytes,
+                aspect_ratio=aspect,
+                key_id=kid,
+                db_instance=bot_db,
+            )
+            if result_path:
+                pid = f"WEB{str(uuid.uuid4().hex[:10]).upper()}"
+                rp = result_path.replace("\\", "/")
+                rp_db = rp.split("/")[-1] if "/" in rp else rp  # для href /data/xxx
+                await bot_db.subtract_user_balance(user_id, price, reason="generation")
+                await bot_db.add_generation_history(
+                    pid=pid,
+                    user_id=user_id,
+                    category=category,
+                    params=json.dumps({"model_id": model_id, "aspect": aspect}),
+                    input_photos="[]",
+                    result_photo_id="",
+                    input_paths="[]",
+                    result_path=rp_db,
+                    prompt=prompt[:2000],
+                )
+                await bot_db.record_api_usage(kid)
+                new_balance = await bot_db.get_user_balance(user_id)
+                return JSONResponse({
+                    "result_path": rp_db,
+                    "result_url": "/data/" + rp_db,
+                    "new_balance": new_balance,
+                })
+        except Exception as e:
+            last_err = str(e)
+            continue
+
+    return JSONResponse({"error": last_err or "Ошибка генерации"}, status_code=500)
+
+
+async def _build_web_prompt(category: str, model_id: int | None, aspect: str, db) -> str:
+    base = "Professional commercial photography. High quality, 8k resolution."
+    if category == "storefront":
+        prompt = await db.get_storefront_prompt()
+        if prompt:
+            base = prompt
+        base += f" Aspect ratio: {aspect}. Produce ONE single image."
+        return base
+    if category == "whitebg":
+        prompt = await db.get_whitebg_prompt()
+        if prompt:
+            base = prompt
+        base += f" Aspect ratio: {aspect}. Produce ONE single image."
+        return base
+    if category == "own_variant":
+        prompt = await db.get_own_variant_prompt()
+        if prompt:
+            base = prompt
+        base += f" Aspect ratio: {aspect}. Produce ONE single image."
+        return base
+    if category in ("female", "male", "child", "boy", "girl", "presets", "own") and model_id:
+        async with aiosqlite.connect(DB_PATH) as conn:
+            async with conn.execute(
+                "SELECT p.text FROM prompts p JOIN models m ON m.prompt_id=p.id WHERE m.id=?",
+                (model_id,),
+            ) as cur:
+                row = await cur.fetchone()
+        if row:
+            base = row[0]
+        presets_base = await db.get_app_setting("presets_prompt") or ""
+        if presets_base:
+            base += "\n\n" + presets_base
+        base += f" Aspect ratio: {aspect}. Produce ONE single image."
+        return base
+    base += f" Aspect ratio: {aspect}. Produce ONE single image."
+    return base
+
 
 @app.get("/models/toggle/{model_id}")
 async def toggle_model_status(model_id: int, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):

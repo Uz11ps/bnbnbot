@@ -22,57 +22,57 @@
                 <button type="button" class="btn btn-outline-secondary mt-2" onclick="showStep('category')"><i class="bi bi-arrow-left"></i> Назад</button>
             </div>
 
-            <!-- Шаг 3a: Фото 1 (фон) — только для own_variant -->
-            <div id="step-photo1" class="wizard-step d-none">
-                <h5 class="mb-3">3. Загрузите фото 1: фон/сцена</h5>
-                <p class="text-muted">Выберите изображение с фоном или сценой, куда будет помещён товар</p>
-                <div class="mb-3">
-                    <input type="file" id="photo1-input" class="form-control" accept="image/*">
-                </div>
-                <div id="photo1-preview" class="mb-3"></div>
-                <button type="button" class="btn btn-primary d-none" id="photo1-next" onclick="onPhoto1Ready()">Далее</button>
-                <button type="button" class="btn btn-outline-secondary" onclick="showStep('category')"><i class="bi bi-arrow-left"></i> Назад</button>
-            </div>
-
-            <!-- Шаг 3b: Фото 2 (товар) — только для own_variant -->
-            <div id="step-photo2" class="wizard-step d-none">
-                <h5 class="mb-3">4. Загрузите фото 2: товар</h5>
-                <p class="text-muted">Выберите изображение товара, который нужно разместить на фоне</p>
-                <div class="mb-3">
-                    <input type="file" id="photo2-input" class="form-control" accept="image/*">
-                </div>
-                <div id="photo2-preview" class="mb-3"></div>
-                <button type="button" class="btn btn-primary d-none" id="photo2-next" onclick="onPhoto2Ready()">Далее</button>
-                <button type="button" class="btn btn-outline-secondary" onclick="showStep('photo1')"><i class="bi bi-arrow-left"></i> Назад</button>
-            </div>
-
-            <!-- Шаг 3: Загрузка фото (одно фото для остальных категорий) -->
+            <!-- Шаг 3: Загрузка фото (одно фото) -->
             <div id="step-photos" class="wizard-step d-none">
-                <h5 class="mb-3">3. Загрузите фото</h5>
+                <h5 class="mb-3">3. Загрузите фото товара</h5>
                 <p class="text-muted" id="photos-hint">Загрузите фото товара</p>
                 <div class="mb-3">
                     <input type="file" id="photo-input" class="form-control" accept="image/*">
                 </div>
                 <div id="photo-preview" class="d-flex flex-wrap gap-2 mb-3"></div>
-                <button type="button" class="btn btn-primary d-none" id="photos-next" onclick="showStep('aspect')">Далее</button>
+                <button type="button" class="btn btn-primary d-none" id="photos-next" onclick="goFromPhotos()">Далее</button>
                 <button type="button" class="btn btn-outline-secondary" onclick="showStep(wizardData.modelId !== null ? 'model' : 'category')"><i class="bi bi-arrow-left"></i> Назад</button>
+            </div>
+
+            <!-- Шаг 3a: Фото 1 — фон/сцена (только own_variant) -->
+            <div id="step-photo1" class="wizard-step d-none">
+                <h5 class="mb-3">3. Загрузите фото фона или сцены</h5>
+                <p class="text-muted">Фото интерьера, локации или фона, куда будет помещён товар</p>
+                <div class="mb-3">
+                    <input type="file" id="photo1-input" class="form-control" accept="image/*">
+                </div>
+                <div id="photo1-preview" class="d-flex flex-wrap gap-2 mb-3"></div>
+                <button type="button" class="btn btn-primary d-none" id="photo1-next" onclick="showStep('photo2')">Далее</button>
+                <button type="button" class="btn btn-outline-secondary" onclick="showStep('category')"><i class="bi bi-arrow-left"></i> Назад</button>
+            </div>
+
+            <!-- Шаг 3b: Фото 2 — товар (только own_variant) -->
+            <div id="step-photo2" class="wizard-step d-none">
+                <h5 class="mb-3">4. Загрузите фото товара</h5>
+                <p class="text-muted">Фото товара, который нужно разместить на выбранном фоне</p>
+                <div class="mb-3">
+                    <input type="file" id="photo2-input" class="form-control" accept="image/*">
+                </div>
+                <div id="photo2-preview" class="d-flex flex-wrap gap-2 mb-3"></div>
+                <button type="button" class="btn btn-primary d-none" id="photo2-next" onclick="showStep('aspect')">Далее</button>
+                <button type="button" class="btn btn-outline-secondary" onclick="showStep('photo1')"><i class="bi bi-arrow-left"></i> Назад</button>
             </div>
 
             <!-- Шаг 4/5: Аспект -->
             <div id="step-aspect" class="wizard-step d-none">
-                <h5 class="mb-3" id="aspect-step-title">4. Формат фото</h5>
+                <h5 class="mb-3" id="aspect-step-num">4. Формат фото</h5>
                 <div class="row g-2" id="aspect-list"></div>
                 <button type="button" class="btn btn-outline-secondary mt-2" id="aspect-back-btn"><i class="bi bi-arrow-left"></i> Назад</button>
             </div>
 
             <!-- Шаг 5/6: Генерация -->
             <div id="step-generate" class="wizard-step d-none">
-                <h5 class="mb-3">5. Генерация</h5>
+                <h5 class="mb-3" id="gen-step-num">5. Генерация</h5>
                 <p class="text-muted">Стоимость: <strong id="gen-price">20</strong> ₽</p>
                 <button type="button" class="btn btn-primary btn-lg" id="btn-generate" onclick="runGenerate()">
                     <i class="bi bi-stars"></i> Сгенерировать
                 </button>
-                <button type="button" class="btn btn-outline-secondary mt-2" onclick="showStep('aspect')"><i class="bi bi-arrow-left"></i> Назад</button>
+                <button type="button" class="btn btn-outline-secondary mt-2" id="gen-back-btn"><i class="bi bi-arrow-left"></i> Назад</button>
             </div>
 
             <!-- Результат -->
@@ -128,12 +128,7 @@ function selectCategory(key, name) {
         loadModels(key);
         showStep('model');
     } else if (key === 'own_variant') {
-        document.getElementById('photo1-input').value = '';
-        document.getElementById('photo2-input').value = '';
-        document.getElementById('photo1-preview').innerHTML = '';
-        document.getElementById('photo2-preview').innerHTML = '';
-        document.getElementById('photo1-next').classList.add('d-none');
-        document.getElementById('photo2-next').classList.add('d-none');
+        wizardData.modelId = null;
         showStep('photo1');
     } else {
         wizardData.modelId = null;
@@ -171,29 +166,24 @@ function selectModel(id) {
 function updatePhotosHint() {
     const h = document.getElementById('photos-hint');
     if (wizardData.categoryKey === 'storefront' && wizardData.modelId) {
-        h.textContent = 'Загрузите фото товара (фон возьмём из выбранной модели)';
+        h.textContent = 'Фон возьмём из выбранной модели. Загрузите фото товара';
     } else {
         h.textContent = 'Загрузите фото товара';
     }
 }
 
-function onPhoto1Ready() {
-    showStep('photo2');
-}
-
-function onPhoto2Ready() {
+function goFromPhotos() {
     showStep('aspect');
 }
 
 document.getElementById('photo-input').addEventListener('change', function(e) {
-    const files = Array.from(e.target.files || []);
-    if (files.length === 0) return;
-    wizardData.photos = [files[0]];
-    const preview = document.getElementById('photo-preview');
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    wizardData.photos = []; const preview = document.getElementById('photo-preview');
     preview.innerHTML = '';
     const reader = new FileReader();
     reader.onload = (ev) => {
-        wizardData.photos[0] = ev.target.result.split(',')[1];
+        wizardData.photos.push(ev.target.result.split(',')[1]);
         const img = document.createElement('img');
         img.src = ev.target.result;
         img.style.cssText = 'width:80px;height:80px;object-fit:cover;border-radius:8px';
@@ -204,26 +194,27 @@ document.getElementById('photo-input').addEventListener('change', function(e) {
 });
 
 document.getElementById('photo1-input').addEventListener('change', function(e) {
-    const f = e.target.files?.[0];
-    if (!f) return;
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    wizardData.photos = [];
     const preview = document.getElementById('photo1-preview');
     preview.innerHTML = '';
     const reader = new FileReader();
     reader.onload = (ev) => {
-        if (!wizardData.photos) wizardData.photos = [];
         wizardData.photos[0] = ev.target.result.split(',')[1];
         const img = document.createElement('img');
         img.src = ev.target.result;
-        img.style.cssText = 'width:120px;height:120px;object-fit:cover;border-radius:8px';
+        img.style.cssText = 'width:80px;height:80px;object-fit:cover;border-radius:8px';
         preview.appendChild(img);
         document.getElementById('photo1-next').classList.remove('d-none');
     };
-    reader.readAsDataURL(f);
+    reader.readAsDataURL(files[0]);
 });
 
 document.getElementById('photo2-input').addEventListener('change', function(e) {
-    const f = e.target.files?.[0];
-    if (!f) return;
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    if (!wizardData.photos) wizardData.photos = [];
     const preview = document.getElementById('photo2-preview');
     preview.innerHTML = '';
     const reader = new FileReader();
@@ -231,11 +222,11 @@ document.getElementById('photo2-input').addEventListener('change', function(e) {
         wizardData.photos[1] = ev.target.result.split(',')[1];
         const img = document.createElement('img');
         img.src = ev.target.result;
-        img.style.cssText = 'width:120px;height:120px;object-fit:cover;border-radius:8px';
+        img.style.cssText = 'width:80px;height:80px;object-fit:cover;border-radius:8px';
         preview.appendChild(img);
         document.getElementById('photo2-next').classList.remove('d-none');
     };
-    reader.readAsDataURL(f);
+    reader.readAsDataURL(files[0]);
 });
 
 function showStep(step) {
@@ -245,13 +236,6 @@ function showStep(step) {
     if (step === 'aspect') {
         const list = document.getElementById('aspect-list');
         list.innerHTML = '';
-        const aspectNum = 4;
-        const titleEl = document.getElementById('aspect-step-title');
-        if (titleEl) titleEl.textContent = aspectNum + '. Формат фото';
-        const backBtn = document.getElementById('aspect-back-btn');
-        if (backBtn) {
-            backBtn.onclick = () => showStep(wizardData.categoryKey === 'own_variant' ? 'photo2' : 'photos');
-        }
         for (const a of ASPECTS) {
             const btn = document.createElement('button');
             btn.type = 'button';
@@ -260,9 +244,15 @@ function showStep(step) {
             btn.onclick = () => { wizardData.aspect = a; document.querySelectorAll('#aspect-list .btn').forEach(b => b.className = 'col-4 col-md-2 btn btn-outline-secondary'); btn.className = 'col-4 col-md-2 btn btn-success'; };
             list.appendChild(btn);
         }
+        document.getElementById('aspect-back-btn').onclick = () => showStep(wizardData.categoryKey === 'own_variant' ? 'photo2' : 'photos');
+        const n = wizardData.categoryKey === 'own_variant' ? 5 : 4;
+        document.getElementById('aspect-step-num').textContent = n + '. Формат фото';
     }
     if (step === 'generate') {
         document.getElementById('gen-price').textContent = '20';
+        document.getElementById('gen-back-btn').onclick = () => showStep('aspect');
+        const n = wizardData.categoryKey === 'own_variant' ? 6 : 5;
+        document.getElementById('gen-step-num').textContent = n + '. Генерация';
     }
 }
 

@@ -81,8 +81,43 @@ def deploy():
     print("Проверка статуса...")
     run(f"cd {REMOTE_DIR} && docker compose ps")
 
+    # Настройка nginx для g-box.space
+    nginx_config = """server {
+    listen 80;
+    server_name g-box.space www.g-box.space;
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+    }
+}
+"""
+    print("Настройка nginx для g-box.space...")
+    code, _, _ = run("which nginx", check=False)
+    if code == 0:
+        tmp_path = "/tmp/g-box.space.conf"
+        sftp = ssh.open_sftp()
+        try:
+            with sftp.open(tmp_path, "w") as f:
+                f.write(nginx_config)
+        finally:
+            sftp.close()
+        run(f"sudo cp {tmp_path} /etc/nginx/conf.d/g-box.space.conf && rm -f {tmp_path}")
+        run("sudo nginx -t")
+        run("sudo systemctl reload nginx 2>/dev/null || sudo service nginx reload")
+        print("Nginx настроен.")
+    else:
+        print("Nginx не найден. Настройте прокси вручную.")
+
     ssh.close()
-    print("\nДеплой завершён. Админка: http://130.49.148.147:8000")
+    print("\nДеплой завершён.")
+    print("Сайт: https://g-box.space")
+    print("Админка: https://g-box.space/")
 
 
 if __name__ == "__main__":

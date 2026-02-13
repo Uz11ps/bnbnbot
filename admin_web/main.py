@@ -3679,6 +3679,10 @@ async def mtproxy_toggle(db: aiosqlite.Connection = Depends(get_db), user: str =
         if running:
             # Останавливаем
             subprocess.run(["docker", "stop", "mtproxy"], timeout=10, check=False)
+            # Сохраняем статус остановки в БД
+            await db.execute(
+                "INSERT INTO app_settings (key, value) VALUES ('mtproxy_running', '0') ON CONFLICT(key) DO UPDATE SET value=excluded.value"
+            )
         else:
             # Получаем порт
             async with db.execute("SELECT value FROM app_settings WHERE key='mtproxy_port'") as cur:
@@ -3703,11 +3707,6 @@ async def mtproxy_toggle(db: aiosqlite.Connection = Depends(get_db), user: str =
                 await db.execute(
                     "INSERT INTO app_settings (key, value) VALUES ('mtproxy_running', '1') ON CONFLICT(key) DO UPDATE SET value=excluded.value"
                 )
-        else:
-            # Сохраняем статус остановки в БД
-            await db.execute(
-                "INSERT INTO app_settings (key, value) VALUES ('mtproxy_running', '0') ON CONFLICT(key) DO UPDATE SET value=excluded.value"
-            )
         await db.commit()
         
         return JSONResponse({"success": True, "running": not running})

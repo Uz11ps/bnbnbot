@@ -240,30 +240,17 @@ async def on_own_sleeve(callback: CallbackQuery, state: FSMContext, db: Database
     await _safe_answer(callback)
 
 async def _ask_garment_length(message_or_callback: Message | CallbackQuery, state: FSMContext, db: Database) -> None:
-    """Вспомогательная функция для запроса длины изделия с фото-гайдом"""
+    """Вспомогательная функция для запроса длины изделия"""
     lang = await db.get_user_language(message_or_callback.from_user.id)
-    photo_path = "garment_length_guide.jpeg"
     text = get_string("select_garment_length", lang)
     kb = garment_length_keyboard(lang)
     
     await state.set_state(CreateForm.waiting_length)
     
     if isinstance(message_or_callback, CallbackQuery):
-        try:
-            await message_or_callback.message.delete()
-        except Exception:
-            pass
-        await message_or_callback.message.answer_photo(
-            FSInputFile(photo_path),
-            caption=text,
-            reply_markup=kb
-        )
+        await _replace_with_text(message_or_callback, text, reply_markup=kb)
     else:
-        await message_or_callback.answer_photo(
-            FSInputFile(photo_path),
-            caption=text,
-            reply_markup=kb
-        )
+        await message_or_callback.answer(text, reply_markup=kb)
 
 
 async def _run_generation_progress(bot, chat_id: int, message_id: int, stop_event: asyncio.Event) -> None:
@@ -671,18 +658,13 @@ async def _show_next_step(message_or_callback: Message | CallbackQuery, state: F
             
         kb = dynamic_keyboard(options, show_skip, lang)
         
-        # Специальная обработка для длины изделия (добавляем фото-гайд)
+        # Для длины изделия просто отправляем текст с кнопками (без фото)
         if step_key == "length":
-            photo_path = "garment_length_guide.jpeg"
-            import os
-            if os.path.exists(photo_path):
-                if isinstance(message_or_callback, CallbackQuery):
-                    try: await message_or_callback.message.delete()
-                    except: pass
-                    await message_or_callback.message.answer_photo(FSInputFile(photo_path), caption=question, reply_markup=kb)
-                else:
-                    await message_or_callback.answer_photo(FSInputFile(photo_path), caption=question, reply_markup=kb)
-                return
+            if isinstance(message_or_callback, CallbackQuery):
+                await _replace_with_text(message_or_callback, question, reply_markup=kb)
+            else:
+                await message_or_callback.answer(question, reply_markup=kb)
+            return
 
         if isinstance(message_or_callback, Message):
             await message_or_callback.answer(question, reply_markup=kb)

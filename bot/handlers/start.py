@@ -4673,6 +4673,43 @@ async def on_menu_howto(callback: CallbackQuery, db: Database) -> None:
     await _replace_with_text(callback, text, reply_markup=back_main_keyboard(lang))
     await _safe_answer(callback)
 
+@router.callback_query(F.data == "menu_proxy")
+async def on_menu_proxy(callback: CallbackQuery, db: Database) -> None:
+    lang = await db.get_user_language(callback.from_user.id)
+    import httpx
+    
+    # Получаем ссылку MTProxy через публичный API админки
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            import os
+            admin_url = os.getenv("ADMIN_WEB_URL", "http://admin_web:8000")
+            response = await client.get(f"{admin_url}/api/mtproxy/public")
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("available") and data.get("link"):
+                    text = f"{get_string('proxy_title', lang)}\n\n{get_string('proxy_info', lang)}\n\n`{data['link']}`"
+                    from bot.keyboards import InlineKeyboardMarkup, InlineKeyboardButton, back_main_keyboard
+                    kb = InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text=get_string("proxy_get_link", lang), url=data['link'])],
+                        [InlineKeyboardButton(text=get_string("back", lang), callback_data="menu_settings")]
+                    ])
+                else:
+                    text = get_string("proxy_not_available", lang)
+                    from bot.keyboards import back_main_keyboard
+                    kb = back_main_keyboard(lang)
+            else:
+                text = get_string("proxy_not_available", lang)
+                from bot.keyboards import back_main_keyboard
+                kb = back_main_keyboard(lang)
+    except Exception as e:
+        text = get_string("proxy_not_available", lang)
+        from bot.keyboards import back_main_keyboard
+        kb = back_main_keyboard(lang)
+    
+    await _replace_with_text(callback, text, reply_markup=kb)
+    await _safe_answer(callback)
+
+
 @router.callback_query(F.data == "menu_agreement")
 async def on_menu_agreement(callback: CallbackQuery, db: Database) -> None:
     lang = await db.get_user_language(callback.from_user.id)

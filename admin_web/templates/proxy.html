@@ -11,6 +11,35 @@
 
     <div class="card shadow-sm mb-4">
         <div class="card-body">
+            <h5 class="card-title mb-3"><i class="bi bi-telegram"></i> MTProxy для Telegram</h5>
+            <p class="text-muted small mb-3">
+                MTProxy — официальный прокси от Telegram для обхода блокировок. Пользователи могут подключиться через официальное приложение Telegram.
+            </p>
+            <div id="mtproxy-status" class="mb-3">
+                <span class="badge bg-secondary">Проверка...</span>
+            </div>
+            <div id="mtproxy-link" class="mb-3" style="display: none;">
+                <label class="form-label">Ссылка для подключения:</label>
+                <div class="input-group">
+                    <input type="text" id="mtproxy-link-input" class="form-control" readonly>
+                    <button class="btn btn-outline-secondary" onclick="copyMtproxyLink()">
+                        <i class="bi bi-clipboard"></i> Копировать
+                    </button>
+                </div>
+                <div class="mt-2">
+                    <button class="btn btn-sm btn-primary" onclick="generateMtproxyLink()">
+                        <i class="bi bi-arrow-clockwise"></i> Обновить ссылку
+                    </button>
+                    <button class="btn btn-sm btn-success" onclick="toggleMtproxy()" id="mtproxy-toggle-btn">
+                        <i class="bi bi-power"></i> <span id="mtproxy-toggle-text">Запустить</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-body">
             <h5 class="card-title mb-3">Как добавлять прокси</h5>
             <p class="text-muted small">
                 Поддерживается формат: <code>http://user:pass@host:port</code> или <code>http://host:port</code>.<br>
@@ -18,6 +47,65 @@
             </p>
         </div>
     </div>
+
+    <script>
+    async function loadMtproxyStatus() {
+        try {
+            const r = await fetch('/api/mtproxy/status');
+            const data = await r.json();
+            const statusEl = document.getElementById('mtproxy-status');
+            const linkEl = document.getElementById('mtproxy-link');
+            const toggleBtn = document.getElementById('mtproxy-toggle-btn');
+            const toggleText = document.getElementById('mtproxy-toggle-text');
+            
+            if (data.running) {
+                statusEl.innerHTML = '<span class="badge bg-success">Запущен</span>';
+                linkEl.style.display = 'block';
+                document.getElementById('mtproxy-link-input').value = data.link || '';
+                toggleText.textContent = 'Остановить';
+                toggleBtn.className = 'btn btn-sm btn-danger';
+            } else {
+                statusEl.innerHTML = '<span class="badge bg-secondary">Остановлен</span>';
+                linkEl.style.display = 'none';
+                toggleText.textContent = 'Запустить';
+                toggleBtn.className = 'btn btn-sm btn-success';
+            }
+        } catch (e) {
+            console.error('MTProxy status error:', e);
+        }
+    }
+    
+    async function generateMtproxyLink() {
+        try {
+            const r = await fetch('/api/mtproxy/generate', {method: 'POST'});
+            const data = await r.json();
+            if (data.link) {
+                document.getElementById('mtproxy-link-input').value = data.link;
+            }
+        } catch (e) {
+            alert('Ошибка генерации ссылки');
+        }
+    }
+    
+    async function toggleMtproxy() {
+        try {
+            const r = await fetch('/api/mtproxy/toggle', {method: 'POST'});
+            await loadMtproxyStatus();
+        } catch (e) {
+            alert('Ошибка переключения');
+        }
+    }
+    
+    function copyMtproxyLink() {
+        const input = document.getElementById('mtproxy-link-input');
+        input.select();
+        document.execCommand('copy');
+        alert('Ссылка скопирована!');
+    }
+    
+    loadMtproxyStatus();
+    setInterval(loadMtproxyStatus, 30000); // Обновление каждые 30 сек
+    </script>
 
     <div class="table-responsive">
         <table class="table table-hover align-middle shadow-sm bg-white rounded">

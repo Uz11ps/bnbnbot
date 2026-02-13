@@ -3496,6 +3496,176 @@ async def edit_proxy(proxy_url: str = Form(...), db: aiosqlite.Connection = Depe
     await db.commit()
     return RedirectResponse(url="/proxy", status_code=303)
 
+
+@app.get("/api/mtproxy/public")
+async def mtproxy_public_link(db: aiosqlite.Connection = Depends(get_db)):
+    """Публичный эндпоинт для получения ссылки MTProxy (для бота)"""
+    import subprocess
+    import base64
+    
+    # Проверяем, запущен ли контейнер
+    try:
+        result = subprocess.run(
+            ["docker", "ps", "--filter", "name=mtproxy", "--format", "{{.Names}}"],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        running = "mtproxy" in result.stdout
+    except Exception:
+        running = False
+    
+    if not running:
+        return JSONResponse({"available": False})
+    
+    # Получаем секрет и настройки из БД
+    async with db.execute("SELECT value FROM app_settings WHERE key='mtproxy_secret'") as cur:
+        row = await cur.fetchone()
+        secret = row[0] if row else None
+    
+    async with db.execute("SELECT value FROM app_settings WHERE key='mtproxy_port'") as cur:
+        row = await cur.fetchone()
+        port = int(row[0]) if row and row[0] else 8888
+    
+    if not secret:
+        return JSONResponse({"available": False})
+    
+    # Формируем ссылку tg://proxy
+    server_ip = os.getenv("MTPROXY_SERVER_IP", "130.49.148.147")
+    # Секрет в формате base64 для ссылки
+    try:
+        secret_hex = secret.replace("-", "")
+        secret_bytes = bytes.fromhex(secret_hex) if len(secret_hex) == 32 else base64.b64decode(secret)
+        secret_b64 = base64.b64encode(secret_bytes).decode().replace("=", "")
+        link = f"tg://proxy?server={server_ip}&port={port}&secret={secret_b64}"
+        return JSONResponse({"available": True, "link": link})
+    except Exception:
+        return JSONResponse({"available": False})
+
+
+@app.get("/api/mtproxy/status")
+async def mtproxy_status(db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    """Проверка статуса MTProxy и получение ссылки"""
+    import subprocess
+    import base64
+    
+    # Проверяем, запущен ли контейнер
+    try:
+        result = subprocess.run(
+            ["docker", "ps", "--filter", "name=mtproxy", "--format", "{{.Names}}"],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        running = "mtproxy" in result.stdout
+    except Exception:
+        running = False
+    
+    # Получаем секрет и настройки из БД
+    async with db.execute("SELECT value FROM app_settings WHERE key='mtproxy_secret'") as cur:
+        row = await cur.fetchone()
+        secret = row[0] if row else None
+    
+    async with db.execute("SELECT value FROM app_settings WHERE key='mtproxy_port'") as cur:
+        row = await cur.fetchone()
+        port = int(row[0]) if row and row[0] else 8888
+    
+    link = None
+    if secret and running:
+        # Формируем ссылку tg://proxy
+        server_ip = os.getenv("MTPROXY_SERVER_IP", "130.49.148.147")
+        # Секрет в формате base64 для ссылки
+        secret_hex = secret.replace("-", "")
+        secret_bytes = bytes.fromhex(secret_hex) if len(secret_hex) == 32 else base64.b64decode(secret)
+        secret_b64 = base64.b64encode(secret_bytes).decode().replace("=", "")
+        link = f"tg://proxy?server={server_ip}&port={port}&secret={secret_b64}"
+    
+    return JSONResponse({
+        "running": running,
+        "link": link,
+        "port": port
+    })
+
+
+@app.post("/api/mtproxy/generate")
+async def mtproxy_generate(db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    """Генерация нового секрета для MTProxy"""
+    import secrets
+    import base64
+    
+    # Генерируем случайный секрет (16 байт)
+    secret_bytes = secrets.token_bytes(16)
+    secret_hex = secret_bytes.hex()
+    
+    # Сохраняем в БД
+    await db.execute(
+        "INSERT INTO app_settings (key, value) VALUES ('mtproxy_secret', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        (secret_hex,)
+    )
+    await db.commit()
+    
+    # Формируем ссылку
+    server_ip = os.getenv("MTPROXY_SERVER_IP", "130.49.148.147")
+    async with db.execute("SELECT value FROM app_settings WHERE key='mtproxy_port'") as cur:
+        row = await cur.fetchone()
+        port = int(row[0]) if row and row[0] else 8888
+    
+    secret_b64 = base64.b64encode(secret_bytes).decode().replace("=", "")
+    link = f"tg://proxy?server={server_ip}&port={port}&secret={secret_b64}"
+    
+    return JSONResponse({"link": link, "secret": secret_hex})
+
+
+@app.post("/api/mtproxy/toggle")
+async def mtproxy_toggle(db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    """Запуск/остановка MTProxy контейнера"""
+    import subprocess
+    
+    # Проверяем текущий статус
+    try:
+        result = subprocess.run(
+            ["docker", "ps", "--filter", "name=mtproxy", "--format", "{{.Names}}"],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        running = "mtproxy" in result.stdout
+    except Exception:
+        running = False
+    
+    # Получаем секрет из БД
+    async with db.execute("SELECT value FROM app_settings WHERE key='mtproxy_secret'") as cur:
+        row = await cur.fetchone()
+        secret = row[0] if row else None
+    
+    if not secret and not running:
+        return JSONResponse({"error": "Сначала сгенерируйте секрет"}, status_code=400)
+    
+    try:
+        if running:
+            # Останавливаем
+            subprocess.run(["docker", "stop", "mtproxy"], timeout=10, check=False)
+        else:
+            # Получаем порт
+            async with db.execute("SELECT value FROM app_settings WHERE key='mtproxy_port'") as cur:
+                row = await cur.fetchone()
+                port = int(row[0]) if row and row[0] else 8888
+            
+            # Устанавливаем переменную окружения для секрета
+            import os
+            env = os.environ.copy()
+            env["MTPROXY_SECRET"] = secret
+            
+            # Запускаем контейнер с профилем mtproxy
+            cmd = [
+                "docker", "compose", "--profile", "mtproxy", "up", "-d", "mtproxy"
+            ]
+            subprocess.run(cmd, cwd=BASE_DIR, env=env, timeout=30, check=False)
+        
+        return JSONResponse({"success": True, "running": not running})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
 @app.post("/maintenance/toggle")
 async def toggle_maintenance(db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
     current = False

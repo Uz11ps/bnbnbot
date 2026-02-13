@@ -25,5 +25,18 @@ services:
       - bot
     restart: always
 
+  mtproxy:
+    image: telegrammessenger/proxy:latest
+    container_name: mtproxy
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      - SECRET=${MTPROXY_SECRET:-}
+    command: ["-u", "nobody", "-p", "8888", "--nat-info", "130.49.148.147:8888"]
+    volumes:
+      - ./data/mtproxy:/data
+    profiles:
+      - mtproxy
+
 volumes:
   data:

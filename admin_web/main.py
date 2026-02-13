@@ -2478,26 +2478,22 @@ async def _api_site_generate_impl(request: Request, user: dict, db):
 
 
 async def _build_web_prompt(category: str, model_id: int | None, aspect: str, db) -> str:
-    base = "Professional commercial photography. High quality, 8k resolution."
-    if category == "storefront":
-        prompt = await db.get_storefront_prompt()
-        if prompt:
-            base = prompt
-        base += f" Aspect ratio: {aspect}. Produce ONE single image."
-        return base
-    if category == "whitebg":
-        prompt = await db.get_whitebg_prompt()
-        if prompt:
-            base = prompt
-        base += f" Aspect ratio: {aspect}. Produce ONE single image."
-        return base
-    if category == "own_variant":
-        prompt = await db.get_own_variant_prompt()
-        if prompt:
-            base = prompt
-        base += f" Aspect ratio: {aspect}. Produce ONE single image."
-        return base
+    # Маппинг категорий на ключи промптов в app_settings
+    category_prompt_map = {
+        "storefront": "storefront_prompt",
+        "whitebg": "whitebg_prompt",
+        "own_variant": "own_variant_prompt",
+        "random": "random_prompt",
+        "random_other": "random_other_prompt",
+        "infographic_clothing": "infographic_clothing_prompt",
+        "infographic_other": "infographic_other_prompt",
+        "own": "own_prompt",
+    }
+    
+    # Для категорий с моделями - берем промпт модели, затем добавляем общий промпт категории если есть
     if category in ("female", "male", "child", "boy", "girl", "presets", "own") and model_id:
+        base = ""
+        # Промпт модели из таблицы prompts
         async with aiosqlite.connect(DB_PATH) as conn:
             async with conn.execute(
                 "SELECT p.text FROM prompts p JOIN models m ON m.prompt_id=p.id WHERE m.id=?",
@@ -2506,11 +2502,34 @@ async def _build_web_prompt(category: str, model_id: int | None, aspect: str, db
                 row = await cur.fetchone()
         if row:
             base = row[0]
-        presets_base = await db.get_app_setting("presets_prompt") or ""
-        if presets_base:
-            base += "\n\n" + presets_base
+        else:
+            base = "Professional commercial photography. High quality, 8k resolution."
+        
+        # Добавляем общий промпт категории если есть
+        if category == "presets":
+            presets_base = await db.get_app_setting("presets_prompt") or ""
+            if presets_base:
+                base += "\n\n" + presets_base
+        elif category == "own":
+            own_base = await db.get_app_setting("own_prompt") or ""
+            if own_base:
+                base += "\n\n" + own_base
+        # Для female, male, child, boy, girl можно добавить общий промпт если будет нужен
+        
         base += f" Aspect ratio: {aspect}. Produce ONE single image."
         return base
+    
+    # Для остальных категорий - используем промпт из app_settings
+    prompt_key = category_prompt_map.get(category)
+    if prompt_key:
+        prompt = await db.get_app_setting(prompt_key) or ""
+        if prompt:
+            base = prompt
+        else:
+            base = "Professional commercial photography. High quality, 8k resolution."
+    else:
+        base = "Professional commercial photography. High quality, 8k resolution."
+    
     base += f" Aspect ratio: {aspect}. Produce ONE single image."
     return base
 

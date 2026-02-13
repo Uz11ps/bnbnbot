@@ -4679,19 +4679,11 @@ async def on_menu_proxy(callback: CallbackQuery, db: Database) -> None:
     import subprocess
     import base64
     
-    # Проверяем статус MTProxy напрямую через БД и Docker
+    # Проверяем статус MTProxy напрямую через БД
     try:
-        # Проверяем, запущен ли контейнер
-        try:
-            result = subprocess.run(
-                ["docker", "ps", "--filter", "name=mtproxy", "--format", "{{.Names}}"],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-            running = "mtproxy" in result.stdout
-        except Exception:
-            running = False
+        # Получаем статус из БД
+        running_str = await db.get_app_setting("mtproxy_running")
+        running = running_str == "1"
         
         # Получаем секрет и порт из БД
         secret = await db.get_app_setting("mtproxy_secret")

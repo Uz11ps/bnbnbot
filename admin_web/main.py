@@ -3500,20 +3500,12 @@ async def edit_proxy(proxy_url: str = Form(...), db: aiosqlite.Connection = Depe
 @app.get("/api/mtproxy/public")
 async def mtproxy_public_link(db: aiosqlite.Connection = Depends(get_db)):
     """Публичный эндпоинт для получения ссылки MTProxy (для бота)"""
-    import subprocess
     import base64
     
-    # Проверяем, запущен ли контейнер
-    try:
-        result = subprocess.run(
-            ["docker", "ps", "--filter", "name=mtproxy", "--format", "{{.Names}}"],
-            capture_output=True,
-            text=True,
-            timeout=5
-        )
-        running = "mtproxy" in result.stdout
-    except Exception:
-        running = False
+    # Проверяем статус из БД
+    async with db.execute("SELECT value FROM app_settings WHERE key='mtproxy_running'") as cur:
+        row = await cur.fetchone()
+        running = row and row[0] == "1"
     
     if not running:
         return JSONResponse({"available": False})
@@ -3550,7 +3542,12 @@ async def mtproxy_status(db: aiosqlite.Connection = Depends(get_db), user: str =
     import subprocess
     import base64
     
-    # Проверяем, запущен ли контейнер
+    # Проверяем статус из БД и Docker
+    async with db.execute("SELECT value FROM app_settings WHERE key='mtproxy_running'") as cur:
+        row = await cur.fetchone()
+        db_running = row and row[0] == "1"
+    
+    # Дополнительно проверяем через Docker (для админки)
     try:
         result = subprocess.run(
             ["docker", "ps", "--filter", "name=mtproxy", "--format", "{{.Names}}"],
@@ -3558,9 +3555,17 @@ async def mtproxy_status(db: aiosqlite.Connection = Depends(get_db), user: str =
             text=True,
             timeout=5
         )
-        running = "mtproxy" in result.stdout
+        docker_running = "mtproxy" in result.stdout
+        # Синхронизируем статус в БД если отличается
+        if docker_running != db_running:
+            await db.execute(
+                "INSERT INTO app_settings (key, value) VALUES ('mtproxy_running', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                ("1" if docker_running else "0",)
+            )
+            await db.commit()
+        running = docker_running
     except Exception:
-        running = False
+        running = db_running
     
     # Получаем секрет и настройки из БД
     async with db.execute("SELECT value FROM app_settings WHERE key='mtproxy_secret'") as cur:
@@ -3679,7 +3684,18 @@ async def mtproxy_toggle(db: aiosqlite.Connection = Depends(get_db), user: str =
             cmd = [
                 "docker", "compose", "--profile", "mtproxy", "up", "-d", "mtproxy"
             ]
-            subprocess.run(cmd, cwd=BASE_DIR, env=env, timeout=30, check=False)
+            result = subprocess.run(cmd, cwd=BASE_DIR, env=env, timeout=30, check=False)
+            if result.returncode == 0:
+                # Сохраняем статус в БД
+                await db.execute(
+                    "INSERT INTO app_settings (key, value) VALUES ('mtproxy_running', '1') ON CONFLICT(key) DO UPDATE SET value=excluded.value"
+                )
+        else:
+            # Сохраняем статус остановки в БД
+            await db.execute(
+                "INSERT INTO app_settings (key, value) VALUES ('mtproxy_running', '0') ON CONFLICT(key) DO UPDATE SET value=excluded.value"
+            )
+        await db.commit()
         
         return JSONResponse({"success": True, "running": not running})
     except Exception as e:

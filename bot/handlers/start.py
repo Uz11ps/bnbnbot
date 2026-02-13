@@ -3269,21 +3269,43 @@ async def on_info_holiday(callback: CallbackQuery, state: FSMContext, db: Databa
 async def _build_final_prompt(data: dict, db: Database) -> str:
     category = data.get("category")
 
+    # Маппинг категорий на ключи промптов в app_settings
+    category_prompt_map = {
+        "storefront": "storefront_prompt",
+        "whitebg": "whitebg_prompt",
+        "own_variant": "own_variant_prompt",
+        "random": "random_prompt",
+        "random_other": "random_other_prompt",
+        "infographic_clothing": "infographic_clothing_prompt",
+        "infographic_other": "infographic_other_prompt",
+        "own": "own_prompt",
+    }
+
     prompt_text = ""
     if data.get("random_mode"):
+        # Для random_mode промпт формируется ниже в более сложной логике
         prompt_text = ""
-    elif category == "own_variant":
-        base = await db.get_own_variant_prompt() or "Professional fashion photography. Place the product from the second image onto the background from the first image. Maintain natural lighting, shadows, and perspective. High quality, 8k resolution."
-        prompt_text = base
-    elif category in ("female", "male", "child") or data.get("is_preset") or category == "presets":
+    elif category in ("female", "male", "child", "boy", "girl", "presets", "own") and data.get('prompt_id'):
+        # Для категорий с моделями - берем промпт модели, затем добавляем общий промпт категории если есть
         pid = data.get('prompt_id')
         model_prompt = await db.get_prompt_text(int(pid)) if pid else ""
-        presets_base = await db.get_app_setting("presets_prompt") or ""
-        prompt_text = f"{model_prompt}\n\n{presets_base}"
-    elif category == "whitebg":
-        base = await db.get_whitebg_prompt()
-        prompt_text = base or ""
+        prompt_text = model_prompt
+        
+        # Добавляем общий промпт категории если есть
+        if category == "presets":
+            presets_base = await db.get_app_setting("presets_prompt") or ""
+            if presets_base:
+                prompt_text += "\n\n" + presets_base
+        elif category == "own":
+            own_base = await db.get_app_setting("own_prompt") or ""
+            if own_base:
+                prompt_text += "\n\n" + own_base
+    elif category in category_prompt_map:
+        # Для остальных категорий - используем промпт из app_settings
+        prompt_key = category_prompt_map[category]
+        prompt_text = await db.get_app_setting(prompt_key) or ""
     else:
+        # Fallback - промпт модели если есть
         pid = data.get('prompt_id')
         prompt_text = await db.get_prompt_text(int(pid)) if pid else ""
     
@@ -3471,7 +3493,8 @@ async def _build_final_prompt(data: dict, db: Database) -> str:
 
     prompt_filled = ""
     if data.get("own_mode") or category == "own":
-        base = await db.get_own_prompt() or await db.get_own_prompt3()
+        # Используем промпт из app_settings (own_prompt)
+        base = await db.get_app_setting("own_prompt") or await db.get_own_prompt() or await db.get_own_prompt3()
         if not base or "[SCENE_AND_MODEL_REFERENCE_IMAGE]" not in base:
             base = """STRICT FASHION REDRESS TASK:
 Generate ONE SINGLE IMAGE. NO COLLAGES. NO SIDE-BY-SIDE. NO REPETITION.
@@ -3499,7 +3522,8 @@ FORMAT:
         prompt_filled = apply_replacements(base)
         
     elif category == "own_variant":
-        base = await db.get_own_variant_prompt()
+        # Используем промпт из app_settings (own_variant_prompt)
+        base = await db.get_app_setting("own_variant_prompt") or await db.get_own_variant_prompt()
         if not base or "[SCENE_AND_MODEL_REFERENCE_IMAGE]" not in base:
             base = """STRICT PRODUCT-IN-SCENE RECONSTRUCTION:
 Place the product from [CLOTHING_ITEM_TO_WEAR_IMAGE] into the exact scene from [SCENE_AND_MODEL_REFERENCE_IMAGE].
@@ -3518,7 +3542,7 @@ Fill frame, no borders."""
 
     elif data.get("random_other_mode"):
         # Для рандома часто промпт строится динамически, но если есть базовый — применяем
-        base_random_other = await db.get_random_other_prompt()
+        base_random_other = await db.get_app_setting("random_other_prompt") or await db.get_random_other_prompt()
         if base_random_other:
             prompt_filled = apply_replacements(base_random_other)
         else:
@@ -3549,8 +3573,8 @@ Fill frame, no borders."""
         prompt_filled = data.get("prompt") or ""
 
     elif data.get("random_mode"):
-        # Рандом Одежда и Обувь
-        base_random = await db.get_random_prompt()
+        # Рандом Одежда и Обувь - используем промпт из app_settings
+        base_random = await db.get_app_setting("random_prompt") or await db.get_random_prompt()
         if base_random and "{" in base_random:
             prompt_filled = apply_replacements(base_random)
         else:
@@ -3590,11 +3614,13 @@ Fill frame, no borders."""
             prompt_filled = ((base_random or "") + "\n\n" + "".join(p_parts)).strip()
 
     elif category == "whitebg":
-        base_whitebg = await db.get_whitebg_prompt()
+        # Используем промпт из app_settings (whitebg_prompt)
+        base_whitebg = await db.get_app_setting("whitebg_prompt") or await db.get_whitebg_prompt()
         prompt_filled = apply_replacements(base_whitebg) if base_whitebg else "High-end commercial product photography on a pure white background. Perfectly ironed, clean, professional studio lighting, 8k resolution, sharp focus on fabric details and texture."
 
     elif category == "storefront":
-        base_storefront = await db.get_storefront_prompt()
+        # Используем промпт из app_settings (storefront_prompt)
+        base_storefront = await db.get_app_setting("storefront_prompt") or await db.get_storefront_prompt()
         if not base_storefront or "[SCENE_AND_MODEL_REFERENCE_IMAGE]" not in base_storefront:
             base_storefront = """ROLE & TASK: Professional AI system for product showcase photography.
 Your task is to take the NEW item from [CLOTHING_ITEM_TO_WEAR_IMAGE] and render it perfectly into the scene from [SCENE_AND_MODEL_REFERENCE_IMAGE].
@@ -3620,8 +3646,11 @@ FORMAT:
         prompt_filled = apply_replacements(base_storefront)
 
     elif data.get("infographic_mode"):
-        # Инфографика
-        base_info = await db.get_infographic_clothing_prompt() if category == "infographic_clothing" else await db.get_infographic_other_prompt()
+        # Инфографика - используем промпты из app_settings
+        if category == "infographic_clothing":
+            base_info = await db.get_app_setting("infographic_clothing_prompt") or await db.get_infographic_clothing_prompt()
+        else:
+            base_info = await db.get_app_setting("infographic_other_prompt") or await db.get_infographic_other_prompt()
         if base_info and "{" in base_info:
             prompt_filled = apply_replacements(base_info)
         else:
@@ -3663,8 +3692,8 @@ FORMAT:
         # Обычный режим / Пресеты
         model_id = data.get("model_id")
         if not model_id and (data.get("is_preset") or category == "presets"):
-            # ПРЕСЕТЫ БЕЗ МОДЕЛИ
-            base_random = await db.get_random_prompt()
+            # ПРЕСЕТЫ БЕЗ МОДЕЛИ - используем промпт из app_settings
+            base_random = await db.get_app_setting("random_prompt") or await db.get_random_prompt()
             if base_random and "{" in base_random:
                 prompt_filled = apply_replacements(base_random)
             else:

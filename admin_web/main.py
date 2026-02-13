@@ -3686,8 +3686,7 @@ async def mtproxy_generate(db: aiosqlite.Connection = Depends(get_db), user: str
             # Удаляем старый контейнер если существует
             subprocess.run(["docker", "rm", "-f", "mtproxy"], timeout=10, check=False)
             
-            # Запускаем контейнер с правильным синтаксисом команды
-            # Аргументы после образа должны быть переданы как часть команды
+            # Запускаем контейнер (образ использует переменные окружения, не аргументы командной строки)
             cmd = [
                 "docker", "run", "-d",
                 "--name", "mtproxy",
@@ -3695,8 +3694,7 @@ async def mtproxy_generate(db: aiosqlite.Connection = Depends(get_db), user: str
                 "--network", "host",
                 "-e", f"SECRET={secret_formatted}",
                 "-v", f"{BASE_DIR}/data/mtproxy:/data",
-                "telegrammessenger/proxy:latest",
-                "--", "-u", "nobody", "-p", "8888", "--nat-info", "130.49.148.147:8888"
+                "telegrammessenger/proxy:latest"
             ]
             result = subprocess.run(cmd, timeout=30, check=False)
             if result.returncode == 0:
@@ -3769,8 +3767,7 @@ async def mtproxy_toggle(db: aiosqlite.Connection = Depends(get_db), user: str =
             # Удаляем старый контейнер если существует
             subprocess.run(["docker", "rm", "-f", "mtproxy"], timeout=10, check=False)
             
-            # Запускаем контейнер с правильным синтаксисом команды
-            # Аргументы после образа должны быть переданы как часть команды
+            # Запускаем контейнер (образ использует переменные окружения, не аргументы командной строки)
             cmd = [
                 "docker", "run", "-d",
                 "--name", "mtproxy",
@@ -3778,8 +3775,7 @@ async def mtproxy_toggle(db: aiosqlite.Connection = Depends(get_db), user: str =
                 "--network", "host",
                 "-e", f"SECRET={secret_formatted}",
                 "-v", f"{BASE_DIR}/data/mtproxy:/data",
-                "telegrammessenger/proxy:latest",
-                "--", "-u", "nobody", "-p", "8888", "--nat-info", "130.49.148.147:8888"
+                "telegrammessenger/proxy:latest"
             ]
             result = subprocess.run(cmd, timeout=30, check=False)
             if result.returncode == 0:

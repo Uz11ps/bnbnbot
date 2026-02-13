@@ -3532,13 +3532,14 @@ async def mtproxy_public_link(db: aiosqlite.Connection = Depends(get_db)):
     
     # Формируем ссылку tg://proxy
     server_ip = os.getenv("MTPROXY_SERVER_IP", "130.49.148.147")
-    # Секрет в формате base64 для ссылки
+    # Секрет в формате dd (hex с префиксом dd)
     try:
-        secret_hex = secret.replace("-", "")
-        secret_bytes = bytes.fromhex(secret_hex) if len(secret_hex) == 32 else base64.b64decode(secret)
-        secret_b64 = base64.b64encode(secret_bytes).decode().replace("=", "")
-        link = f"tg://proxy?server={server_ip}&port={port}&secret={secret_b64}"
-        return JSONResponse({"available": True, "link": link})
+        secret_hex = secret.replace("-", "").replace("dd", "")
+        if len(secret_hex) == 32:
+            link = f"tg://proxy?server={server_ip}&port={port}&secret=dd{secret_hex}"
+            return JSONResponse({"available": True, "link": link})
+        else:
+            return JSONResponse({"available": False})
     except Exception:
         return JSONResponse({"available": False})
 
@@ -3574,11 +3575,18 @@ async def mtproxy_status(db: aiosqlite.Connection = Depends(get_db), user: str =
     if secret and running:
         # Формируем ссылку tg://proxy
         server_ip = os.getenv("MTPROXY_SERVER_IP", "130.49.148.147")
-        # Секрет в формате base64 для ссылки
-        secret_hex = secret.replace("-", "")
-        secret_bytes = bytes.fromhex(secret_hex) if len(secret_hex) == 32 else base64.b64decode(secret)
-        secret_b64 = base64.b64encode(secret_bytes).decode().replace("=", "")
-        link = f"tg://proxy?server={server_ip}&port={port}&secret={secret_b64}"
+        # Секрет в формате dd (hex с префиксом dd)
+        secret_hex = secret.replace("-", "").replace("dd", "")
+        if len(secret_hex) == 32:
+            link = f"tg://proxy?server={server_ip}&port={port}&secret=dd{secret_hex}"
+        else:
+            # Fallback: если формат неправильный, пытаемся преобразовать
+            try:
+                secret_bytes = bytes.fromhex(secret_hex) if len(secret_hex) == 32 else base64.b64decode(secret)
+                secret_hex_clean = secret_bytes.hex()
+                link = f"tg://proxy?server={server_ip}&port={port}&secret=dd{secret_hex_clean}"
+            except:
+                pass
     
     return JSONResponse({
         "running": running,
@@ -3593,7 +3601,7 @@ async def mtproxy_generate(db: aiosqlite.Connection = Depends(get_db), user: str
     import secrets
     import base64
     
-    # Генерируем случайный секрет (16 байт)
+    # Генерируем случайный секрет (16 байт = 32 hex символа)
     secret_bytes = secrets.token_bytes(16)
     secret_hex = secret_bytes.hex()
     
@@ -3610,8 +3618,10 @@ async def mtproxy_generate(db: aiosqlite.Connection = Depends(get_db), user: str
         row = await cur.fetchone()
         port = int(row[0]) if row and row[0] else 8888
     
+    # Для ссылки tg://proxy секрет должен быть в формате dd (hex с префиксом)
+    # Но Telegram принимает и base64 формат
     secret_b64 = base64.b64encode(secret_bytes).decode().replace("=", "")
-    link = f"tg://proxy?server={server_ip}&port={port}&secret={secret_b64}"
+    link = f"tg://proxy?server={server_ip}&port={port}&secret=dd{secret_hex}"
     
     return JSONResponse({"link": link, "secret": secret_hex})
 
@@ -3651,10 +3661,13 @@ async def mtproxy_toggle(db: aiosqlite.Connection = Depends(get_db), user: str =
                 row = await cur.fetchone()
                 port = int(row[0]) if row and row[0] else 8888
             
+            # MTProxy требует секрет в формате dd (hex с префиксом)
+            secret_formatted = f"dd{secret}" if not secret.startswith("dd") else secret
+            
             # Устанавливаем переменную окружения для секрета
             import os
             env = os.environ.copy()
-            env["MTPROXY_SECRET"] = secret
+            env["MTPROXY_SECRET"] = secret_formatted
             
             # Запускаем контейнер с профилем mtproxy
             cmd = [

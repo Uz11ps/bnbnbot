@@ -3563,12 +3563,21 @@ async def mtproxy_status(db: aiosqlite.Connection = Depends(get_db), user: str =
     # Дополнительно проверяем через Docker (для админки)
     try:
         result = subprocess.run(
-            ["docker", "ps", "--filter", "name=mtproxy", "--format", "{{.Names}}"],
+            ["docker", "ps", "-a", "--filter", "name=mtproxy", "--format", "{{.Names}}"],
             capture_output=True,
             text=True,
             timeout=5
         )
-        docker_running = "mtproxy" in result.stdout
+        docker_running = "mtproxy" in result.stdout and result.returncode == 0
+        # Проверяем, что контейнер действительно запущен (не просто существует)
+        if docker_running:
+            status_result = subprocess.run(
+                ["docker", "ps", "--filter", "name=mtproxy", "--format", "{{.Status}}"],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            docker_running = "Up" in status_result.stdout
         # Синхронизируем статус в БД если отличается
         if docker_running != db_running:
             await db.execute(
@@ -3577,7 +3586,8 @@ async def mtproxy_status(db: aiosqlite.Connection = Depends(get_db), user: str =
             )
             await db.commit()
         running = docker_running
-    except Exception:
+    except Exception as e:
+        print(f"Error checking Docker status: {e}")
         running = db_running
     
     # Получаем секрет и настройки из БД
@@ -3617,6 +3627,7 @@ async def mtproxy_status(db: aiosqlite.Connection = Depends(get_db), user: str =
 async def mtproxy_generate(db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
     """Генерация нового секрета для MTProxy"""
     import secrets
+    import subprocess
     
     # Генерируем случайный секрет (16 байт = 32 hex символа)
     secret_bytes = secrets.token_bytes(16)
@@ -3647,6 +3658,40 @@ async def mtproxy_generate(db: aiosqlite.Connection = Depends(get_db), user: str
     # Для ссылки tg://proxy секрет должен быть в формате dd (hex с префиксом)
     link = f"tg://proxy?server={server_ip}&port={port}&secret=dd{secret_hex}"
     
+    # Автоматически запускаем контейнер если он не запущен
+    try:
+        result = subprocess.run(
+            ["docker", "ps", "--filter", "name=mtproxy", "--format", "{{.Names}}"],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        is_running = "mtproxy" in result.stdout and result.returncode == 0
+        if is_running:
+            status_result = subprocess.run(
+                ["docker", "ps", "--filter", "name=mtproxy", "--format", "{{.Status}}"],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            is_running = "Up" in status_result.stdout
+        
+        if not is_running:
+            # Запускаем контейнер
+            secret_formatted = f"dd{secret_hex}"
+            import os
+            env = os.environ.copy()
+            env["MTPROXY_SECRET"] = secret_formatted
+            cmd = ["docker", "compose", "--profile", "mtproxy", "up", "-d", "mtproxy"]
+            result = subprocess.run(cmd, cwd=BASE_DIR, env=env, timeout=30, check=False)
+            if result.returncode == 0:
+                await db.execute(
+                    "INSERT INTO app_settings (key, value) VALUES ('mtproxy_running', '1') ON CONFLICT(key) DO UPDATE SET value=excluded.value"
+                )
+                await db.commit()
+    except Exception as e:
+        print(f"Error auto-starting MTProxy: {e}")
+    
     return JSONResponse({"link": link, "secret": secret_hex})
 
 
@@ -3663,8 +3708,17 @@ async def mtproxy_toggle(db: aiosqlite.Connection = Depends(get_db), user: str =
             text=True,
             timeout=5
         )
-        running = "mtproxy" in result.stdout
-    except Exception:
+        running = "mtproxy" in result.stdout and result.returncode == 0
+        if running:
+            status_result = subprocess.run(
+                ["docker", "ps", "--filter", "name=mtproxy", "--format", "{{.Status}}"],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            running = "Up" in status_result.stdout
+    except Exception as e:
+        print(f"Error checking MTProxy status in toggle: {e}")
         running = False
     
     # Получаем секрет из БД

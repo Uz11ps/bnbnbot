@@ -4676,32 +4676,51 @@ async def on_menu_howto(callback: CallbackQuery, db: Database) -> None:
 @router.callback_query(F.data == "menu_proxy")
 async def on_menu_proxy(callback: CallbackQuery, db: Database) -> None:
     lang = await db.get_user_language(callback.from_user.id)
-    import httpx
+    import subprocess
+    import base64
     
-    # Получаем ссылку MTProxy через публичный API админки
+    # Проверяем статус MTProxy напрямую через БД и Docker
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            import os
-            admin_url = os.getenv("ADMIN_WEB_URL", "http://admin_web:8000")
-            response = await client.get(f"{admin_url}/api/mtproxy/public")
-            if response.status_code == 200:
-                data = response.json()
-                if data.get("available") and data.get("link"):
-                    text = f"{get_string('proxy_title', lang)}\n\n{get_string('proxy_info', lang)}\n\n`{data['link']}`"
-                    from bot.keyboards import InlineKeyboardMarkup, InlineKeyboardButton, back_main_keyboard
-                    kb = InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text=get_string("proxy_get_link", lang), url=data['link'])],
-                        [InlineKeyboardButton(text=get_string("back", lang), callback_data="menu_settings")]
-                    ])
-                else:
-                    text = get_string("proxy_not_available", lang)
-                    from bot.keyboards import back_main_keyboard
-                    kb = back_main_keyboard(lang)
+        # Проверяем, запущен ли контейнер
+        try:
+            result = subprocess.run(
+                ["docker", "ps", "--filter", "name=mtproxy", "--format", "{{.Names}}"],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            running = "mtproxy" in result.stdout
+        except Exception:
+            running = False
+        
+        # Получаем секрет и порт из БД
+        secret = await db.get_app_setting("mtproxy_secret")
+        port_str = await db.get_app_setting("mtproxy_port")
+        port = int(port_str) if port_str else 8888
+        
+        if secret and running:
+            # Формируем ссылку
+            server_ip = os.getenv("MTPROXY_SERVER_IP", "130.49.148.147")
+            secret_hex = secret.replace("-", "").replace("dd", "")
+            if len(secret_hex) == 32:
+                link = f"tg://proxy?server={server_ip}&port={port}&secret=dd{secret_hex}"
+                text = f"{get_string('proxy_title', lang)}\n\n{get_string('proxy_info', lang)}\n\n`{link}`"
+                from bot.keyboards import InlineKeyboardMarkup, InlineKeyboardButton, back_main_keyboard
+                kb = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text=get_string("proxy_get_link", lang), url=link)],
+                    [InlineKeyboardButton(text=get_string("back", lang), callback_data="menu_settings")]
+                ])
             else:
                 text = get_string("proxy_not_available", lang)
                 from bot.keyboards import back_main_keyboard
                 kb = back_main_keyboard(lang)
+        else:
+            text = get_string("proxy_not_available", lang)
+            from bot.keyboards import back_main_keyboard
+            kb = back_main_keyboard(lang)
     except Exception as e:
+        import logging
+        logging.error(f"MTProxy error: {e}")
         text = get_string("proxy_not_available", lang)
         from bot.keyboards import back_main_keyboard
         kb = back_main_keyboard(lang)

@@ -3628,6 +3628,7 @@ async def mtproxy_generate(db: aiosqlite.Connection = Depends(get_db), user: str
     """Генерация нового секрета для MTProxy"""
     import secrets
     import subprocess
+    import os
     
     # Генерируем случайный секрет (16 байт = 32 hex символа)
     secret_bytes = secrets.token_bytes(16)
@@ -3718,6 +3719,7 @@ async def mtproxy_generate(db: aiosqlite.Connection = Depends(get_db), user: str
 async def mtproxy_toggle(db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
     """Запуск/остановка MTProxy контейнера"""
     import subprocess
+    import os
     
     # Проверяем текущий статус
     try:

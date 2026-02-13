@@ -3599,7 +3599,6 @@ async def mtproxy_status(db: aiosqlite.Connection = Depends(get_db), user: str =
 async def mtproxy_generate(db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
     """Генерация нового секрета для MTProxy"""
     import secrets
-    import base64
     
     # Генерируем случайный секрет (16 байт = 32 hex символа)
     secret_bytes = secrets.token_bytes(16)
@@ -3610,6 +3609,15 @@ async def mtproxy_generate(db: aiosqlite.Connection = Depends(get_db), user: str
         "INSERT INTO app_settings (key, value) VALUES ('mtproxy_secret', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
         (secret_hex,)
     )
+    
+    # Устанавливаем порт по умолчанию если его нет
+    async with db.execute("SELECT value FROM app_settings WHERE key='mtproxy_port'") as cur:
+        row = await cur.fetchone()
+        if not row or not row[0]:
+            await db.execute(
+                "INSERT INTO app_settings (key, value) VALUES ('mtproxy_port', '8888') ON CONFLICT(key) DO UPDATE SET value=excluded.value"
+            )
+    
     await db.commit()
     
     # Формируем ссылку
@@ -3619,8 +3627,6 @@ async def mtproxy_generate(db: aiosqlite.Connection = Depends(get_db), user: str
         port = int(row[0]) if row and row[0] else 8888
     
     # Для ссылки tg://proxy секрет должен быть в формате dd (hex с префиксом)
-    # Но Telegram принимает и base64 формат
-    secret_b64 = base64.b64encode(secret_bytes).decode().replace("=", "")
     link = f"tg://proxy?server={server_ip}&port={port}&secret=dd{secret_hex}"
     
     return JSONResponse({"link": link, "secret": secret_hex})

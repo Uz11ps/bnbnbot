@@ -3679,7 +3679,6 @@ async def mtproxy_generate(db: aiosqlite.Connection = Depends(get_db), user: str
         if not is_running:
             # Запускаем контейнер напрямую через docker run
             secret_formatted = f"dd{secret_hex}"
-            import os
             env = os.environ.copy()
             env["MTPROXY_SECRET"] = secret_formatted
             
@@ -3767,7 +3766,6 @@ async def mtproxy_toggle(db: aiosqlite.Connection = Depends(get_db), user: str =
             secret_formatted = f"dd{secret}" if not secret.startswith("dd") else secret
             
             # Устанавливаем переменную окружения для секрета
-            import os
             env = os.environ.copy()
             env["MTPROXY_SECRET"] = secret_formatted
             

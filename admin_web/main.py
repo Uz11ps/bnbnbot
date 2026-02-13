@@ -1962,35 +1962,48 @@ async def cleanup_old_history():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    os.makedirs(UPLOAD_DIR, exist_ok=True)
-    os.makedirs(STATIC_DIR, exist_ok=True)
-    os.makedirs(os.path.join(BASE_DIR, "data", "history"), exist_ok=True)
-    
-    # Запуск миграций при старте
-    async with aiosqlite.connect(DB_PATH) as db:
-        await run_migrations(db)
+    try:
+        os.makedirs(UPLOAD_DIR, exist_ok=True)
+        os.makedirs(STATIC_DIR, exist_ok=True)
+        os.makedirs(os.path.join(BASE_DIR, "data", "history"), exist_ok=True)
         
-        async with db.execute("PRAGMA table_info(generation_history)") as cur:
-            h_cols = [row[1] for row in await cur.fetchall()]
-        if h_cols:
-            if "input_paths" not in h_cols:
-                try:
-                    await db.execute("ALTER TABLE generation_history ADD COLUMN input_paths TEXT")
-                    await db.commit()
-                except Exception as e: print(f"Migration error (history.input_paths): {e}")
-            if "result_path" not in h_cols:
-                try:
-                    await db.execute("ALTER TABLE generation_history ADD COLUMN result_path TEXT")
-                    await db.commit()
-                except Exception as e: print(f"Migration error (history.result_path): {e}")
-            if "prompt" not in h_cols:
-                try:
-                    await db.execute("ALTER TABLE generation_history ADD COLUMN prompt TEXT")
-                    await db.commit()
-                except Exception as e: print(f"Migration error (history.prompt): {e}")
-    
-    # Запуск очистки в фоне
-    asyncio.create_task(cleanup_old_history())
+        # Запуск миграций при старте
+        try:
+            async with aiosqlite.connect(DB_PATH, timeout=30) as db:
+                await run_migrations(db)
+                
+                async with db.execute("PRAGMA table_info(generation_history)") as cur:
+                    h_cols = [row[1] for row in await cur.fetchall()]
+                if h_cols:
+                    if "input_paths" not in h_cols:
+                        try:
+                            await db.execute("ALTER TABLE generation_history ADD COLUMN input_paths TEXT")
+                            await db.commit()
+                        except Exception as e: print(f"Migration error (history.input_paths): {e}")
+                    if "result_path" not in h_cols:
+                        try:
+                            await db.execute("ALTER TABLE generation_history ADD COLUMN result_path TEXT")
+                            await db.commit()
+                        except Exception as e: print(f"Migration error (history.result_path): {e}")
+                    if "prompt" not in h_cols:
+                        try:
+                            await db.execute("ALTER TABLE generation_history ADD COLUMN prompt TEXT")
+                            await db.commit()
+                        except Exception as e: print(f"Migration error (history.prompt): {e}")
+        except Exception as e:
+            print(f"ERROR in lifespan migrations: {e}")
+            import traceback
+            traceback.print_exc()
+        
+        # Запуск очистки в фоне
+        try:
+            asyncio.create_task(cleanup_old_history())
+        except Exception as e:
+            print(f"ERROR creating cleanup task: {e}")
+    except Exception as e:
+        print(f"CRITICAL ERROR in lifespan: {e}")
+        import traceback
+        traceback.print_exc()
         
     yield
 

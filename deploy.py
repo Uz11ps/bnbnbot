@@ -94,17 +94,17 @@ def deploy():
     print("Проверка логов admin_web...")
     code, out, err = run(f"cd {REMOTE_DIR} && docker compose logs --tail=20 admin_web", check=False)
     if "error" in out.lower() or "exception" in out.lower():
-        print("⚠️  Обнаружены ошибки в логах admin_web")
+        print("WARNING: Обнаружены ошибки в логах admin_web")
         print(out[-500:])  # Последние 500 символов
     
     # Проверяем, что admin_web отвечает
     code, out, err = run(f"curl -f -s http://localhost:8000/health 2>&1 || echo 'FAIL'", check=False)
     if "FAIL" in out or code != 0:
-        print("⚠️  admin_web не отвечает на /health")
+        print("WARNING: admin_web не отвечает на /health")
         print("Проверьте логи: docker compose logs admin_web")
         print("Проверьте статус: docker compose ps")
     else:
-        print("✅ admin_web работает")
+        print("OK: admin_web работает")
 
     # Настройка nginx для g-box.space
     nginx_config = """server {

@@ -3683,27 +3683,22 @@ async def mtproxy_generate(db: aiosqlite.Connection = Depends(get_db), user: str
             env = os.environ.copy()
             env["MTPROXY_SECRET"] = secret_formatted
             
-            # Проверяем, существует ли контейнер
-            check_cmd = ["docker", "ps", "-a", "--filter", "name=mtproxy", "--format", "{{.Names}}"]
-            check_result = subprocess.run(check_cmd, capture_output=True, text=True, timeout=5)
-            container_exists = "mtproxy" in check_result.stdout
+            # Удаляем старый контейнер если существует
+            subprocess.run(["docker", "rm", "-f", "mtproxy"], timeout=10, check=False)
             
-            if container_exists:
-                # Если контейнер существует, запускаем его
-                cmd = ["docker", "start", "mtproxy"]
-            else:
-                # Если контейнера нет, создаем и запускаем
-                cmd = [
-                    "docker", "run", "-d",
-                    "--name", "mtproxy",
-                    "--restart", "unless-stopped",
-                    "--network", "host",
-                    "-e", f"SECRET={secret_formatted}",
-                    "-v", f"{BASE_DIR}/data/mtproxy:/data",
-                    "telegrammessenger/proxy:latest",
-                    "-u", "nobody", "-p", "8888", "--nat-info", "130.49.148.147:8888"
-                ]
-            result = subprocess.run(cmd, env=env, timeout=30, check=False)
+            # Запускаем контейнер с правильным синтаксисом команды
+            # Аргументы после образа должны быть переданы как часть команды
+            cmd = [
+                "docker", "run", "-d",
+                "--name", "mtproxy",
+                "--restart", "unless-stopped",
+                "--network", "host",
+                "-e", f"SECRET={secret_formatted}",
+                "-v", f"{BASE_DIR}/data/mtproxy:/data",
+                "telegrammessenger/proxy:latest",
+                "--", "-u", "nobody", "-p", "8888", "--nat-info", "130.49.148.147:8888"
+            ]
+            result = subprocess.run(cmd, timeout=30, check=False)
             if result.returncode == 0:
                 await db.execute(
                     "INSERT INTO app_settings (key, value) VALUES ('mtproxy_running', '1') ON CONFLICT(key) DO UPDATE SET value=excluded.value"
@@ -3771,27 +3766,22 @@ async def mtproxy_toggle(db: aiosqlite.Connection = Depends(get_db), user: str =
             env = os.environ.copy()
             env["MTPROXY_SECRET"] = secret_formatted
             
-            # Проверяем, существует ли контейнер
-            check_cmd = ["docker", "ps", "-a", "--filter", "name=mtproxy", "--format", "{{.Names}}"]
-            check_result = subprocess.run(check_cmd, capture_output=True, text=True, timeout=5)
-            container_exists = "mtproxy" in check_result.stdout
+            # Удаляем старый контейнер если существует
+            subprocess.run(["docker", "rm", "-f", "mtproxy"], timeout=10, check=False)
             
-            if container_exists:
-                # Если контейнер существует, запускаем его
-                cmd = ["docker", "start", "mtproxy"]
-            else:
-                # Если контейнера нет, создаем и запускаем
-                cmd = [
-                    "docker", "run", "-d",
-                    "--name", "mtproxy",
-                    "--restart", "unless-stopped",
-                    "--network", "host",
-                    "-e", f"SECRET={secret_formatted}",
-                    "-v", f"{BASE_DIR}/data/mtproxy:/data",
-                    "telegrammessenger/proxy:latest",
-                    "-u", "nobody", "-p", "8888", "--nat-info", "130.49.148.147:8888"
-                ]
-            result = subprocess.run(cmd, env=env, timeout=30, check=False)
+            # Запускаем контейнер с правильным синтаксисом команды
+            # Аргументы после образа должны быть переданы как часть команды
+            cmd = [
+                "docker", "run", "-d",
+                "--name", "mtproxy",
+                "--restart", "unless-stopped",
+                "--network", "host",
+                "-e", f"SECRET={secret_formatted}",
+                "-v", f"{BASE_DIR}/data/mtproxy:/data",
+                "telegrammessenger/proxy:latest",
+                "--", "-u", "nobody", "-p", "8888", "--nat-info", "130.49.148.147:8888"
+            ]
+            result = subprocess.run(cmd, timeout=30, check=False)
             if result.returncode == 0:
                 # Сохраняем статус в БД
                 await db.execute(

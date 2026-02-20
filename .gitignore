@@ -5,6 +5,8 @@
 data/
 *.db
 *.log
+staraya bd/
+*.tar.gz
 
 # Python
 __pycache__/

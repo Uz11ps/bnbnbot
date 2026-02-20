@@ -24,17 +24,19 @@ class ProxyConfig:
 class Settings:
     bot_token: str
     old_bot_token: str | None
+    vk_bot_token: str | None
     gemini_api_key: str
     database_url: str
     proxy: ProxyConfig
     admin_ids: list[int]
 
 
-def load_settings() -> Settings:
+def load_settings(require_bot_token: bool = True) -> Settings:
     load_dotenv()
 
     bot_token = os.getenv("BOT_TOKEN", "").strip()
     old_bot_token = os.getenv("OLD_BOT_TOKEN", "").strip() or None
+    vk_bot_token = os.getenv("VK_BOT_TOKEN", "").strip() or None
     gemini_api_key = os.getenv("GEMINI_API_KEY", "").strip()
     database_url = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./data/bot.db").strip()
 
@@ -81,7 +83,7 @@ def load_settings() -> Settings:
             except ValueError:
                 continue
 
-    if not bot_token:
+    if require_bot_token and not bot_token:
         raise RuntimeError("BOT_TOKEN is required in .env")
     if not gemini_api_key:
         raise RuntimeError("GEMINI_API_KEY is required in .env")
@@ -89,6 +91,7 @@ def load_settings() -> Settings:
     return Settings(
         bot_token=bot_token,
         old_bot_token=old_bot_token,
+        vk_bot_token=vk_bot_token,
         gemini_api_key=gemini_api_key,
         database_url=database_url,
         proxy=proxy,

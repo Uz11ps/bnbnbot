@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Request, Form, Depends, HTTPException, status, BackgroundTasks, File, UploadFile, Query
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, Response, FileResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
@@ -12,6 +12,7 @@ import asyncio
 import httpx
 import json
 import shutil
+import mimetypes
 from aiogram import Bot
 from bot.config import load_settings
 from bot.strings import get_string
@@ -69,6 +70,20 @@ async def run_migrations(db: aiosqlite.Connection):
     """)
     await db.commit()
 
+    # Привязка прокси к ключам (до 5 прокси на ключ)
+    await db.execute("""
+    CREATE TABLE IF NOT EXISTS api_key_proxies (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        key_id INTEGER NOT NULL,
+        proxy_id INTEGER NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(key_id, proxy_id),
+        FOREIGN KEY(key_id) REFERENCES api_keys(id) ON DELETE CASCADE,
+        FOREIGN KEY(proxy_id) REFERENCES proxies(id) ON DELETE CASCADE
+    );
+    """)
+    await db.commit()
+
     # Миграция прокси из .env в БД
     try:
         import sys
@@ -117,7 +132,7 @@ async def run_migrations(db: aiosqlite.Connection):
                 print(f"Migration error (users.balance): {e}")
         if "generation_price" not in cols:
             try:
-                await db.execute("ALTER TABLE users ADD COLUMN generation_price INTEGER NOT NULL DEFAULT 20")
+                await db.execute("ALTER TABLE users ADD COLUMN generation_price INTEGER NOT NULL DEFAULT 25")
                 await db.commit()
             except Exception as e:
                 print(f"Migration error (users.generation_price): {e}")
@@ -2136,6 +2151,36 @@ async def health():
     return {"status": "ok", "base_url": BASE_URL}
 
 
+@app.get("/download/{rel_path:path}")
+async def download_file(rel_path: str):
+    """
+    Ссылка для скачивания картинки (в т.ч. из Telegram): при открытии браузер начнет загрузку.
+    Ограничиваемся ./data/history/*, чтобы не было доступа к произвольным файлам.
+    """
+    rel = (rel_path or "").replace("\\", "/").lstrip("/")
+    if rel.startswith("data/"):
+        rel = rel[5:]
+
+    if not rel.startswith("history/"):
+        raise HTTPException(status_code=404, detail="Not found")
+
+    ext = os.path.splitext(rel)[1].lower()
+    if ext not in (".jpg", ".jpeg", ".png"):
+        raise HTTPException(status_code=404, detail="Not found")
+
+    data_root = os.path.normpath(os.path.join(BASE_DIR, "data"))
+    abs_path = os.path.normpath(os.path.join(data_root, rel))
+    if not abs_path.startswith(data_root + os.sep):
+        raise HTTPException(status_code=404, detail="Not found")
+
+    if not os.path.exists(abs_path):
+        raise HTTPException(status_code=404, detail="Not found")
+
+    media_type = mimetypes.guess_type(abs_path)[0] or "application/octet-stream"
+    # Важно: filename -> Content-Disposition: attachment
+    return FileResponse(path=abs_path, media_type=media_type, filename=os.path.basename(abs_path))
+
+
 @app.get("/api/site/strings")
 async def api_site_strings(lang: str = "ru"):
     """Строки для текущего языка (welcome, profile и т.д.)"""
@@ -2398,7 +2443,7 @@ async def _api_site_generate_impl(request: Request, user: dict, db):
 
     bot_db = Database(DB_PATH)
     user_id = -user["id"]
-    price = 20
+    price = 25
 
     balance = await bot_db.get_user_balance(user_id)
     if balance < price:
@@ -2409,7 +2454,8 @@ async def _api_site_generate_impl(request: Request, user: dict, db):
         return JSONResponse({"error": "Доступ заблокирован"}, status_code=403)
 
     images_bytes = []
-    needs_model_photo = category in ("storefront", "female", "male", "child", "boy", "girl", "presets", "own") and model_id
+    # storefront: по требованию генерация идет только по фото товара (без фонового фото модели)
+    needs_model_photo = category in ("female", "male", "child", "boy", "girl", "presets", "own") and model_id
     if needs_model_photo:
         async with db.execute("SELECT photo_file_id FROM models WHERE id=?", (model_id,)) as cur:
             row = await cur.fetchone()
@@ -2485,6 +2531,20 @@ async def _api_site_generate_impl(request: Request, user: dict, db):
                 })
         except Exception as e:
             last_err = str(e)
+            try:
+                from bot.gemini import is_proxy_error, is_fatal_key_error
+                await bot_db.record_api_error(
+                    kid,
+                    token[:10],
+                    type(e).__name__,
+                    str(e),
+                    status_code=getattr(e, "status_code", None),
+                    is_proxy_error=is_proxy_error(e),
+                )
+                if is_fatal_key_error(e):
+                    await bot_db.update_api_key(kid, is_active=0)
+            except Exception:
+                pass
             continue
 
     return JSONResponse({"error": last_err or "Ошибка генерации"}, status_code=500)
@@ -2500,11 +2560,13 @@ async def _build_web_prompt(category: str, model_id: int | None, aspect: str, db
         "random_other": "random_other_prompt",
         "infographic_clothing": "infographic_clothing_prompt",
         "infographic_other": "infographic_other_prompt",
+        "presets": "presets_prompt",
         "own": "own_prompt",
     }
     
     # Для категорий с моделями - берем промпт модели, затем добавляем общий промпт категории если есть
-    if category in ("female", "male", "child", "boy", "girl", "presets", "own") and model_id:
+    # storefront тоже должен брать промпт из выбранной "Модель витрина"
+    if category in ("female", "male", "child", "boy", "girl", "presets", "own", "storefront") and model_id:
         base = ""
         # Промпт модели из таблицы prompts
         async with aiosqlite.connect(DB_PATH) as conn:
@@ -2527,6 +2589,7 @@ async def _build_web_prompt(category: str, model_id: int | None, aspect: str, db
             own_base = await db.get_app_setting("own_prompt") or ""
             if own_base:
                 base += "\n\n" + own_base
+        # storefront: специально НЕ добавляем storefront_prompt поверх модели, чтобы "Модель витрина" была источником истины
         # Для female, male, child, boy, girl можно добавить общий промпт если будет нужен
         
         base += f" Aspect ratio: {aspect}. Produce ONE single image."
@@ -2752,6 +2815,20 @@ async def list_users(request: Request, q: str = "", db: aiosqlite.Connection = D
         """
         async with db.execute(query, (f"%{q}%", f"%{q}%", f"%{q}%")) as cur:
             rows = await cur.fetchall()
+        # Если ищем числовой Telegram ID и пользователя еще нет в БД — создаем запись.
+        if not rows and q.isdigit():
+            try:
+                uid = int(q)
+                await db.execute(
+                    "INSERT OR IGNORE INTO users (id, balance, generation_price, language, accepted_terms, blocked, trial_used) "
+                    "VALUES (?, 0, 25, 'ru', 0, 0, 0)",
+                    (uid,),
+                )
+                await db.commit()
+                async with db.execute(query, (f"%{q}%", f"%{q}%", f"%{q}%")) as cur2:
+                    rows = await cur2.fetchall()
+            except Exception:
+                pass
     else:
         query = """
             SELECT u.id, u.username, u.blocked, u.balance, u.generation_price, su.email as site_email
@@ -2963,7 +3040,63 @@ async def list_prompts(request: Request, db: aiosqlite.Connection = Depends(get_
 async def list_proxies_page(request: Request, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
     async with db.execute("SELECT * FROM proxies ORDER BY created_at DESC") as cur:
         proxies = await cur.fetchall()
-    return templates.TemplateResponse("proxy.html", {"request": request, "proxies": proxies})
+    try:
+        async with db.execute("SELECT * FROM api_keys ORDER BY is_active DESC, id") as cur:
+            gemini_keys = await cur.fetchall()
+    except Exception:
+        gemini_keys = []
+
+    # proxy_id -> key_id (ожидаем максимум 1 привязку на прокси)
+    proxy_to_key: dict[int, int] = {}
+    try:
+        async with db.execute("SELECT proxy_id, key_id FROM api_key_proxies ORDER BY id DESC") as cur:
+            rows = await cur.fetchall()
+        for r in rows:
+            pid = int(r[0])
+            kid = int(r[1])
+            proxy_to_key.setdefault(pid, kid)
+    except Exception:
+        proxy_to_key = {}
+
+    return templates.TemplateResponse("proxy.html", {
+        "request": request,
+        "proxies": proxies,
+        "gemini_keys": gemini_keys,
+        "proxy_to_key": proxy_to_key,
+    })
+
+
+@app.post("/admin/proxy/bind_key")
+async def bind_proxy_to_key(
+    proxy_id: int = Form(...),
+    key_id: int = Form(0),
+    db: aiosqlite.Connection = Depends(get_db),
+    user: str = Depends(get_current_username),
+):
+    pid = int(proxy_id)
+    kid = int(key_id or 0)
+    if pid <= 0:
+        return RedirectResponse(url="/proxy", status_code=303)
+
+    # Unbind
+    if kid <= 0:
+        await db.execute("DELETE FROM api_key_proxies WHERE proxy_id=?", (pid,))
+        await db.commit()
+        return RedirectResponse(url="/proxy", status_code=303)
+
+    # Enforce <=5 proxies per key
+    async with db.execute("SELECT COUNT(*) FROM api_key_proxies WHERE key_id=?", (kid,)) as cur:
+        cnt = int((await cur.fetchone())[0] or 0)
+    async with db.execute("SELECT 1 FROM api_key_proxies WHERE key_id=? AND proxy_id=? LIMIT 1", (kid, pid)) as cur:
+        already = await cur.fetchone()
+    if cnt >= 5 and not already:
+        return RedirectResponse(url="/proxy?error=limit", status_code=303)
+
+    # one proxy -> one key (remove old mapping first)
+    await db.execute("DELETE FROM api_key_proxies WHERE proxy_id=?", (pid,))
+    await db.execute("INSERT OR IGNORE INTO api_key_proxies (key_id, proxy_id) VALUES (?, ?)", (kid, pid))
+    await db.commit()
+    return RedirectResponse(url="/proxy", status_code=303)
 
 @app.post("/admin/proxy/add")
 async def add_proxy_route(urls: str = Form(...), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
@@ -2986,6 +3119,8 @@ async def add_proxy_route(urls: str = Form(...), db: aiosqlite.Connection = Depe
 
 @app.post("/admin/proxy/delete")
 async def delete_proxy_route(id: int = Form(...), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    # На SQLite FK могут быть выключены, чистим связи вручную.
+    await db.execute("DELETE FROM api_key_proxies WHERE proxy_id = ?", (id,))
     await db.execute("DELETE FROM proxies WHERE id = ?", (id,))
     await db.commit()
     return RedirectResponse(url="/proxy", status_code=303)
@@ -3053,6 +3188,7 @@ async def update_category_prompts(
     infographic_other_prompt: str = Form(""),
     own_prompt: str = Form(""),
     own_variant_prompt: str = Form(""),
+    presets_prompt: str = Form(""),
     db: aiosqlite.Connection = Depends(get_db),
     user: str = Depends(get_current_username)
 ):
@@ -3065,6 +3201,7 @@ async def update_category_prompts(
         "infographic_other_prompt": infographic_other_prompt,
         "own_prompt": own_prompt,
         "own_variant_prompt": own_variant_prompt,
+        "presets_prompt": presets_prompt,
         # совместимость: единый промпт для "Свой вариант (одежда)"
         "own_prompt1": own_prompt,
         "own_prompt2": own_prompt,
@@ -3229,8 +3366,62 @@ async def list_keys(request: Request, db: aiosqlite.Connection = Depends(get_db)
         async with db.execute("SELECT * FROM api_keys ORDER BY is_active DESC, id") as cur:
             gemini_keys = await cur.fetchall()
     except Exception: gemini_keys = []
-    
-    return templates.TemplateResponse("api_keys.html", {"request": request, "gemini_keys": gemini_keys})
+
+    key_proxy_lists: dict[int, list[dict]] = {}
+    try:
+        async with db.execute(
+            "SELECT akp.key_id, p.id, p.url, p.is_active, p.status, p.error_message, p.last_check "
+            "FROM api_key_proxies akp "
+            "JOIN proxies p ON p.id = akp.proxy_id "
+            "ORDER BY akp.key_id, p.id"
+        ) as cur:
+            rows = await cur.fetchall()
+    except Exception:
+        rows = []
+
+    for r in rows:
+        kid = int(r[0])
+        key_proxy_lists.setdefault(kid, []).append({
+            "id": int(r[1]),
+            "url": r[2],
+            "is_active": int(r[3]) == 1,
+            "status": r[4],
+            "error_message": r[5],
+            "last_check": r[6],
+        })
+
+    return templates.TemplateResponse("api_keys.html", {
+        "request": request,
+        "gemini_keys": gemini_keys,
+        "key_proxy_lists": key_proxy_lists,
+    })
+
+
+@app.post("/api_keys/{key_id}/proxies")
+async def api_key_set_proxies(
+    key_id: int,
+    proxy_ids: list[int] = Form([]),
+    db: aiosqlite.Connection = Depends(get_db),
+    user: str = Depends(get_current_username),
+):
+    uniq: list[int] = []
+    seen = set()
+    for pid in proxy_ids or []:
+        v = int(pid)
+        if v <= 0 or v in seen:
+            continue
+        seen.add(v)
+        uniq.append(v)
+        if len(uniq) >= 5:
+            break
+    await db.execute("DELETE FROM api_key_proxies WHERE key_id=?", (int(key_id),))
+    for pid in uniq:
+        await db.execute(
+            "INSERT OR IGNORE INTO api_key_proxies (key_id, proxy_id) VALUES (?, ?)",
+            (int(key_id), int(pid)),
+        )
+    await db.commit()
+    return RedirectResponse(url="/api_keys", status_code=303)
 
 @app.post("/api_keys/add")
 async def add_key(token: str = Form(...), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
@@ -3492,7 +3683,9 @@ async def edit_subscription(
         print(f"Error in edit_subscription: {e}")
         return JSONResponse(status_code=500, content={"detail": str(e)})
 
-@app.get("/proxy", response_class=HTMLResponse)
+# Legacy page (раньше использовалась для одиночного bot_proxy в app_settings).
+# Оставляем под отдельным URL, чтобы не конфликтовала со страницей списка прокси.
+@app.get("/proxy_single", response_class=HTMLResponse)
 async def proxy_page(request: Request, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
     current_proxy = ""
     try:
@@ -3503,11 +3696,11 @@ async def proxy_page(request: Request, db: aiosqlite.Connection = Depends(get_db
     status_text = await check_proxy(db)
     return templates.TemplateResponse("proxy.html", {"request": request, "current_proxy": current_proxy, "status": status_text})
 
-@app.post("/proxy/edit")
+@app.post("/proxy_single/edit")
 async def edit_proxy(proxy_url: str = Form(...), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
     await db.execute("INSERT INTO app_settings (key, value) VALUES ('bot_proxy', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (proxy_url,))
     await db.commit()
-    return RedirectResponse(url="/proxy", status_code=303)
+    return RedirectResponse(url="/proxy_single", status_code=303)
 
 
 @app.get("/api/mtproxy/public")
@@ -3539,7 +3732,9 @@ async def mtproxy_public_link(db: aiosqlite.Connection = Depends(get_db)):
     server_ip = os.getenv("MTPROXY_SERVER_IP", "130.49.148.147")
     # Секрет в формате dd (hex с префиксом dd)
     try:
-        secret_hex = secret.replace("-", "").replace("dd", "")
+        secret_hex = secret.replace("-", "")
+        if secret_hex.startswith("dd") and len(secret_hex) == 34:
+            secret_hex = secret_hex[2:]
         if len(secret_hex) == 32:
             link = f"tg://proxy?server={server_ip}&port={port}&secret=dd{secret_hex}"
             return JSONResponse({"available": True, "link": link})
@@ -3563,21 +3758,12 @@ async def mtproxy_status(db: aiosqlite.Connection = Depends(get_db), user: str =
     # Дополнительно проверяем через Docker (для админки)
     try:
         result = subprocess.run(
-            ["docker", "ps", "-a", "--filter", "name=mtproxy", "--format", "{{.Names}}"],
+            ["docker", "inspect", "-f", "{{.State.Running}}", "mtproxy"],
             capture_output=True,
             text=True,
             timeout=5
         )
-        docker_running = "mtproxy" in result.stdout and result.returncode == 0
-        # Проверяем, что контейнер действительно запущен (не просто существует)
-        if docker_running:
-            status_result = subprocess.run(
-                ["docker", "ps", "--filter", "name=mtproxy", "--format", "{{.Status}}"],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-            docker_running = "Up" in status_result.stdout
+        docker_running = result.returncode == 0 and result.stdout.strip().lower() == "true"
         # Синхронизируем статус в БД если отличается
         if docker_running != db_running:
             await db.execute(
@@ -3604,7 +3790,9 @@ async def mtproxy_status(db: aiosqlite.Connection = Depends(get_db), user: str =
         # Формируем ссылку tg://proxy
         server_ip = os.getenv("MTPROXY_SERVER_IP", "130.49.148.147")
         # Секрет в формате dd (hex с префиксом dd)
-        secret_hex = secret.replace("-", "").replace("dd", "")
+        secret_hex = secret.replace("-", "")
+        if secret_hex.startswith("dd") and len(secret_hex) == 34:
+            secret_hex = secret_hex[2:]
         if len(secret_hex) == 32:
             link = f"tg://proxy?server={server_ip}&port={port}&secret=dd{secret_hex}"
         else:
@@ -3662,50 +3850,54 @@ async def mtproxy_generate(db: aiosqlite.Connection = Depends(get_db), user: str
     # Автоматически запускаем контейнер если он не запущен
     try:
         result = subprocess.run(
-            ["docker", "ps", "--filter", "name=mtproxy", "--format", "{{.Names}}"],
+            ["docker", "inspect", "-f", "{{.State.Running}}", "mtproxy"],
             capture_output=True,
             text=True,
             timeout=5
         )
-        is_running = "mtproxy" in result.stdout and result.returncode == 0
-        if is_running:
-            status_result = subprocess.run(
-                ["docker", "ps", "--filter", "name=mtproxy", "--format", "{{.Status}}"],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-            is_running = "Up" in status_result.stdout
+        is_running = result.returncode == 0 and result.stdout.strip().lower() == "true"
         
         if not is_running:
             # Запускаем контейнер напрямую через docker run
-            secret_formatted = f"dd{secret_hex}"
+            secret_for_env = secret_hex
             env = os.environ.copy()
-            env["MTPROXY_SECRET"] = secret_formatted
+            env["MTPROXY_SECRET"] = secret_for_env
+            os.makedirs(os.path.join(BASE_DIR, "data", "mtproxy"), exist_ok=True)
             
             # Удаляем старый контейнер если существует
             subprocess.run(["docker", "rm", "-f", "mtproxy"], timeout=10, check=False)
             
-            # Запускаем контейнер (образ использует переменные окружения, не аргументы командной строки)
+            # Контейнер слушает 443 внутри, наружу пробрасываем на порт из настроек
             cmd = [
                 "docker", "run", "-d",
                 "--name", "mtproxy",
                 "--restart", "unless-stopped",
-                "--network", "host",
-                "-e", f"SECRET={secret_formatted}",
+                "-p", f"{port}:443",
+                "-e", f"SECRET={secret_for_env}",
                 "-v", f"{BASE_DIR}/data/mtproxy:/data",
                 "telegrammessenger/proxy:latest"
             ]
-            result = subprocess.run(cmd, timeout=30, check=False)
-            if result.returncode == 0:
-                await db.execute(
-                    "INSERT INTO app_settings (key, value) VALUES ('mtproxy_running', '1') ON CONFLICT(key) DO UPDATE SET value=excluded.value"
-                )
-                await db.commit()
+            run_result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False, env=env)
+            if run_result.returncode != 0:
+                return JSONResponse({"error": (run_result.stderr or run_result.stdout or "Не удалось запустить MTProxy").strip()}, status_code=500)
+
+            verify = subprocess.run(
+                ["docker", "inspect", "-f", "{{.State.Running}}", "mtproxy"],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            if not (verify.returncode == 0 and verify.stdout.strip().lower() == "true"):
+                return JSONResponse({"error": "MTProxy контейнер создан, но не запущен"}, status_code=500)
+
+        await db.execute(
+            "INSERT INTO app_settings (key, value) VALUES ('mtproxy_running', '1') ON CONFLICT(key) DO UPDATE SET value=excluded.value"
+        )
+        await db.commit()
     except Exception as e:
-        print(f"Error auto-starting MTProxy: {e}")
+        return JSONResponse({"error": f"Ошибка запуска MTProxy: {e}"}, status_code=500)
     
-    return JSONResponse({"link": link, "secret": secret_hex})
+    return JSONResponse({"link": link, "secret": secret_hex, "running": True})
 
 
 @app.post("/api/mtproxy/toggle")
@@ -3717,20 +3909,12 @@ async def mtproxy_toggle(db: aiosqlite.Connection = Depends(get_db), user: str =
     # Проверяем текущий статус
     try:
         result = subprocess.run(
-            ["docker", "ps", "--filter", "name=mtproxy", "--format", "{{.Names}}"],
+            ["docker", "inspect", "-f", "{{.State.Running}}", "mtproxy"],
             capture_output=True,
             text=True,
             timeout=5
         )
-        running = "mtproxy" in result.stdout and result.returncode == 0
-        if running:
-            status_result = subprocess.run(
-                ["docker", "ps", "--filter", "name=mtproxy", "--format", "{{.Status}}"],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-            running = "Up" in status_result.stdout
+        running = result.returncode == 0 and result.stdout.strip().lower() == "true"
     except Exception as e:
         print(f"Error checking MTProxy status in toggle: {e}")
         running = False
@@ -3746,7 +3930,7 @@ async def mtproxy_toggle(db: aiosqlite.Connection = Depends(get_db), user: str =
     try:
         if running:
             # Останавливаем
-            subprocess.run(["docker", "stop", "mtproxy"], timeout=10, check=False)
+            subprocess.run(["docker", "rm", "-f", "mtproxy"], timeout=10, check=False)
             # Сохраняем статус остановки в БД
             await db.execute(
                 "INSERT INTO app_settings (key, value) VALUES ('mtproxy_running', '0') ON CONFLICT(key) DO UPDATE SET value=excluded.value"
@@ -3757,35 +3941,50 @@ async def mtproxy_toggle(db: aiosqlite.Connection = Depends(get_db), user: str =
                 row = await cur.fetchone()
                 port = int(row[0]) if row and row[0] else 8888
             
-            # MTProxy требует секрет в формате dd (hex с префиксом)
-            secret_formatted = f"dd{secret}" if not secret.startswith("dd") else secret
+            # Для контейнера нужен секрет в чистом 32-hex формате (без префикса dd)
+            secret_hex = secret.replace("-", "")
+            if secret_hex.startswith("dd") and len(secret_hex) == 34:
+                secret_hex = secret_hex[2:]
+            if len(secret_hex) != 32:
+                return JSONResponse({"error": "Некорректный формат секрета MTProxy"}, status_code=400)
             
             # Устанавливаем переменную окружения для секрета
             env = os.environ.copy()
-            env["MTPROXY_SECRET"] = secret_formatted
+            env["MTPROXY_SECRET"] = secret_hex
+            os.makedirs(os.path.join(BASE_DIR, "data", "mtproxy"), exist_ok=True)
             
             # Удаляем старый контейнер если существует
             subprocess.run(["docker", "rm", "-f", "mtproxy"], timeout=10, check=False)
             
-            # Запускаем контейнер (образ использует переменные окружения, не аргументы командной строки)
+            # Контейнер слушает 443 внутри, наружу пробрасываем на порт из настроек
             cmd = [
                 "docker", "run", "-d",
                 "--name", "mtproxy",
                 "--restart", "unless-stopped",
-                "--network", "host",
-                "-e", f"SECRET={secret_formatted}",
+                "-p", f"{port}:443",
+                "-e", f"SECRET={secret_hex}",
                 "-v", f"{BASE_DIR}/data/mtproxy:/data",
                 "telegrammessenger/proxy:latest"
             ]
-            result = subprocess.run(cmd, timeout=30, check=False)
-            if result.returncode == 0:
-                # Сохраняем статус в БД
-                await db.execute(
-                    "INSERT INTO app_settings (key, value) VALUES ('mtproxy_running', '1') ON CONFLICT(key) DO UPDATE SET value=excluded.value"
-                )
+            run_result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False, env=env)
+            if run_result.returncode != 0:
+                return JSONResponse({"error": (run_result.stderr or run_result.stdout or "Не удалось запустить MTProxy").strip()}, status_code=500)
+            verify = subprocess.run(
+                ["docker", "inspect", "-f", "{{.State.Running}}", "mtproxy"],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            if not (verify.returncode == 0 and verify.stdout.strip().lower() == "true"):
+                return JSONResponse({"error": "MTProxy контейнер создан, но не запущен"}, status_code=500)
+            # Сохраняем статус в БД
+            await db.execute(
+                "INSERT INTO app_settings (key, value) VALUES ('mtproxy_running', '1') ON CONFLICT(key) DO UPDATE SET value=excluded.value"
+            )
         await db.commit()
         
-        return JSONResponse({"success": True, "running": not running})
+        new_running = not running
+        return JSONResponse({"success": True, "running": new_running})
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 

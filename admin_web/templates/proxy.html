@@ -83,9 +83,14 @@
         try {
             const r = await fetch('/api/mtproxy/generate', {method: 'POST'});
             const data = await r.json();
+            if (!r.ok || data.error) {
+                alert(data.error || 'Ошибка генерации ссылки');
+                return;
+            }
             if (data.link) {
                 document.getElementById('mtproxy-link-input').value = data.link;
             }
+            await loadMtproxyStatus();
         } catch (e) {
             alert('Ошибка генерации ссылки');
         }
@@ -94,6 +99,11 @@
     async function toggleMtproxy() {
         try {
             const r = await fetch('/api/mtproxy/toggle', {method: 'POST'});
+            const data = await r.json();
+            if (!r.ok || data.error) {
+                alert(data.error || 'Ошибка переключения');
+                return;
+            }
             await loadMtproxyStatus();
         } catch (e) {
             alert('Ошибка переключения');
@@ -112,11 +122,17 @@
     </script>
 
     <div class="table-responsive">
+        {% if request.query_params.get('error') == 'limit' %}
+            <div class="alert alert-warning">
+                Лимит: к одному ключу можно привязать не более 5 прокси.
+            </div>
+        {% endif %}
         <table class="table table-hover align-middle shadow-sm bg-white rounded">
             <thead class="table-light">
                 <tr>
                     <th>ID</th>
                     <th>URL</th>
+                    <th>Привязка к ключу</th>
                     <th>Статус</th>
                     <th>Активен</th>
                     <th>Последняя проверка</th>
@@ -128,6 +144,20 @@
                 <tr>
                     <td>{{ p.id }}</td>
                     <td><code class="text-break">{{ p.url }}</code></td>
+                    <td style="min-width: 320px;">
+                        <form action="/admin/proxy/bind_key" method="post" class="d-flex gap-2">
+                            <input type="hidden" name="proxy_id" value="{{ p.id }}">
+                            <select name="key_id" class="form-select form-select-sm">
+                                <option value="0" {% if not proxy_to_key or not proxy_to_key.get(p.id) %}selected{% endif %}>— не привязан —</option>
+                                {% for k in gemini_keys %}
+                                    <option value="{{ k.id }}" {% if proxy_to_key and (proxy_to_key.get(p.id) == k.id) %}selected{% endif %}>
+                                        {{ k.id }} • {{ "ON" if k.is_active else "OFF" }} • {{ k.token[:10] }}...
+                                    </option>
+                                {% endfor %}
+                            </select>
+                            <button type="submit" class="btn btn-sm btn-outline-primary">Сохранить</button>
+                        </form>
+                    </td>
                     <td>
                         {% if p.status == 'working' %}
                             <span class="badge bg-success">Работает</span>
@@ -166,7 +196,7 @@
                 {% endfor %}
                 {% if not proxies %}
                 <tr>
-                    <td colspan="6" class="text-center py-4 text-muted">Прокси еще не добавлены</td>
+                    <td colspan="7" class="text-center py-4 text-muted">Прокси еще не добавлены</td>
                 </tr>
                 {% endif %}
             </tbody>

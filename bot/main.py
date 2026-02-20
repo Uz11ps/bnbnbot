@@ -2,7 +2,6 @@ import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
-from urllib.parse import urlparse
 from logging.handlers import RotatingFileHandler
 
 from aiogram import Bot, Dispatcher
@@ -151,106 +150,16 @@ async def main() -> None:
     db = Database(db_path=db_path)
     await db.init()
 
-    # Пробуем получить прокси из БД
-    proxy_url = await db.get_app_setting("bot_proxy")
-    if not proxy_url:
-        proxy_url = os.getenv("BOT_HTTP_PROXY", "").strip()
-    # Фолбэк: берём первый активный прокси из таблицы (стандартный германский)
-    if not proxy_url:
-        for url in (await db.get_active_proxies_urls() or [])[:1]:
-            proxy_url = url
-            break
-
-    def _parse_proxy(raw: str) -> tuple[str, object] | str | None:
-        """Возвращает (url, BasicAuth) или url. Всегда (url, auth) при наличии учётки."""
-        if not raw or not raw.strip():
-            return None
-        raw = raw.strip().split(",")[0].strip()
-        from aiohttp import BasicAuth
-
-        # URL: http://user:pass@host:port — urlparse
-        if raw.startswith("http://") or raw.startswith("https://"):
-            try:
-                p = urlparse(raw)
-                if p.hostname:
-                    port = p.port if p.port is not None else (80 if p.scheme == "http" else 443)
-                    proxy_base = f"{p.scheme}://{p.hostname}:{port}"
-                    if p.username is not None and p.password is not None:
-                        return (proxy_base, BasicAuth(login=p.username, password=p.password))
-                    return proxy_base
-            except (ValueError, TypeError):
-                pass
-            # Fallback: разбор вручную
-            rest = raw.split("://", 1)[-1].split("/")[0]
-            if "@" in rest:
-                auth_part, host_part = rest.rsplit("@", 1)
-                hp = host_part.split(":")
-                if len(hp) == 2 and hp[1].isdigit():
-                    host, port = hp[0], hp[1]
-                    up = auth_part.split(":", 1)
-                    user, password = up[0], up[1] if len(up) > 1 else ""
-                    return (f"http://{host}:{port}", BasicAuth(login=user, password=password))
-            parts = rest.split(":")
-            if len(parts) == 4 and parts[1].isdigit():
-                host, port, user, password = parts[0], parts[1], parts[2], parts[3]
-                return (f"http://{host}:{port}", BasicAuth(login=user, password=password))
-            if len(parts) == 3 and parts[2].isdigit():
-                user, host, port = parts[0], parts[1], parts[2]
-                return (f"http://{host}:{port}", BasicAuth(login=user, password=""))
-            if len(parts) == 3 and parts[1].isdigit():
-                host, port, user = parts[0], parts[1], parts[2]
-                return (f"http://{host}:{port}", BasicAuth(login=user, password=""))
-            if len(parts) == 2 and parts[1].isdigit():
-                return f"http://{parts[0]}:{parts[1]}"
-            return None
-
-        # IP:PORT:USER:PASS
-        parts = raw.split(":")
-        if len(parts) == 4:
-            host, port, user, password = parts[0], parts[1], parts[2], parts[3]
-            try:
-                int(port)
-            except ValueError:
-                return None
-            return (f"http://{host}:{port}", BasicAuth(login=user, password=password))
-        if len(parts) == 2:
-            try:
-                int(parts[1])
-            except ValueError:
-                return None
-            return f"http://{parts[0]}:{parts[1]}"
-        return None
-
-    selected_proxy = _parse_proxy(proxy_url) if proxy_url else None
-
     from aiogram.client.session.aiohttp import AiohttpSession
-    # 300 сек — для загрузки больших файлов в Telegram (через прокси может быть медленно)
+    # Telegram Bot API — ВСЕГДА напрямую (без прокси).
+    # Прокси используются только в `bot/gemini.py` для вызовов Gemini.
+    # 300 сек — запас для долгих аплоадов/скачиваний у Telegram CDN.
     session = AiohttpSession(timeout=300)
-    if selected_proxy:
-        proxy_arg = selected_proxy if isinstance(selected_proxy, tuple) else selected_proxy
-        try:
-            session = AiohttpSession(proxy=proxy_arg, timeout=300)
-            bot = Bot(
-                token=settings.bot_token,
-                session=session,
-                default=DefaultBotProperties(parse_mode=ParseMode.HTML),
-            )
-            host_log = proxy_arg[0] if isinstance(proxy_arg, tuple) else (proxy_arg.split("@")[-1] if "@" in proxy_arg else proxy_arg)
-            logger.info(f"Бот запущен через прокси: {host_log}")
-        except Exception as e:
-            logger.error(f"Ошибка настройки прокси: {e}. Запуск без прокси.")
-            session = AiohttpSession(timeout=300)
-            bot = Bot(
-                token=settings.bot_token,
-                session=session,
-                default=DefaultBotProperties(parse_mode=ParseMode.HTML),
-            )
-    else:
-        bot = Bot(
-            token=settings.bot_token,
-            session=session,
-            default=DefaultBotProperties(parse_mode=ParseMode.HTML),
-        )
+    bot = Bot(
+        token=settings.bot_token,
+        session=session,
+        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+    )
 
     dp = Dispatcher(storage=MemoryStorage())
     

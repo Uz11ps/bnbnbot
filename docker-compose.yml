@@ -9,6 +9,17 @@ services:
       - .env
     restart: always
 
+  vk_bot:
+    build: .
+    command: python -m vk_bot.main
+    volumes:
+      - ./data:/app/data
+      - ./scripts:/app/scripts
+      - ./staraya bd:/app/staraya bd
+    env_file:
+      - .env
+    restart: always
+
   admin_web:
     build:
       context: .
@@ -30,10 +41,10 @@ services:
     image: telegrammessenger/proxy:latest
     container_name: mtproxy
     restart: unless-stopped
-    network_mode: host
+    ports:
+      - "${MTPROXY_PORT:-8888}:443"
     environment:
       - SECRET=${MTPROXY_SECRET:-}
-    command: ["-u", "nobody", "-p", "8888", "--nat-info", "130.49.148.147:8888"]
     volumes:
       - ./data/mtproxy:/data
     profiles:

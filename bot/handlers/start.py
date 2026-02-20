@@ -69,7 +69,59 @@ import json
 import aiosqlite
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Базовый URL для кнопки скачивания оригинала результата.
+TELEGRAM_DOWNLOAD_BASE_URL = os.getenv("TELEGRAM_DOWNLOAD_BASE_URL", "http://g-box.space").rstrip("/")
 logger = logging.getLogger(__name__)
+
+def _public_url_for(db_path: str) -> str:
+    # db_path обычно "data/history/xxx.jpg" -> "http://.../download/history/xxx.jpg"
+    p = (db_path or "").replace("\\", "/").lstrip("/")
+    if p.startswith("data/"):
+        p = p[5:]
+    return f"{TELEGRAM_DOWNLOAD_BASE_URL}/download/{p}"
+
+def _telegram_candidate_urls(url: str) -> list[str]:
+    """
+    Telegram sendPhoto(URL) иногда падает из-за сетевых/ДНС/маршрутизации.
+    Пробуем несколько безопасных вариантов (домен/IP, https->http) прежде чем уйти в upload.
+    """
+    if not url:
+        return []
+
+    candidates: list[str] = [url]
+
+    if url.startswith("https://"):
+        candidates.append(url.replace("https://", "http://", 1))
+
+    # Иногда домен недоступен из сети Telegram, но IP работает.
+    if "g-box.space" in url:
+        candidates.append(url.replace("g-box.space", "130.49.148.147"))
+        if url.startswith("https://"):
+            candidates.append(url.replace("https://", "http://", 1).replace("g-box.space", "130.49.148.147"))
+
+    # дедуп с сохранением порядка
+    seen = set()
+    uniq: list[str] = []
+    for u in candidates:
+        if u in seen:
+            continue
+        seen.add(u)
+        uniq.append(u)
+    return uniq
+
+
+def _result_keyboard_with_download(base_kb: InlineKeyboardMarkup | None, download_url: str) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = [
+        [InlineKeyboardButton(text="⬇️ Скачать оригинал", url=download_url)]
+    ]
+    if base_kb and getattr(base_kb, "inline_keyboard", None):
+        rows.extend(base_kb.inline_keyboard)
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+#
+# NOTE: Результат отправляем как PHOTO (для полноэкранного просмотра),
+# а оригинал отдаем отдельной URL-кнопкой "Скачать оригинал".
 
 
 router = Router()
@@ -1603,16 +1655,19 @@ async def on_generic_gender_select(callback: CallbackQuery, state: FSMContext, d
         
     # Сразу показываем модели для этой категории и пола
     # Для Витрины реализуем логику: сначала ищем модели именно в категории storefront с типом одежды = пол
-    # Если их нет — показываем модели из соответствующей общей категории (женская/мужская/детская)
     if category == "storefront":
         total_sf = await db.count_models("storefront", gender)
         if total_sf > 0:
             await _show_models_for_category(callback, db, "storefront", gender)
         else:
-            # Fallback к общей категории пола (женская/мужская/детская), но logic_category остается storefront
-            display_cat = "child" if gender in ("boy", "girl") else gender
-            cloth_val = gender if display_cat == "child" else "all"
-            await _show_models_for_category(callback, db, display_cat, cloth_val, logic_category="storefront")
+            # ВАЖНО: витрина должна брать промпт строго из вкладки "Витрина" (models.category='storefront').
+            # Поэтому без fallback на женские/мужские модели.
+            await _safe_answer(
+                callback,
+                get_string("no_models_in_category_alert", await db.get_user_language(callback.from_user.id)),
+                show_alert=True,
+            )
+            return
     else:
         await _show_models_for_category(callback, db, category, "all")
     await _safe_answer(callback)
@@ -1971,7 +2026,7 @@ async def on_own_variant_product_photo(message: Message, state: FSMContext, db: 
 async def on_prompt_input(message: Message, state: FSMContext, db: Database) -> None:
     prompt = (message.text or "").strip()
     lang = await db.get_user_language(message.from_user.id)
-    if len(prompt) > 1000:
+    if len(prompt) > 2500:
         await message.answer(get_string("enter_prompt_error", lang), reply_markup=back_step_keyboard(lang))
         return
     
@@ -1993,7 +2048,7 @@ async def on_normal_photos_done(callback: CallbackQuery, state: FSMContext, db: 
         await _safe_answer(callback)
         await _replace_with_text(callback, "📸 Пришлите хотя бы одно фото.", reply_markup=back_step_keyboard(lang))
         return
-    await _replace_with_text(callback, "✍️ Теперь отправьте промпт (до 1000 символов).", reply_markup=back_step_keyboard(lang))
+    await _replace_with_text(callback, "✍️ Теперь отправьте промпт (до 2500 символов).", reply_markup=back_step_keyboard(lang))
     await state.set_state(CreateForm.waiting_prompt)
     await _safe_answer(callback)
 
@@ -3087,6 +3142,12 @@ async def on_back_step(callback: CallbackQuery, state: FSMContext, db: Database)
             cat_db = await db.get_category_by_key(category)
             if cat_db:
                 steps = await db.list_steps(cat_db[0])
+                if not steps:
+                    await _show_main_menu_by_obj(callback, db)
+                    await _safe_answer(callback)
+                    return
+                if new_index >= len(steps):
+                    new_index = len(steps) - 1
                 while new_index >= 0:
                     step = steps[new_index]
                     s_key = step[1]
@@ -3474,10 +3535,13 @@ async def _build_final_prompt(data: dict, db: Database) -> str:
         pass # Логика ниже
 
     prompt_filled = ""
+    strict_admin_prompt_mode = False
     if data.get("own_mode") or category == "own":
-        # Используем промпт из app_settings (own_prompt)
-        base = await db.get_app_setting("own_prompt") or await db.get_own_prompt() or await db.get_own_prompt3()
-        if not base or "[SCENE_AND_MODEL_REFERENCE_IMAGE]" not in base:
+        # Для own ПРИОРИТЕТ — текст из админки (app_settings.own_prompt).
+        # Дефолт используем только если в админке и fallback-источниках пусто.
+        own_from_admin = (await db.get_app_setting("own_prompt") or "").strip()
+        base = own_from_admin or (await db.get_own_prompt() or "") or (await db.get_own_prompt3() or "")
+        if not base.strip():
             base = """STRICT FASHION REDRESS TASK:
 Generate ONE SINGLE IMAGE. NO COLLAGES. NO SIDE-BY-SIDE. NO REPETITION.
 
@@ -3501,12 +3565,17 @@ FORMAT:
 - Requirement: Fill the frame. ZERO BORDERS.
 
 🎯 TARGET: A high-end, luxury marketplace photo where the model from [SCENE_AND_MODEL_REFERENCE_IMAGE] is wearing a COMPLETELY NEW OUTFIT with superior commercial quality."""
+            logger.info("[PROMPT] own: default fallback used (admin prompt is empty)")
+        else:
+            logger.info("[PROMPT] own: using %s prompt, length=%d", "admin" if own_from_admin else "fallback-db", len(base))
         prompt_filled = apply_replacements(base)
         
     elif category == "own_variant":
-        # Используем промпт из app_settings (own_variant_prompt)
-        base = await db.get_app_setting("own_variant_prompt") or await db.get_own_variant_prompt()
-        if not base or "[SCENE_AND_MODEL_REFERENCE_IMAGE]" not in base:
+        # Для own_variant ПРИОРИТЕТ — текст из админки (app_settings.own_variant_prompt).
+        # Дефолт используем только если в админке и fallback-источниках пусто.
+        own_variant_from_admin = (await db.get_app_setting("own_variant_prompt") or "").strip()
+        base = own_variant_from_admin or (await db.get_own_variant_prompt() or "")
+        if not base.strip():
             base = """STRICT PRODUCT-IN-SCENE RECONSTRUCTION:
 Place the product from [CLOTHING_ITEM_TO_WEAR_IMAGE] into the exact scene from [SCENE_AND_MODEL_REFERENCE_IMAGE].
 
@@ -3520,6 +3589,9 @@ CORE RULES:
 
 FORMAT: {aspect}
 Fill frame, no borders."""
+            logger.info("[PROMPT] own_variant: default fallback used (admin prompt is empty)")
+        else:
+            logger.info("[PROMPT] own_variant: using %s prompt, length=%d", "admin" if own_variant_from_admin else "fallback-db", len(base))
         prompt_filled = apply_replacements(base)
 
     elif data.get("random_other_mode"):
@@ -3596,14 +3668,52 @@ Fill frame, no borders."""
             prompt_filled = ((base_random or "") + "\n\n" + "".join(p_parts)).strip()
 
     elif category == "whitebg":
-        # Используем промпт из app_settings (whitebg_prompt)
-        base_whitebg = await db.get_app_setting("whitebg_prompt") or await db.get_whitebg_prompt()
-        prompt_filled = apply_replacements(base_whitebg) if base_whitebg else "High-end commercial product photography on a pure white background. Perfectly ironed, clean, professional studio lighting, 8k resolution, sharp focus on fabric details and texture."
+        # Белый фон: отправляем промпт строго как в админке (без автодобавлений).
+        base_whitebg = (await db.get_app_setting("whitebg_prompt") or await db.get_whitebg_prompt() or "").strip()
+        if base_whitebg:
+            prompt_filled = base_whitebg
+            strict_admin_prompt_mode = True
+        else:
+            prompt_filled = "High-end commercial product photography on a pure white background. Perfectly ironed, clean, professional studio lighting, 8k resolution, sharp focus on fabric details and texture."
 
     elif category == "storefront":
-        # Используем промпт из app_settings (storefront_prompt)
-        base_storefront = await db.get_app_setting("storefront_prompt") or await db.get_storefront_prompt()
-        if not base_storefront or "[SCENE_AND_MODEL_REFERENCE_IMAGE]" not in base_storefront:
+        # Витрина: приоритет у промта выбранной модели из вкладки "Витрина".
+        model_prompt = ""
+        model_id = data.get("model_id")
+        if model_id:
+            try:
+                async with aiosqlite.connect(db._db_path) as conn:
+                    async with conn.execute(
+                        """
+                        SELECT p.text
+                        FROM models m
+                        JOIN prompts p ON p.id = m.prompt_id
+                        WHERE m.id = ? AND m.category = 'storefront'
+                        """,
+                        (int(model_id),),
+                    ) as cur:
+                        row = await cur.fetchone()
+                        if row and row[0]:
+                            model_prompt = str(row[0]).strip()
+            except Exception:
+                model_prompt = ""
+
+        # fallback на prompt_id для совместимости старых состояний
+        if not model_prompt:
+            model_pid = data.get("prompt_id")
+            if model_pid:
+                try:
+                    model_prompt = (await db.get_prompt_text(int(model_pid)) or "").strip()
+                except Exception:
+                    model_prompt = ""
+
+        storefront_from_admin = (await db.get_app_setting("storefront_prompt") or "").strip()
+        base_storefront = model_prompt or storefront_from_admin or (await db.get_storefront_prompt() or "")
+
+        # Нужен строгий режим: текст уходит 1-в-1 как в админке/модели.
+        prompt_text = base_storefront
+
+        if not base_storefront.strip():
             base_storefront = """ROLE & TASK: Professional AI system for product showcase photography.
 Your task is to take the NEW item from [CLOTHING_ITEM_TO_WEAR_IMAGE] and render it perfectly into the scene from [SCENE_AND_MODEL_REFERENCE_IMAGE].
 
@@ -3625,7 +3735,12 @@ FORMAT:
 - Fill frame. No borders.
 
 🎯 FINAL GOAL: A high-end, luxury marketplace-ready photo where the item from [CLOTHING_ITEM_TO_WEAR_IMAGE] replaces the original item with perfect commercial presentation and superior quality."""
-        prompt_filled = apply_replacements(base_storefront)
+            logger.info("[PROMPT] storefront: default fallback used (model/admin prompts are empty)")
+        else:
+            src = "model" if model_prompt else ("admin" if storefront_from_admin else "fallback-db")
+            logger.info("[PROMPT] storefront: using %s prompt, length=%d", src, len(base_storefront))
+        prompt_filled = base_storefront
+        strict_admin_prompt_mode = True
 
     elif data.get("infographic_mode"):
         # Инфографика - используем промпты из app_settings
@@ -3675,9 +3790,9 @@ FORMAT:
         model_id = data.get("model_id")
         if not model_id and (data.get("is_preset") or category == "presets"):
             # ПРЕСЕТЫ БЕЗ МОДЕЛИ - используем промпт из app_settings
-            base_random = await db.get_app_setting("random_prompt") or await db.get_random_prompt()
-            if base_random and "{" in base_random:
-                prompt_filled = apply_replacements(base_random)
+            base_presets = await db.get_app_setting("presets_prompt") or await db.get_random_prompt()
+            if base_presets and "{" in base_presets:
+                prompt_filled = apply_replacements(base_presets)
             else:
                 p_parts = ["Professional commercial fashion photography. High quality, realistic lighting. "]
                 p_parts.append(f"Model: {gender_word or 'person'}. ")
@@ -3693,7 +3808,7 @@ FORMAT:
                 p_parts.append(f"Camera distance: {dist_word}. View: {view_word}. ")
                 if data.get("season"): p_parts.append(f"Season: {data.get('season')}. ")
                 p_parts.append("8k resolution, cinematic lighting, professional studio look.")
-                prompt_filled = ((base_random or "") + "\n\n" + "".join(p_parts)).strip()
+                prompt_filled = ((base_presets or "") + "\n\n" + "".join(p_parts)).strip()
         else:
             # Обычная модель (из БД по prompt_id)
             if model_id:
@@ -3747,6 +3862,8 @@ SCENE DESCRIPTION (USE FOR BACKGROUND AND MODEL ONLY, IGNORE CLOTHES): {prompt_t
         "current_step_id", "current_step_key", "current_step_index",
         "is_preset", "random_mode", "random_other_mode", "normal_gen_mode",
         "infographic_mode", "own_mode", "storefront_mode",
+        # Служебные значения UI/выбора модели (не должны попадать в промпт)
+        "model_select", "model_select_label", "display_category",
         "photos", "downloaded_paths", "own_bg_photo_id", "own_product_photo_id",
         "bg_photo", "photo", "user_photo_id", "result_photo_id", "has_person", "age", "size", "height", "body_type",
         "pants_style", "sleeve", "length", "pose", "dist", "view", "season", "holiday",
@@ -3781,12 +3898,17 @@ SCENE DESCRIPTION (USE FOR BACKGROUND AND MODEL ONLY, IGNORE CLOTHES): {prompt_t
 
         dynamic_parts.append(f"{k}: {v}")
     
-    if dynamic_parts:
-        prompt_filled += ". Additional details: " + ", ".join(dynamic_parts) + "."
+    # Для storefront/whitebg отправляем промпт строго как в админке/модели, без автодобавлений.
+    if not strict_admin_prompt_mode:
+        if dynamic_parts:
+            sep = " " if (prompt_filled and prompt_filled.rstrip().endswith((".", "!", "?"))) else ". "
+            prompt_filled = prompt_filled.rstrip() + sep + "Additional details: " + ", ".join(dynamic_parts) + "."
 
     # Финальная проверка на количество изображений (защита от коллажей)
-    if "ONE single" not in prompt_filled:
-        prompt_filled += " Produce ONE single, high-resolution, photorealistic image. No collages, no split screens, no multiple views in one image."
+    # В строгом режиме (storefront/whitebg) НЕ меняем текст из админки.
+    if not strict_admin_prompt_mode:
+        if "ONE single" not in prompt_filled:
+            prompt_filled += " Produce ONE single, high-resolution, photorealistic image. No collages, no split screens, no multiple views in one image."
 
     # ЧИСТКА ОТ СИСТЕМНОГО ТЕКСТА (Баг: "фото загружено")
     if data.get("infographic_mode"):
@@ -3863,22 +3985,9 @@ async def _do_generate_real(message_or_callback: Message | CallbackQuery, state:
         prod = data.get("own_product_photo_id") or data.get("photo")
         input_photos = [bg, prod]
     elif category == "storefront":
-        # Витринное фото: Фото 1 — выбранный фон (модель), Фото 2 — товар
-        model_id = data.get("model_id")
-        bg = None
-        if model_id:
-            async with aiosqlite.connect(db._db_path) as conn:
-                async with conn.execute("SELECT photo_file_id FROM models WHERE id=?", (model_id,)) as cur:
-                    row = await cur.fetchone()
-                    if row: bg = row[0]
-        
-        if not bg:
-            # Фолбэк если фон не выбран
-            bg = data.get("user_photo_id") or data.get("photo")
-            input_photos = [bg]
-        else:
-            prod = data.get("user_photo_id") or data.get("photo")
-            input_photos = [bg, prod]
+        # Витринное фото: отправляем в нейросеть ТОЛЬКО товар + промпт (без фонового фото модели)
+        prod = data.get("user_photo_id") or data.get("photo")
+        input_photos = [prod]
             
     elif category in ("female", "male", "child") or data.get("is_preset") or category == "presets":
         # Пресеты: Фото 1 — модель, Фото 2 — товар
@@ -3940,9 +4049,9 @@ async def _do_generate_real(message_or_callback: Message | CallbackQuery, state:
             await message_or_callback.answer(text)
         return
 
-    # Проверка баланса (ВСЕГДА 20 РУБЛЕЙ)
+    # Проверка баланса (ВСЕГДА 25 РУБЛЕЙ)
     balance = await db.get_user_balance(user_id)
-    price = 20
+    price = 25
     
     if balance < price:
         msg = f"❌ Недостаточно средств на балансе.\n\nСтоимость 1 генерации = {price} руб.\nВаш баланс: {balance} руб.\n\nПожалуйста, пополните баланс в профиле."
@@ -3984,11 +4093,13 @@ async def _do_generate_real(message_or_callback: Message | CallbackQuery, state:
                 "Финализирую"
             ]
             total_steps = 5
+            sub_steps = 2
+            tick_seconds = 1.2
             try:
                 for step in range(1, total_steps + 1):
-                    for sub in range(4):
+                    for sub in range(sub_steps):
                         elapsed = int(time.time() - start_time)
-                        progress = int(((step - 1) / total_steps + (sub / 4) / total_steps) * 100)
+                        progress = int(((step - 1) / total_steps + (sub / sub_steps) / total_steps) * 100)
                         if progress > 99: progress = 99
                         filled = int(progress / 10)
                         bar = "🟦" * filled + "⬜️" * (10 - filled)
@@ -4000,8 +4111,7 @@ async def _do_generate_real(message_or_callback: Message | CallbackQuery, state:
                             f"Результат вас приятно удивит"
                         )
                         await msg.edit_text(text)
-                        # Увеличиваем паузу между обновлениями анимации, чтобы не спамить в API Telegram
-                        await asyncio.sleep(3.0)
+                        await asyncio.sleep(tick_seconds)
             except: pass
 
         anim_task = asyncio.create_task(animate_gen(process_msg, lang))
@@ -4030,17 +4140,40 @@ async def _do_generate_real(message_or_callback: Message | CallbackQuery, state:
             
         import random
         random.shuffle(active_keys)
+        preferred_key_id = None
+        try:
+            preferred_raw = await db.get_app_setting("last_success_api_key_id")
+            preferred_key_id = int(preferred_raw) if preferred_raw else None
+        except Exception:
+            preferred_key_id = None
+        if preferred_key_id is not None:
+            active_keys.sort(key=lambda k: 0 if int(k[0]) == preferred_key_id else 1)
         
         last_error_msg = ""
         keys_tried = 0
+        max_keys_to_try = min(5, len(active_keys))
         for key_tuple in active_keys:
-            if keys_tried >= 5: # Пробуем до 5 ключей
+            if keys_tried >= max_keys_to_try:
                 break
             
             kid = key_tuple[0]
             token = key_tuple[1]
             ok, limit_err = await db.check_api_key_limits(kid)
-            if not ok: continue
+            if not ok:
+                lim = (limit_err or "").lower()
+                if "limit" in lim or "quota" in lim or "429" in lim:
+                    try:
+                        await db.update_api_key(kid, is_active=0)
+                        await db.record_api_error(
+                            kid,
+                            token[:10],
+                            "KeyLimit",
+                            limit_err or "API key limit reached",
+                            is_proxy_error=False,
+                        )
+                    except Exception as de:
+                        logger.warning(f"Не удалось деактивировать ключ {kid} по лимиту: {de}")
+                continue
             
             keys_tried += 1
             try:
@@ -4080,60 +4213,74 @@ async def _do_generate_real(message_or_callback: Message | CallbackQuery, state:
                 aspect = raw_aspect.replace(":", "x")
                 if aspect == "auto": aspect = "1x1"
                 
-                # Передаем байты напрямую в generate_image
-                result_path = await generate_image(
-                    api_key=token, 
-                    prompt=prompt_filled, 
-                    images_bytes=images_data, 
-                    aspect_ratio=aspect, 
-                    quality=quality, 
-                    key_id=kid, 
-                    db_instance=db
+                # Передаем байты напрямую в generate_image без жесткого таймаута.
+                try:
+                    key_timeout_s = int(os.getenv("GENERATION_KEY_TIMEOUT_SECONDS", "70"))
+                except Exception:
+                    key_timeout_s = 70
+                key_timeout_s = max(20, min(key_timeout_s, 300))
+                result_path = await asyncio.wait_for(
+                    generate_image(
+                        api_key=token,
+                        prompt=prompt_filled,
+                        images_bytes=images_data,
+                        aspect_ratio=aspect,
+                        quality=quality,
+                        key_id=kid,
+                        db_instance=db,
+                    ),
+                    timeout=key_timeout_s,
                 )
                 
                 if result_path:
                     await db.record_api_usage(kid)
+                    try:
+                        await db.set_app_setting("last_success_api_key_id", str(kid))
+                    except Exception:
+                        pass
                     
-                    # Списываем стоимость генерации (ВСЕГДА 20 РУБЛЕЙ ДЛЯ ВСЕХ)
-                    price = 20
+                    # Списываем стоимость генерации (ВСЕГДА 25 РУБЛЕЙ ДЛЯ ВСЕХ)
+                    price = 25
                     await db.subtract_user_balance(user_id, price)
                     
                     anim_task.cancel()
-                    from aiogram.types import FSInputFile
                     from bot.keyboards import result_actions_keyboard, result_actions_own_keyboard
                     
-                    file_size = os.path.getsize(result_path)
-                    logger.info(f"[_do_generate] Отправка результата %d байт в Telegram...", file_size)
                     kb_res = result_actions_own_keyboard(lang) if (data.get("own_mode") or category == "own_variant") else result_actions_keyboard(lang)
-                    
-                    res_msg = await ans_obj.answer_document(
-                        document=FSInputFile(result_path, filename=f"result_{uuid.uuid4().hex[:8]}.jpg"), 
-                        caption=get_string("gen_success", lang),
-                        reply_markup=kb_res
-                    )
-                    
-                    try: os.remove(result_path)
-                    except: pass
-                    
-                    res_photo_id = res_msg.document.file_id
-                    await state.update_data(result_photo_id=res_photo_id)
-                    
+
                     history_dir = os.path.join("data", "history")
                     os.makedirs(history_dir, exist_ok=True)
                     
                     pid = await db.generate_pid()
-                    local_input_paths = []
-                    # Для Windows/Linux совместимости путей в БД используем /
                     db_result_path = f"data/history/result_{pid}.jpg"
                     local_result_path = os.path.join(BASE_DIR, db_result_path)
                     os.makedirs(os.path.dirname(local_result_path), exist_ok=True)
 
+                    # Перемещаем локальный результат сразу в history и отправляем по URL,
+                    # чтобы Telegram скачивал сам (без upload через Bot API).
+                    src = result_path if os.path.exists(result_path) else os.path.join(BASE_DIR, str(result_path))
                     try:
-                        # Качаем результат
-                        file_info = await bot.get_file(res_photo_id)
-                        await bot.download_file(file_info.file_path, local_result_path)
-                        
+                        os.replace(src, local_result_path)
+                    except Exception:
+                        # fallback: копируем
+                        import shutil
+                        shutil.copyfile(src, local_result_path)
+                        try:
+                            os.remove(src)
+                        except Exception:
+                            pass
+
+                    result_url = _public_url_for(db_result_path)
+                    await state.update_data(result_photo_id=db_result_path)
+                    kb_with_download = _result_keyboard_with_download(kb_res, result_url)
+                    await ans_obj.answer(
+                        get_string("gen_success", lang),
+                        reply_markup=kb_with_download,
+                    )
+
+                    try:
                         # Качаем входные фото
+                        local_input_paths = []
                         for i, f_id in enumerate(input_photos):
                             if not f_id: continue
                             db_inp_path = f"data/history/input_{pid}_{i}.jpg"
@@ -4152,7 +4299,7 @@ async def _do_generate_real(message_or_callback: Message | CallbackQuery, state:
                         category=category,
                         params=json.dumps(data),
                         input_photos=json.dumps(input_photos),
-                        result_photo_id=res_photo_id,
+                        result_photo_id=db_result_path,
                         input_paths=json.dumps(local_input_paths),
                         result_path=db_result_path,
                         prompt=prompt_filled
@@ -4165,22 +4312,57 @@ async def _do_generate_real(message_or_callback: Message | CallbackQuery, state:
                 else:
                     from bot.gemini import is_proxy_error
                     await db.record_api_error(kid, token[:10], "EmptyResult", "Empty result from API", is_proxy_error=False)
+            except asyncio.TimeoutError as e:
+                logger.error(f"Таймаут генерации на ключе {kid}: {e}", exc_info=True)
+                last_error_msg = "generation_timeout"
+                from bot.gemini import is_proxy_error
+                await db.record_api_error(kid, token[:10], "TimeoutError", "Generation timed out", is_proxy_error=True)
+                # На таймауте переключаемся на следующий ключ.
+                continue
             except Exception as e:
                 logger.error(f"Ошибка генерации на ключе {kid}: {e}", exc_info=True)
                 last_error_msg = str(e)
-                from bot.gemini import is_proxy_error
+                from bot.gemini import is_proxy_error, is_fatal_key_error
                 await db.record_api_error(kid, token[:10], type(e).__name__, str(e), is_proxy_error=is_proxy_error(e))
-                # При таймауте не крутим ключи — проблема в сети/прокси
-                if "timeout" in str(e).lower():
-                    keys_tried = 999
+                err_type = str(getattr(e, "error_type", "") or "").lower()
+                status_code = getattr(e, "status_code", None)
+                msg_l = str(e).lower()
+                if is_fatal_key_error(e):
+                    try:
+                        await db.update_api_key(kid, is_active=0)
+                        logger.warning(f"Ключ {kid} деактивирован (fatal key error), переключаемся на следующий.")
+                    except Exception as de:
+                        logger.warning(f"Не удалось деактивировать ключ {kid} после fatal key error: {de}")
+                    continue
+                if status_code == 429 or err_type in ("429", "quota") or "quota" in msg_l or "rate limit" in msg_l:
+                    try:
+                        await db.update_api_key(kid, is_active=0)
+                        logger.warning(f"Ключ {kid} деактивирован из-за лимита/квоты, переключаемся на следующий.")
+                    except Exception as de:
+                        logger.warning(f"Не удалось деактивировать ключ {kid} после 429/quota: {de}")
+                    continue
+                # Для временных timeout/network ошибок даем шанс следующему ключу.
+                if "timeout" in str(e).lower() or "connection reset by peer" in str(e).lower():
+                    continue
         
         anim_task.cancel()
         try: await process_msg.delete()
         except: pass
         
-        # Если была конкретная ошибка (например, фильтры безопасности), показываем её
-        if last_error_msg and ("safety" in last_error_msg.lower() or "blocked" in last_error_msg.lower()):
+        # Если была конкретная ошибка — показываем более точную причину вместо общего fallback.
+        msg_l = (last_error_msg or "").lower()
+        if last_error_msg and ("safety" in msg_l or "blocked" in msg_l):
             err_text = f"⚠️ Запрос отклонен нейросетью по соображениям безопасности или из-за содержимого фото."
+        elif "503" in msg_l or "high demand" in msg_l or "unavailable" in msg_l:
+            err_text = "⚠️ Сейчас сервис генерации перегружен. Попробуйте повторить через 1-2 минуты."
+        elif "generation_total_timeout" in msg_l:
+            err_text = "⚠️ Генерация превысила лимит времени. Попробуйте еще раз с менее сложным промптом/фото."
+        elif "timed out" in msg_l or "timeout" in msg_l or "proxy/network error" in msg_l:
+            use_proxy_mode = str(os.getenv("GEMINI_USE_PROXY", "")).lower() in ("1", "true", "yes")
+            if use_proxy_mode:
+                err_text = "⚠️ Временная сетевая ошибка сервиса генерации. Попробуйте еще раз через 20-60 секунд."
+            else:
+                err_text = "⚠️ Временная сетевая ошибка сервиса генерации. Попробуйте еще раз через 10-30 секунд."
         else:
             err_text = get_string("api_error_user", lang)
             
@@ -4225,9 +4407,9 @@ async def on_result_edit_text_real(message: Message, state: FSMContext, db: Data
         await state.clear()
         return
 
-    # Проверка баланса (ПРАВКИ ВСЕГДА 20 РУБЛЕЙ)
+    # Проверка баланса (ПРАВКИ ВСЕГДА 25 РУБЛЕЙ)
     balance = await db.get_user_balance(user_id)
-    price = 20
+    price = 25
     
     if balance < price:
         await message.answer(f"❌ Недостаточно средств на балансе для правок.\n\nСтоимость правки = {price} руб.\nВаш баланс: {balance} руб.")
@@ -4281,12 +4463,14 @@ async def on_result_edit_text_real(message: Message, state: FSMContext, db: Data
             "Финализирую"
         ]
         total_steps = 5
+        sub_steps = 2
+        tick_seconds = 1.0
         try:
             for step in range(1, total_steps + 1):
                 # Плавная имитация прогресса
-                for sub in range(4):
+                for sub in range(sub_steps):
                     elapsed = int(time.time() - start_time)
-                    progress = int(((step - 1) / total_steps + (sub / 4) / total_steps) * 100)
+                    progress = int(((step - 1) / total_steps + (sub / sub_steps) / total_steps) * 100)
                     if progress > 99: progress = 99
                     
                     filled = int(progress / 10)
@@ -4300,7 +4484,7 @@ async def on_result_edit_text_real(message: Message, state: FSMContext, db: Data
                         f"Результат вас приятно удивит"
                     )
                     await msg.edit_text(text)
-                    await asyncio.sleep(1.5)
+                    await asyncio.sleep(tick_seconds)
         except: pass
     anim_task = asyncio.create_task(animate_gen(process_msg))
 
@@ -4347,6 +4531,14 @@ async def on_result_edit_text_real(message: Message, state: FSMContext, db: Data
         active_keys = [k for k in api_keys if k[2]]
         import random
         random.shuffle(active_keys)
+        preferred_key_id = None
+        try:
+            preferred_raw = await db.get_app_setting("last_success_api_key_id")
+            preferred_key_id = int(preferred_raw) if preferred_raw else None
+        except Exception:
+            preferred_key_id = None
+        if preferred_key_id is not None:
+            active_keys.sort(key=lambda k: 0 if int(k[0]) == preferred_key_id else 1)
         
         result_path = None
         kid_used = None
@@ -4356,21 +4548,73 @@ async def on_result_edit_text_real(message: Message, state: FSMContext, db: Data
         aspect = raw_aspect.replace(":", "x")
         if aspect == "auto": aspect = "1x1"
         
+        max_keys_to_try = min(5, len(active_keys))
+        keys_tried = 0
         for key_tuple in active_keys:
+            if keys_tried >= max_keys_to_try:
+                break
             kid, token = key_tuple[0], key_tuple[1]
-            ok, _ = await db.check_api_key_limits(kid)
-            if not ok: continue
+            ok, limit_err = await db.check_api_key_limits(kid)
+            if not ok:
+                lim = (limit_err or "").lower()
+                if "limit" in lim or "quota" in lim or "429" in lim:
+                    try:
+                        await db.update_api_key(kid, is_active=0)
+                        await db.record_api_error(
+                            kid,
+                            token[:10],
+                            "KeyLimit",
+                            limit_err or "API key limit reached",
+                            is_proxy_error=False,
+                        )
+                    except Exception as de:
+                        logger.warning(f"[Edit] Не удалось деактивировать ключ {kid} по лимиту: {de}")
+                continue
             
+            keys_tried += 1
             try:
-                result_path = await generate_image(
-                    api_key=token, prompt=prompt_filled, image_paths=downloaded_paths,
-                    aspect_ratio=aspect, quality=quality, key_id=kid, db_instance=db
+                try:
+                    key_timeout_s = int(os.getenv("GENERATION_KEY_TIMEOUT_SECONDS", "70"))
+                except Exception:
+                    key_timeout_s = 70
+                key_timeout_s = max(20, min(key_timeout_s, 300))
+                result_path = await asyncio.wait_for(
+                    generate_image(
+                        api_key=token,
+                        prompt=prompt_filled,
+                        image_paths=downloaded_paths,
+                        aspect_ratio=aspect,
+                        quality=quality,
+                        key_id=kid,
+                        db_instance=db,
+                    ),
+                    timeout=key_timeout_s,
                 )
                 if result_path:
                     kid_used = kid
                 break
+            except asyncio.TimeoutError as e:
+                logger.error(f"Edit timeout key {kid}: {e}")
+                continue
             except Exception as e:
                 logger.error(f"Edit error key {kid}: {e}")
+                from bot.gemini import is_fatal_key_error
+                err_type = str(getattr(e, "error_type", "") or "").lower()
+                status_code = getattr(e, "status_code", None)
+                msg_l = str(e).lower()
+                if is_fatal_key_error(e):
+                    try:
+                        await db.update_api_key(kid, is_active=0)
+                        logger.warning(f"[Edit] Ключ {kid} деактивирован (fatal key error), переключаемся на следующий.")
+                    except Exception as de:
+                        logger.warning(f"[Edit] Не удалось деактивировать ключ {kid} после fatal key error: {de}")
+                    continue
+                if status_code == 429 or err_type in ("429", "quota") or "quota" in msg_l or "rate limit" in msg_l:
+                    try:
+                        await db.update_api_key(kid, is_active=0)
+                        logger.warning(f"[Edit] Ключ {kid} деактивирован из-за лимита/квоты, переключаемся на следующий.")
+                    except Exception as de:
+                        logger.warning(f"[Edit] Не удалось деактивировать ключ {kid} после 429/quota: {de}")
                 continue
 
         # Чистим временные фото
@@ -4385,9 +4629,13 @@ async def on_result_edit_text_real(message: Message, state: FSMContext, db: Data
         if result_path:
             # Успех
             await db.record_api_usage(kid_used)
+            try:
+                await db.set_app_setting("last_success_api_key_id", str(kid_used))
+            except Exception:
+                pass
             
-            # Списываем баланс (ВСЕГДА 20 РУБЛЕЙ)
-            await db.subtract_user_balance(user_id, 20)
+            # Списываем баланс (ВСЕГДА 25 РУБЛЕЙ)
+            await db.subtract_user_balance(user_id, 25)
             
             await db.update_daily_usage(user_id)
 
@@ -4396,29 +4644,30 @@ async def on_result_edit_text_real(message: Message, state: FSMContext, db: Data
             if category == "own_variant" or data.get("own_mode"):
                 kb = result_actions_own_keyboard(lang)
                 
-            res_msg = await message.answer_document(
-                document=FSInputFile(result_path, filename=f"edited_{uuid.uuid4().hex[:8]}.jpg"),
-                caption=f"✅ Правки применены!\n\nТекст правок: {edit_text}",
-                reply_markup=kb
-            )
-
             # Сохраняем в историю
             pid = await db.generate_pid()
             history_dir = os.path.join("data", "history")
             os.makedirs(history_dir, exist_ok=True)
             
-            local_input_paths = []
             db_result_path = f"data/history/result_{pid}.jpg"
             local_result_path = os.path.join(BASE_DIR, db_result_path)
             os.makedirs(os.path.dirname(local_result_path), exist_ok=True)
 
             try:
-                # Качаем результат
-                res_photo_id = res_msg.document.file_id
-                file_info = await message.bot.get_file(res_photo_id)
-                await message.bot.download_file(file_info.file_path, local_result_path)
+                # Перемещаем результат в history и отправляем по URL (без upload через Bot API)
+                src = result_path if os.path.exists(result_path) else os.path.join(BASE_DIR, str(result_path))
+                try:
+                    os.replace(src, local_result_path)
+                except Exception:
+                    import shutil
+                    shutil.copyfile(src, local_result_path)
+                    try:
+                        os.remove(src)
+                    except Exception:
+                        pass
                 
                 # Качаем входные фото
+                local_input_paths = []
                 for i, f_id in enumerate(input_photos):
                     if not f_id: continue
                     db_inp_path = f"data/history/input_{pid}_{i}.jpg"
@@ -4431,20 +4680,25 @@ async def on_result_edit_text_real(message: Message, state: FSMContext, db: Data
             except Exception as e:
                 logger.error(f"Error downloading images for history in edit: {e}")
 
+            result_url = _public_url_for(db_result_path)
+            kb_with_download = _result_keyboard_with_download(kb, result_url)
+            await message.answer(
+                f"✅ Правки применены!\n\nТекст правок: {edit_text}",
+                reply_markup=kb_with_download,
+            )
+
             await db.add_generation_history(
                 pid=pid,
                 user_id=user_id,
                 category=category,
                 params=json.dumps(data),
                 input_photos=json.dumps(input_photos),
-                result_photo_id=res_photo_id,
+                result_photo_id=db_result_path,
                 input_paths=json.dumps(local_input_paths),
                 result_path=db_result_path,
                 prompt=prompt_filled
             )
 
-            try: os.remove(result_path)
-            except: pass
             # Не очищаем стейт полностью, чтобы можно было еще раз править или повторить
             await state.set_state(CreateForm.result_ready)
         else:
@@ -4628,14 +4882,20 @@ async def on_history(callback: CallbackQuery, db: Database) -> None:
             elif result_photo_id.startswith("BQAC"): # Telegram file_id (document)
                 await callback.message.answer_document(document=result_photo_id, caption=caption, parse_mode="Markdown")
             else:
-                # Если это путь к файлу
-                from aiogram.types import FSInputFile
+                # Если это путь к файлу из истории — показываем фото и кнопку скачивания оригинала.
                 import os
                 file_path = result_photo_id if os.path.exists(result_photo_id) else os.path.join("/app", result_photo_id)
+                url = _public_url_for(result_photo_id)
+                kb_download = _result_keyboard_with_download(None, url)
                 if os.path.exists(file_path):
-                    await callback.message.answer_document(document=FSInputFile(file_path), caption=caption, parse_mode="Markdown")
+                    await callback.message.answer_photo(
+                        photo=FSInputFile(file_path),
+                        caption=caption,
+                        parse_mode="Markdown",
+                        reply_markup=kb_download,
+                    )
                 else:
-                    await callback.message.answer(caption, parse_mode="Markdown")
+                    await callback.message.answer(caption, parse_mode="Markdown", reply_markup=kb_download)
         except Exception as e:
             logger.error(f"Error sending history item {pid}: {e}")
             await callback.message.answer(caption, parse_mode="Markdown")

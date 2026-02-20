@@ -69,7 +69,7 @@
             <!-- Шаг 5/6: Генерация -->
             <div id="step-generate" class="wizard-step d-none">
                 <h5 class="mb-3" id="gen-step-num">5. {{ get_site_string('welcome_generate', lang) }}</h5>
-                <p class="text-muted">{{ get_site_string('welcome_cost', lang) }}: <strong id="gen-price">20</strong> ₽</p>
+                <p class="text-muted">{{ get_site_string('welcome_cost', lang) }}: <strong id="gen-price">25</strong> ₽</p>
                 <button type="button" class="btn btn-primary btn-lg" id="btn-generate" onclick="runGenerate()">
                     <i class="bi bi-stars"></i> {{ get_site_string('welcome_generate_btn', lang) }}
                 </button>
@@ -252,7 +252,7 @@ function showStep(step) {
         document.getElementById('aspect-step-num').textContent = n + '. ' + s('welcome_format');
     }
     if (step === 'generate') {
-        document.getElementById('gen-price').textContent = '20';
+        document.getElementById('gen-price').textContent = '25';
         document.getElementById('gen-back-btn').onclick = () => showStep('aspect');
         const n = wizardData.categoryKey === 'own_variant' ? 6 : 5;
         document.getElementById('gen-step-num').textContent = n + '. ' + s('welcome_generate');

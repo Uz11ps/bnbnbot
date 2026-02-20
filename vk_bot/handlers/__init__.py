@@ -1,0 +1,1 @@
+# VK Bot handlers package

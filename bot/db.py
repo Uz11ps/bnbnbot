@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS users (
     language TEXT NOT NULL DEFAULT 'ru',
     trial_used INTEGER NOT NULL DEFAULT 0,
     balance INTEGER NOT NULL DEFAULT 0,
-    generation_price INTEGER NOT NULL DEFAULT 20,
+    generation_price INTEGER NOT NULL DEFAULT 25,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -193,6 +193,18 @@ CREATE TABLE IF NOT EXISTS proxies (
 );
 """
 
+CREATE_API_KEY_PROXIES_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS api_key_proxies (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    key_id INTEGER NOT NULL,
+    proxy_id INTEGER NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(key_id, proxy_id),
+    FOREIGN KEY(key_id) REFERENCES api_keys(id) ON DELETE CASCADE,
+    FOREIGN KEY(proxy_id) REFERENCES proxies(id) ON DELETE CASCADE
+);
+"""
+
 CREATE_OWN_VARIANT_RATE_LIMIT_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS own_variant_rate_limit (
     key_id INTEGER NOT NULL,
@@ -352,6 +364,7 @@ class Database:
             await db.execute(CREATE_API_ERRORS_TABLE_SQL)
             await db.execute(CREATE_OWN_VARIANT_API_KEYS_TABLE_SQL)
             await db.execute(CREATE_PROXIES_TABLE_SQL)
+            await db.execute(CREATE_API_KEY_PROXIES_TABLE_SQL)
             await db.execute(CREATE_OWN_VARIANT_RATE_LIMIT_TABLE_SQL)
             await db.execute(CREATE_OWN_VARIANT_RATE_LIMIT_INDEX_SQL)
             await db.execute(CREATE_APP_SETTINGS_TABLE_SQL)
@@ -465,7 +478,7 @@ class Database:
             if "balance" not in cols:
                 await db.execute("ALTER TABLE users ADD COLUMN balance INTEGER NOT NULL DEFAULT 0")
             if "generation_price" not in cols:
-                await db.execute("ALTER TABLE users ADD COLUMN generation_price INTEGER NOT NULL DEFAULT 20")
+                await db.execute("ALTER TABLE users ADD COLUMN generation_price INTEGER NOT NULL DEFAULT 25")
             
             async with db.execute("PRAGMA table_info(api_keys)") as cur:
                 cols = [row[1] for row in await cur.fetchall()]
@@ -1095,7 +1108,7 @@ class Database:
         async with aiosqlite.connect(self._db_path) as db:
             async with db.execute("SELECT generation_price FROM users WHERE id=?", (user_id,)) as cur:
                 row = await cur.fetchone()
-                return int(row[0]) if row and row[0] is not None else 20
+                return int(row[0]) if row and row[0] is not None else 25
 
     async def increment_user_balance(self, user_id: int, amount: int, reason: str = "recharge", admin_id: str = None) -> None:
         async with aiosqlite.connect(self._db_path) as db:
@@ -1523,7 +1536,10 @@ class Database:
                 
                 # Проверка дневного лимита (235 фото в день)
                 if daily_usage >= MAX_DAILY_USAGE:
-                    return False, f"Daily limit {MAX_DAILY_USAGE} reached"
+                    # По требованию: при срабатывании лимита ключ сразу отключаем.
+                    await db.execute("UPDATE api_keys SET is_active=0 WHERE id=?", (key_id,))
+                    await db.commit()
+                    return False, f"Daily limit {MAX_DAILY_USAGE} reached (key deactivated)"
                 
                 # Проверка минутного лимита (20 в минуту)
                 async with db.execute(
@@ -1532,7 +1548,10 @@ class Database:
                 ) as cur_log:
                     minute_usage = (await cur_log.fetchone())[0]
                     if minute_usage >= MAX_MINUTE_USAGE:
-                        return False, f"Minute limit {MAX_MINUTE_USAGE} reached"
+                        # По требованию: при срабатывании лимита ключ сразу отключаем.
+                        await db.execute("UPDATE api_keys SET is_active=0 WHERE id=?", (key_id,))
+                        await db.commit()
+                        return False, f"Minute limit {MAX_MINUTE_USAGE} reached (key deactivated)"
             
             return True, ""
 
@@ -1576,6 +1595,14 @@ class Database:
             async with db.execute("SELECT value FROM app_settings WHERE key=?", (key,)) as cur:
                 row = await cur.fetchone()
                 return str(row[0]) if row else default
+
+    async def set_app_setting(self, key: str, value: str) -> None:
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute(
+                "INSERT INTO app_settings (key, value) VALUES (?, ?)\n                 ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (str(key), str(value)),
+            )
+            await db.commit()
 
     async def get_all_app_settings(self) -> dict[str, str]:
         async with aiosqlite.connect(self._db_path) as db:
@@ -2308,9 +2335,60 @@ class Database:
 
     async def get_active_proxies_urls(self) -> list[str]:
         async with aiosqlite.connect(self._db_path) as db:
-            async with db.execute("SELECT url FROM proxies WHERE is_active = 1") as cur:
+            # Приоритет: рабочие прокси, затем неизвестные; недавно проверенные выше.
+            async with db.execute(
+                """
+                SELECT url
+                FROM proxies
+                WHERE is_active = 1
+                ORDER BY
+                    CASE status
+                        WHEN 'working' THEN 0
+                        WHEN 'unknown' THEN 1
+                        ELSE 2
+                    END,
+                    CASE WHEN last_check IS NULL THEN 1 ELSE 0 END,
+                    last_check DESC,
+                    id DESC
+                """
+            ) as cur:
                 rows = await cur.fetchall()
                 return [r[0] for r in rows]
+
+    async def deactivate_proxy_by_url(self, url: str, reason: str | None = None) -> bool:
+        """
+        Отключает прокси (is_active=0) по URL, чтобы он исчез из активных в админке.
+        Возвращает True, если нашли запись и обновили.
+        """
+        target = (url or "").strip()
+        if not target:
+            return False
+
+        # Небольшая нормализация, чтобы легче матчить сохраненный URL
+        candidates = [target]
+        if target.startswith("https://"):
+            candidates.append("http://" + target[len("https://"):])
+
+        async with aiosqlite.connect(self._db_path) as db:
+            proxy_id = None
+            for cand in candidates:
+                async with db.execute("SELECT id FROM proxies WHERE url=? LIMIT 1", (cand,)) as cur:
+                    row = await cur.fetchone()
+                    if row:
+                        proxy_id = int(row[0])
+                        target = cand
+                        break
+            if proxy_id is None:
+                return False
+
+            msg = (reason or "disabled").strip()[:500]
+            await db.execute(
+                "UPDATE proxies SET is_active=0, status=?, error_message=?, last_check=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                ("failed", msg, proxy_id),
+            )
+            await db.commit()
+            logger.warning("[proxy] Deactivated proxy id=%s url=%s reason=%s", proxy_id, target, msg)
+            return True
 
     async def update_proxy_status(self, proxy_id: int, status: str, error_message: str = None) -> None:
         async with aiosqlite.connect(self._db_path) as db:
@@ -2324,6 +2402,61 @@ class Database:
         async with aiosqlite.connect(self._db_path) as db:
             await db.execute("UPDATE proxies SET is_active = ? WHERE id = ?", (is_active, proxy_id))
             await db.commit()
+
+    # --- API KEY <-> PROXIES BINDINGS ---
+    async def set_api_key_proxies(self, key_id: int, proxy_ids: list[int], max_per_key: int = 5) -> None:
+        """Привязать до N прокси к конкретному API ключу."""
+        kid = int(key_id)
+        uniq: list[int] = []
+        seen = set()
+        for pid in proxy_ids or []:
+            try:
+                v = int(pid)
+            except Exception:
+                continue
+            if v <= 0 or v in seen:
+                continue
+            seen.add(v)
+            uniq.append(v)
+            if len(uniq) >= int(max_per_key):
+                break
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute("DELETE FROM api_key_proxies WHERE key_id=?", (kid,))
+            for pid in uniq:
+                await db.execute(
+                    "INSERT OR IGNORE INTO api_key_proxies (key_id, proxy_id) VALUES (?, ?)",
+                    (kid, int(pid)),
+                )
+            await db.commit()
+
+    async def get_api_key_proxy_urls(self, key_id: int, only_active: bool = True) -> list[str]:
+        """Вернуть URL прокси, привязанных к ключу (опционально только активные)."""
+        kid = int(key_id)
+        where = "AND p.is_active=1" if only_active else ""
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute(
+                f"""
+                SELECT p.url
+                FROM api_key_proxies akp
+                JOIN proxies p ON p.id = akp.proxy_id
+                WHERE akp.key_id = ?
+                {where}
+                ORDER BY p.id DESC
+                """,
+                (kid,),
+            ) as cur:
+                rows = await cur.fetchall()
+                return [str(r[0]) for r in rows if r and r[0]]
+
+    async def get_api_key_proxy_ids(self, key_id: int) -> list[int]:
+        kid = int(key_id)
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute(
+                "SELECT proxy_id FROM api_key_proxies WHERE key_id=? ORDER BY proxy_id",
+                (kid,),
+            ) as cur:
+                rows = await cur.fetchall()
+                return [int(r[0]) for r in rows if r and r[0] is not None]
 
 
 

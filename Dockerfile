@@ -18,6 +18,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # App
 COPY bot ./bot
+COPY vk_bot ./vk_bot
 COPY scripts ./scripts
 # Копируем изображение-гайд для выбора длины изделия (переименовываем для удобства)
 COPY ["WhatsApp Image 2025-11-25 at 00.40.21.jpeg", "./garment_length_guide.jpeg"]

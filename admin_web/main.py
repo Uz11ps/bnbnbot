@@ -37,6 +37,10 @@ os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 UPLOAD_DIR = os.path.join(BASE_DIR, "data", "uploads", "models")
 STATIC_DIR = os.path.join(BASE_DIR, "admin_web", "static")
 
+# В Docker-образе папки могут отсутствовать; StaticFiles(check_dir=True) иначе уронит приложение на старте.
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs(STATIC_DIR, exist_ok=True)
+
 async def run_migrations(db: aiosqlite.Connection):
     # Проверка и добавление недостающих колонок
     async with db.execute("PRAGMA table_info(subscriptions)") as cur:
@@ -2078,11 +2082,6 @@ except Exception as e:
 
 ADMIN_USER = "galimov5500"
 ADMIN_PASS = "Gal171120719(!)"
-
-if os.path.exists(STATIC_DIR):
-    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
-if os.path.exists(os.path.join(BASE_DIR, "data", "uploads")):
-    app.mount("/uploads", StaticFiles(directory=os.path.join(BASE_DIR, "data", "uploads")), name="uploads")
 
 # --- Зависимости ---
 def get_current_username(credentials: HTTPBasicCredentials = Depends(security)):

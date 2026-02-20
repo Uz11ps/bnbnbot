@@ -39,7 +39,12 @@
                     {% if p_list %}
                         <div class="small">
                             {% for p in p_list %}
-                                <div><code>#{{ p.id }}</code> • {{ "ON" if p.is_active else "OFF" }} • <span class="text-muted">{{ p.url }}</span></div>
+                                <div>
+                                    <code>#{{ p.id }}</code>
+                                    • {{ "ON" if p.is_active else "OFF" }}
+                                    {% if p.name %} • <span class="text-primary">{{ p.name }}</span>{% endif %}
+                                    • <span class="text-muted">{{ p.url }}</span>
+                                </div>
                             {% endfor %}
                         </div>
                     {% else %}

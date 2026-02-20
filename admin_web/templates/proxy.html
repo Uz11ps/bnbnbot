@@ -132,6 +132,7 @@
                 <tr>
                     <th>ID</th>
                     <th>URL</th>
+                    <th>Название</th>
                     <th>Привязка к ключу</th>
                     <th>Статус</th>
                     <th>Активен</th>
@@ -144,6 +145,13 @@
                 <tr>
                     <td>{{ p.id }}</td>
                     <td><code class="text-break">{{ p.url }}</code></td>
+                    <td style="min-width: 240px;">
+                        <form action="/admin/proxy/set_name" method="post" class="d-flex gap-2">
+                            <input type="hidden" name="id" value="{{ p.id }}">
+                            <input type="text" name="name" class="form-control form-control-sm" value="{{ p.name or '' }}" placeholder="Напр. DE • DC">
+                            <button type="submit" class="btn btn-sm btn-outline-primary">Сохранить</button>
+                        </form>
+                    </td>
                     <td style="min-width: 320px;">
                         <form action="/admin/proxy/bind_key" method="post" class="d-flex gap-2">
                             <input type="hidden" name="proxy_id" value="{{ p.id }}">
@@ -196,7 +204,7 @@
                 {% endfor %}
                 {% if not proxies %}
                 <tr>
-                    <td colspan="7" class="text-center py-4 text-muted">Прокси еще не добавлены</td>
+                    <td colspan="8" class="text-center py-4 text-muted">Прокси еще не добавлены</td>
                 </tr>
                 {% endif %}
             </tbody>

@@ -63,6 +63,7 @@ async def run_migrations(db: aiosqlite.Connection):
     await db.execute("""
     CREATE TABLE IF NOT EXISTS proxies (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT DEFAULT '',
         url TEXT NOT NULL,
         is_active INTEGER NOT NULL DEFAULT 1,
         status TEXT DEFAULT 'unknown',
@@ -73,6 +74,16 @@ async def run_migrations(db: aiosqlite.Connection):
     );
     """)
     await db.commit()
+
+    # Миграция: имя прокси (для удобства — страна/тип)
+    try:
+        async with db.execute("PRAGMA table_info(proxies)") as cur:
+            cols = [row[1] for row in await cur.fetchall()]
+        if cols and "name" not in cols:
+            await db.execute("ALTER TABLE proxies ADD COLUMN name TEXT DEFAULT ''")
+            await db.commit()
+    except Exception:
+        pass
 
     # Привязка прокси к ключам (до 5 прокси на ключ)
     await db.execute("""
@@ -3124,6 +3135,23 @@ async def delete_proxy_route(id: int = Form(...), db: aiosqlite.Connection = Dep
     await db.commit()
     return RedirectResponse(url="/proxy", status_code=303)
 
+@app.post("/admin/proxy/set_name")
+async def set_proxy_name_route(
+    id: int = Form(...),
+    name: str = Form(""),
+    db: aiosqlite.Connection = Depends(get_db),
+    user: str = Depends(get_current_username),
+):
+    nm = (name or "").strip()
+    if len(nm) > 64:
+        nm = nm[:64]
+    await db.execute(
+        "UPDATE proxies SET name=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+        (nm, int(id)),
+    )
+    await db.commit()
+    return RedirectResponse(url="/proxy", status_code=303)
+
 @app.post("/admin/proxy/toggle")
 async def toggle_proxy_route(id: int = Form(...), active: int = Form(...), db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
     await db.execute("UPDATE proxies SET is_active = ? WHERE id = ?", (active, id))
@@ -3369,7 +3397,7 @@ async def list_keys(request: Request, db: aiosqlite.Connection = Depends(get_db)
     key_proxy_lists: dict[int, list[dict]] = {}
     try:
         async with db.execute(
-            "SELECT akp.key_id, p.id, p.url, p.is_active, p.status, p.error_message, p.last_check "
+            "SELECT akp.key_id, p.id, p.name, p.url, p.is_active, p.status, p.error_message, p.last_check "
             "FROM api_key_proxies akp "
             "JOIN proxies p ON p.id = akp.proxy_id "
             "ORDER BY akp.key_id, p.id"
@@ -3382,11 +3410,12 @@ async def list_keys(request: Request, db: aiosqlite.Connection = Depends(get_db)
         kid = int(r[0])
         key_proxy_lists.setdefault(kid, []).append({
             "id": int(r[1]),
-            "url": r[2],
-            "is_active": int(r[3]) == 1,
-            "status": r[4],
-            "error_message": r[5],
-            "last_check": r[6],
+            "name": r[2],
+            "url": r[3],
+            "is_active": int(r[4]) == 1,
+            "status": r[5],
+            "error_message": r[6],
+            "last_check": r[7],
         })
 
     return templates.TemplateResponse("api_keys.html", {

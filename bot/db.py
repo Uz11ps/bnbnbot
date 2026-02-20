@@ -183,6 +183,7 @@ CREATE TABLE IF NOT EXISTS own_variant_api_keys (
 CREATE_PROXIES_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS proxies (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT DEFAULT '',            -- Удобное имя (страна/тип)
     url TEXT NOT NULL,               -- Полный URL: http://user:pass@host:port
     is_active INTEGER NOT NULL DEFAULT 1,
     status TEXT DEFAULT 'unknown',    -- 'working', 'failed', 'unknown'
@@ -383,6 +384,17 @@ class Database:
             await db.execute(CREATE_SUPPORT_MESSAGES_TABLE_SQL)
             await db.execute(CREATE_BALANCE_HISTORY_TABLE_SQL)
             await db.commit()
+
+        # Миграция: добавляем имя прокси (страна/тип) в существующие БД
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("PRAGMA table_info(proxies)") as cur:
+                cols = [row[1] for row in await cur.fetchall()]
+            if cols and "name" not in cols:
+                try:
+                    await db.execute("ALTER TABLE proxies ADD COLUMN name TEXT DEFAULT ''")
+                    await db.commit()
+                except Exception:
+                    pass
         
         # Миграция для описаний планов
         async with aiosqlite.connect(self._db_path) as db:

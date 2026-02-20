@@ -4348,6 +4348,40 @@ async def _do_generate_real(message_or_callback: Message | CallbackQuery, state:
         anim_task.cancel()
         try: await process_msg.delete()
         except: pass
+
+        # Уведомляем админов о фейле генерации (антиспам через app_settings).
+        try:
+            cooldown_s = 90
+            now_ts = int(time.time())
+            last_ts_raw = await db.get_app_setting("tg_error_notify_last_ts", "0")
+            try:
+                last_ts = int(str(last_ts_raw or "0").strip() or "0")
+            except Exception:
+                last_ts = 0
+            if now_ts - last_ts >= cooldown_s:
+                try:
+                    await db.set_app_setting("tg_error_notify_last_ts", str(now_ts))
+                except Exception:
+                    pass
+
+                settings = load_settings()
+                admin_ids = settings.admin_ids or [1440716472, 916948327]
+                short_err = (last_error_msg or "unknown_error").strip()
+                if len(short_err) > 600:
+                    short_err = short_err[:600] + "..."
+                notify_text = (
+                    "⚠️ Ошибка генерации\n"
+                    f"User: {user_id}\n"
+                    f"Category: {category}\n"
+                    f"Error: {short_err}"
+                )
+                for aid in admin_ids:
+                    try:
+                        await bot.send_message(chat_id=int(aid), text=notify_text)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
         
         # Если была конкретная ошибка — показываем более точную причину вместо общего fallback.
         msg_l = (last_error_msg or "").lower()

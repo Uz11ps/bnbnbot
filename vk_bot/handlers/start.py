@@ -625,7 +625,9 @@ async def _run_constructor_generation(message: Message, db: Database, user_id: i
                 await db.record_api_usage(key_id)
             except Exception:
                 pass
-        result_url = f"https://g-box.space/{result_path}".replace("//data", "/data")
+        # HTTPS на домене может быть не настроен; отдаем рабочую http-ссылку.
+        base_url = (await db.get_app_setting("public_base_url", "http://g-box.space") or "http://g-box.space").strip().rstrip("/")
+        result_url = f"{base_url}/{result_path}".replace("//data", "/data")
         await _reply(message, f"{get_string('gen_success', lang)}\n\n{result_url}", keyboard=back_to_main_keyboard(lang))
     except Exception:
         logger.exception("VK constructor generation failed for user_id=%s", user_id)
@@ -850,7 +852,8 @@ async def _handle_generation_prompt_step(message: Message, db: Database, user_id
             except Exception:
                 pass
 
-        base_url = "https://g-box.space"
+        # HTTPS на домене может быть не настроен; отдаем рабочую http-ссылку.
+        base_url = (await db.get_app_setting("public_base_url", "http://g-box.space") or "http://g-box.space").strip().rstrip("/")
         result_url = f"{base_url}/{result_path}".replace("//data", "/data")
         await _reply(
             message,

@@ -523,15 +523,40 @@ async def _build_constructor_prompt(db: Database, st: VkUserState) -> str:
     # Используем тот же builder, что в Telegram, чтобы форма из конструктора работала одинаково
     from bot.handlers.start import _build_final_prompt as tg_build_final_prompt
 
-    tg_prompt = await tg_build_final_prompt(values, db)
-    return tg_prompt.strip() or base
+    tg_prompt = (await tg_build_final_prompt(values, db) or "").strip()
+
+    # Если в форме есть поле со свободным текстом (свой вариант), добавляем его в конец промпта.
+    extra_keys = ("prompt", "custom_prompt", "user_prompt", "extra_prompt", "note", "notes", "comment", "description")
+    extra = ""
+    for k in extra_keys:
+        v = (values.get(k) or "").strip()
+        if v:
+            extra = v
+            break
+    if extra:
+        tg_prompt = f"{tg_prompt}\n\nДополнительно: {extra}".strip()
+
+    return tg_prompt or base
 
 
 async def _collect_constructor_images(db: Database, st: VkUserState) -> list[bytes]:
     photos: list[bytes] = []
     if st.category == "own_variant":
-        bg = (st.step_photos.get("bg_photo") or [])[:1]
-        product = (st.step_photos.get("photo") or [])[:1]
+        # Совместимость: в админке ключи шагов могли быть как в TG (own_bg_photo_id/own_product_photo_id)
+        bg_keys = ["bg_photo", "own_bg_photo_id", "own_bg_photo", "background_photo", "background", "bg"]
+        product_keys = ["photo", "own_product_photo_id", "own_product_photo", "product_photo", "product", "item_photo"]
+        bg: list[bytes] = []
+        product: list[bytes] = []
+        for k in bg_keys:
+            cand = st.step_photos.get(k) or []
+            if cand:
+                bg = cand[:1]
+                break
+        for k in product_keys:
+            cand = st.step_photos.get(k) or []
+            if cand:
+                product = cand[:1]
+                break
         photos.extend(bg + product)
         return [p for p in photos if p]
 
@@ -630,6 +655,18 @@ async def _handle_constructor_message(message: Message, db: Database, user_id: i
         await _show_constructor_confirmation(message, db, user_id, lang)
         return True
 
+    # Если предыдущая кнопка требовала "свой вариант" — сохраняем текст в текущий step_key
+    if st.waiting_custom_for:
+        step_key = st.waiting_custom_for
+        if not text_raw:
+            await _reply(message, "Введите текст для этого шага.", keyboard=_kb_options([], include_back=True, include_skip=False, include_create=False, lang=lang))
+            return True
+        st.step_values[step_key] = text_raw
+        st.step_labels[step_key] = text_raw
+        st.waiting_custom_for = None
+        await _constructor_advance(message, db, user_id, lang)
+        return True
+
     if st.current_step_id is None or st.current_step_key is None:
         await _show_constructor_step(message, db, user_id, lang)
         return True
@@ -692,7 +729,12 @@ async def _handle_constructor_message(message: Message, db: Database, user_id: i
         if not selected:
             await _reply(message, "Выберите один из вариантов кнопкой, номером или текстом.")
             return True
-        _opt_id, opt_text, opt_value, _order, _custom = selected
+        _opt_id, opt_text, opt_value, _order, custom_prompt = selected
+        custom_prompt = (custom_prompt or "").strip()
+        if custom_prompt:
+            st.waiting_custom_for = step_key
+            await _reply(message, custom_prompt, keyboard=_kb_options([], include_back=True, include_skip=False, include_create=False, lang=lang))
+            return True
         st.step_values[step_key] = str(opt_value)
         st.step_labels[step_key] = str(opt_text)
         await _constructor_advance(message, db, user_id, lang)

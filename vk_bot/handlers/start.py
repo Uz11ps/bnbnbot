@@ -133,6 +133,95 @@ async def _reply(message: Message, text: str, keyboard: str | None = None) -> bo
             raise
 
 
+async def _upload_result_photo_attachment(message: Message, file_path: str) -> str | None:
+    """
+    Загружает файл как фото для сообщений VK и возвращает attachment вида:
+    photo{owner_id}_{id}_{access_key}
+    """
+    try:
+        import os
+
+        if not file_path:
+            return None
+        p = file_path
+        if not os.path.isabs(p):
+            p = os.path.join("/app", str(file_path).lstrip("/"))
+        if not os.path.exists(p):
+            return None
+
+        server = await message.ctx_api.photos.get_messages_upload_server(peer_id=message.peer_id)
+        upload_url = getattr(server, "upload_url", None) or (server.get("upload_url") if isinstance(server, dict) else None)
+        if not upload_url:
+            return None
+
+        with open(p, "rb") as f:
+            data = f.read()
+
+        timeout = httpx.Timeout(connect=20.0, read=60.0, write=60.0, pool=20.0)
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            resp = await client.post(upload_url, files={"photo": ("result.jpg", data, "image/jpeg")})
+        if resp.status_code != 200:
+            return None
+        up = resp.json()
+        photo = up.get("photo")
+        server_id = up.get("server")
+        h = up.get("hash")
+        if not (photo and server_id and h):
+            return None
+
+        saved = await message.ctx_api.photos.save_messages_photo(photo=photo, server=server_id, hash=h)
+        if not saved:
+            return None
+        item = saved[0]
+        owner_id = getattr(item, "owner_id", None) or (item.get("owner_id") if isinstance(item, dict) else None)
+        pid = getattr(item, "id", None) or (item.get("id") if isinstance(item, dict) else None)
+        access_key = getattr(item, "access_key", None) or (item.get("access_key") if isinstance(item, dict) else None)
+        if owner_id is None or pid is None:
+            return None
+        if access_key:
+            return f"photo{owner_id}_{pid}_{access_key}"
+        return f"photo{owner_id}_{pid}"
+    except Exception:
+        logger.exception("VK upload result photo failed")
+        return None
+
+
+async def _reply_with_attachment(message: Message, text: str, attachment: str, keyboard: str | None = None) -> bool:
+    """
+    Отправка с attachment + защитой от ошибок клавиатуры (VK 912/911).
+    """
+    rid = int(time.time() * 1000)
+    try:
+        if keyboard:
+            await message.ctx_api.messages.send(
+                peer_id=message.peer_id,
+                random_id=rid,
+                message=text,
+                keyboard=keyboard,
+                attachment=attachment,
+            )
+        else:
+            await message.ctx_api.messages.send(peer_id=message.peer_id, random_id=rid, message=text, attachment=attachment)
+        return True
+    except VKAPIError as e:
+        err = str(e).lower()
+        if (
+            "chat bot feature" in err
+            or "error_code=912" in err
+            or "error_code=911" in err
+            or "keyboard format is invalid" in err
+            or "too much rows" in err
+        ):
+            await message.ctx_api.messages.send(peer_id=message.peer_id, random_id=rid, message=text, attachment=attachment)
+            return False
+        raise
+    except Exception as e:
+        if "chat bot feature" in str(e).lower():
+            await message.ctx_api.messages.send(peer_id=message.peer_id, random_id=rid, message=text, attachment=attachment)
+            return False
+        raise
+
+
 async def _get_lang(db: Database, user_id: int) -> str:
     lang = await db.get_user_language(user_id)
     if lang not in {"ru", "en", "vi"}:
@@ -625,10 +714,14 @@ async def _run_constructor_generation(message: Message, db: Database, user_id: i
                 await db.record_api_usage(key_id)
             except Exception:
                 pass
-        # HTTPS на домене может быть не настроен; отдаем рабочую http-ссылку.
-        base_url = (await db.get_app_setting("public_base_url", "http://g-box.space") or "http://g-box.space").strip().rstrip("/")
-        result_url = f"{base_url}/{result_path}".replace("//data", "/data")
-        await _reply(message, f"{get_string('gen_success', lang)}\n\n{result_url}", keyboard=back_to_main_keyboard(lang))
+        attachment = await _upload_result_photo_attachment(message, str(result_path))
+        if attachment:
+            await _reply_with_attachment(message, get_string("gen_success", lang), attachment=attachment, keyboard=back_to_main_keyboard(lang))
+        else:
+            # fallback: если загрузка в VK не удалась — отдаем ссылку
+            base_url = (await db.get_app_setting("public_base_url", "http://g-box.space") or "http://g-box.space").strip().rstrip("/")
+            result_url = f"{base_url}/{result_path}".replace("//data", "/data")
+            await _reply(message, f"{get_string('gen_success', lang)}\n\n{result_url}", keyboard=back_to_main_keyboard(lang))
     except Exception:
         logger.exception("VK constructor generation failed for user_id=%s", user_id)
         await _reply(message, get_string("gen_error_contact_support", lang), keyboard=back_to_main_keyboard(lang))
@@ -852,14 +945,23 @@ async def _handle_generation_prompt_step(message: Message, db: Database, user_id
             except Exception:
                 pass
 
-        # HTTPS на домене может быть не настроен; отдаем рабочую http-ссылку.
-        base_url = (await db.get_app_setting("public_base_url", "http://g-box.space") or "http://g-box.space").strip().rstrip("/")
-        result_url = f"{base_url}/{result_path}".replace("//data", "/data")
-        await _reply(
-            message,
-            f"{get_string('gen_success', lang)}\n\n{result_url}",
-            keyboard=back_to_main_keyboard(lang),
-        )
+        attachment = await _upload_result_photo_attachment(message, str(result_path))
+        if attachment:
+            await _reply_with_attachment(
+                message,
+                get_string("gen_success", lang),
+                attachment=attachment,
+                keyboard=back_to_main_keyboard(lang),
+            )
+        else:
+            # fallback: если загрузка в VK не удалась — отдаем ссылку
+            base_url = (await db.get_app_setting("public_base_url", "http://g-box.space") or "http://g-box.space").strip().rstrip("/")
+            result_url = f"{base_url}/{result_path}".replace("//data", "/data")
+            await _reply(
+                message,
+                f"{get_string('gen_success', lang)}\n\n{result_url}",
+                keyboard=back_to_main_keyboard(lang),
+            )
     except Exception:
         logger.exception("VK generation failed for user_id=%s", user_id)
         await _reply(message, get_string("gen_error_contact_support", lang), keyboard=back_to_main_keyboard(lang))

@@ -20,7 +20,7 @@
             </div>
             
             <hr class="my-2">
-            <h6 class="small fw-bold">Изменить баланс и стоимость фото:</h6>
+            <h6 class="small fw-bold">Изменить баланс:</h6>
             <form action="/users/edit_balance" method="post">
                 <input type="hidden" name="user_id" value="{{ user.id }}">
                 <div class="row g-2 mb-2">
@@ -30,7 +30,7 @@
                     </div>
                     <div class="col">
                         <label class="small text-muted">Цена фото (₽)</label>
-                        <input type="number" name="price" class="form-control" value="{{ user.generation_price or 25 }}" required>
+                        <input type="number" name="price" class="form-control" value="25" readonly>
                     </div>
                 </div>
                 <button type="submit" class="btn btn-success w-100">Сохранить</button>

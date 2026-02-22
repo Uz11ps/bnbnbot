@@ -151,6 +151,12 @@ async def run_migrations(db: aiosqlite.Connection):
                 await db.commit()
             except Exception as e:
                 print(f"Migration error (users.generation_price): {e}")
+        # Фиксируем цену генерации для всех пользователей = 25 (убираем старые 20/15).
+        try:
+            await db.execute("UPDATE users SET generation_price = 25 WHERE generation_price IS NULL OR generation_price != 25")
+            await db.commit()
+        except Exception:
+            pass
         if "created_at" not in cols:
             try:
                 await db.execute("ALTER TABLE users ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
@@ -2870,7 +2876,8 @@ async def edit_balance(
     
     change = amount - old_balance
     
-    await db.execute("UPDATE users SET balance = ?, generation_price = ? WHERE id = ?", (amount, price, user_id))
+    # Цена генерации фиксирована для всех пользователей = 25.
+    await db.execute("UPDATE users SET balance = ?, generation_price = 25 WHERE id = ?", (amount, user_id))
     
     # Записываем историю изменения
     await db.execute(

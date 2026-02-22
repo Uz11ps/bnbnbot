@@ -491,6 +491,13 @@ class Database:
                 await db.execute("ALTER TABLE users ADD COLUMN balance INTEGER NOT NULL DEFAULT 0")
             if "generation_price" not in cols:
                 await db.execute("ALTER TABLE users ADD COLUMN generation_price INTEGER NOT NULL DEFAULT 25")
+
+            # Фиксируем цену генерации для всех пользователей = 25 (по требованиям проекта).
+            # Это убирает старые значения 20/15 и синхронизирует Telegram/VK/Web.
+            try:
+                await db.execute("UPDATE users SET generation_price = 25 WHERE generation_price IS NULL OR generation_price != 25")
+            except Exception:
+                pass
             
             async with db.execute("PRAGMA table_info(api_keys)") as cur:
                 cols = [row[1] for row in await cur.fetchall()]

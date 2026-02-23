@@ -20,7 +20,7 @@
                 <th>Сегодня</th>
                 <th>Всего</th>
                 <th>Прокси (привязанные)</th>
-                <th>Удалить</th>
+                <th>Действия</th>
             </tr>
         </thead>
         <tbody>
@@ -52,6 +52,11 @@
                     {% endif %}
                 </td>
                 <td>
+                    <a href="/api_keys/toggle/{{ k.id }}"
+                       class="btn btn-sm {{ 'btn-outline-secondary' if k.is_active else 'btn-outline-success' }}"
+                       title="Вкл/Выкл">
+                        {{ 'ВЫКЛ' if k.is_active else 'ВКЛ' }}
+                    </a>
                     <a href="/api_keys/delete/{{ k.id }}" class="btn btn-sm btn-outline-danger" onclick="return confirm('Удалить?')"><i class="bi bi-trash"></i></a>
                 </td>
             </tr>

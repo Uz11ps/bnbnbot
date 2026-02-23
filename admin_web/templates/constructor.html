@@ -26,9 +26,16 @@
                         <span class="badge {% if cat['is_active'] %}bg-success{% else %}bg-secondary{% endif %}">
                             {% if cat['is_active'] %}Активна{% else %}Выключена{% endif %}
                         </span>
-                        <a href="/constructor/category/{{ cat['id'] }}" class="btn btn-primary btn-sm btn-round">
-                            Настроить <i class="bi bi-arrow-right ms-1"></i>
-                        </a>
+                        <div class="d-flex gap-2">
+                            <form action="/constructor/category/toggle/{{ cat['id'] }}" method="post">
+                                <button type="submit" class="btn btn-sm {{ 'btn-outline-secondary' if cat['is_active'] else 'btn-outline-success' }}">
+                                    {{ 'ВЫКЛ' if cat['is_active'] else 'ВКЛ' }}
+                                </button>
+                            </form>
+                            <a href="/constructor/category/{{ cat['id'] }}" class="btn btn-primary btn-sm btn-round">
+                                Настроить <i class="bi bi-arrow-right ms-1"></i>
+                            </a>
+                        </div>
                     </div>
                 </div>
             </div>

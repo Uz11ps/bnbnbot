@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS users (
     referrer_id INTEGER,
     language TEXT NOT NULL DEFAULT 'ru',
     trial_used INTEGER NOT NULL DEFAULT 0,
-    balance INTEGER NOT NULL DEFAULT 0,
+    balance INTEGER NOT NULL DEFAULT 50,
     generation_price INTEGER NOT NULL DEFAULT 25,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -488,7 +488,7 @@ class Database:
             if "trial_used" not in cols:
                 await db.execute("ALTER TABLE users ADD COLUMN trial_used INTEGER NOT NULL DEFAULT 1")
             if "balance" not in cols:
-                await db.execute("ALTER TABLE users ADD COLUMN balance INTEGER NOT NULL DEFAULT 0")
+                await db.execute("ALTER TABLE users ADD COLUMN balance INTEGER NOT NULL DEFAULT 50")
             if "generation_price" not in cols:
                 await db.execute("ALTER TABLE users ADD COLUMN generation_price INTEGER NOT NULL DEFAULT 25")
 
@@ -1070,8 +1070,8 @@ class Database:
         async with aiosqlite.connect(self._db_path) as db:
             await db.execute(
                 """
-                INSERT INTO users (id, username, first_name, last_name, referrer_id, trial_used)
-                VALUES (?, ?, ?, ?, ?, 1)
+                INSERT INTO users (id, username, first_name, last_name, referrer_id, trial_used, balance)
+                VALUES (?, ?, ?, ?, ?, 1, 50)
                 ON CONFLICT(id) DO UPDATE SET
                     username=excluded.username,
                     first_name=excluded.first_name,

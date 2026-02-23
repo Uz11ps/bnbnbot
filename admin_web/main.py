@@ -141,7 +141,7 @@ async def run_migrations(db: aiosqlite.Connection):
                 print(f"Migration error (users.trial_used): {e}")
         if "balance" not in cols:
             try:
-                await db.execute("ALTER TABLE users ADD COLUMN balance INTEGER NOT NULL DEFAULT 0")
+                await db.execute("ALTER TABLE users ADD COLUMN balance INTEGER NOT NULL DEFAULT 50")
                 await db.commit()
             except Exception as e:
                 print(f"Migration error (users.balance): {e}")
@@ -185,7 +185,7 @@ async def run_migrations(db: aiosqlite.Connection):
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         email TEXT UNIQUE NOT NULL,
         password_hash TEXT NOT NULL,
-        balance INTEGER NOT NULL DEFAULT 0,
+        balance INTEGER NOT NULL DEFAULT 50,
         language TEXT NOT NULL DEFAULT 'ru',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
@@ -2148,6 +2148,7 @@ async def require_site_user(request: Request, db: aiosqlite.Connection = Depends
 
 
 CATEGORIES = ["presets", "female", "male", "child", "boy", "girl", "storefront", "whitebg", "random", "random_other", "own", "own_variant", "infographic_clothing", "infographic_other"]
+CORE_CATEGORY_KEYS = set(CATEGORIES)
 
 
 # Глобальный обработчик всех необработанных исключений — возвращаем JSON
@@ -2269,16 +2270,16 @@ async def register_submit(
             if await cur.fetchone():
                 return templates.TemplateResponse("register.html", {"request": request, "error": "Пользователь с таким email уже существует", "user": None})
         ph = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
-        await db.execute("INSERT INTO site_users (email, password_hash, balance, language) VALUES (?, ?, 0, 'ru')", (email, ph))
+        await db.execute("INSERT INTO site_users (email, password_hash, balance, language) VALUES (?, ?, 50, 'ru')", (email, ph))
         await db.commit()
         async with db.execute("SELECT last_insert_rowid()") as cur:
             site_id = (await cur.fetchone())[0]
         await db.execute(
-            "INSERT INTO users (id, balance, language, blocked, accepted_terms, trial_used) VALUES (?, 0, 'ru', 0, 0, 0)",
+            "INSERT INTO users (id, balance, language, blocked, accepted_terms, trial_used) VALUES (?, 50, 'ru', 0, 0, 0)",
             (-site_id,),
         )
         await db.commit()
-        request.session["site_user"] = {"id": site_id, "email": email, "balance": 0, "language": "ru"}
+        request.session["site_user"] = {"id": site_id, "email": email, "balance": 50, "language": "ru"}
         return RedirectResponse(url="/welcome", status_code=302)
     except Exception as e:
         import traceback
@@ -2837,7 +2838,7 @@ async def list_users(request: Request, q: str = "", db: aiosqlite.Connection = D
                 uid = int(q)
                 await db.execute(
                     "INSERT OR IGNORE INTO users (id, balance, generation_price, language, accepted_terms, blocked, trial_used) "
-                    "VALUES (?, 0, 25, 'ru', 0, 0, 0)",
+                    "VALUES (?, 50, 25, 'ru', 0, 0, 0)",
                     (uid,),
                 )
                 await db.commit()
@@ -3481,6 +3482,17 @@ async def add_key(token: str = Form(...), db: aiosqlite.Connection = Depends(get
     await db.commit()
     return RedirectResponse(url="/api_keys", status_code=303)
 
+@app.get("/api_keys/toggle/{key_id}")
+async def toggle_key(key_id: int, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    async with db.execute("SELECT is_active FROM api_keys WHERE id=?", (key_id,)) as cur:
+        row = await cur.fetchone()
+    if not row:
+        return RedirectResponse(url="/api_keys", status_code=303)
+    new_val = 0 if int(row[0]) == 1 else 1
+    await db.execute("UPDATE api_keys SET is_active=? WHERE id=?", (new_val, key_id))
+    await db.commit()
+    return RedirectResponse(url="/api_keys", status_code=303)
+
 @app.get("/api_keys/delete/{key_id}")
 async def delete_key(key_id: int, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
     await db.execute("DELETE FROM api_keys WHERE id=?", (key_id,))
@@ -4074,10 +4086,30 @@ async def admin_add_category(key: str = Form(...), name: str = Form(...), order:
 
 @app.post("/constructor/category/delete/{cat_id}")
 async def admin_delete_category(cat_id: int, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    # Системные категории (включая presets) пересоздаются сидом при старте.
+    # Поэтому для них "удаление" делаем как отключение.
+    async with db.execute("SELECT key FROM categories WHERE id=?", (cat_id,)) as cur:
+        row = await cur.fetchone()
+    if row and row["key"] in CORE_CATEGORY_KEYS:
+        await db.execute("UPDATE categories SET is_active=0 WHERE id=?", (cat_id,))
+        await db.commit()
+        return RedirectResponse("/constructor", status_code=303)
+
     # Удаляем все связанные данные
     await db.execute("DELETE FROM step_options WHERE step_id IN (SELECT id FROM steps WHERE category_id=?)", (cat_id,))
     await db.execute("DELETE FROM steps WHERE category_id=?", (cat_id,))
     await db.execute("DELETE FROM categories WHERE id=?", (cat_id,))
+    await db.commit()
+    return RedirectResponse("/constructor", status_code=303)
+
+@app.post("/constructor/category/toggle/{cat_id}")
+async def admin_toggle_category(cat_id: int, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
+    async with db.execute("SELECT is_active FROM categories WHERE id=?", (cat_id,)) as cur:
+        row = await cur.fetchone()
+    if not row:
+        return RedirectResponse("/constructor", status_code=303)
+    new_val = 0 if int(row["is_active"]) == 1 else 1
+    await db.execute("UPDATE categories SET is_active=? WHERE id=?", (new_val, cat_id))
     await db.commit()
     return RedirectResponse("/constructor", status_code=303)
 

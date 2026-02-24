@@ -4049,9 +4049,9 @@ async def _do_generate_real(message_or_callback: Message | CallbackQuery, state:
             await message_or_callback.answer(text)
         return
 
-    # Проверка баланса (ВСЕГДА 25 РУБЛЕЙ)
+    # Проверка баланса (персональная цена пользователя)
     balance = await db.get_user_balance(user_id)
-    price = 25
+    price = await db.get_user_generation_price(user_id)
     
     if balance < price:
         msg = f"❌ Недостаточно средств на балансе.\n\nСтоимость 1 генерации = {price} руб.\nВаш баланс: {balance} руб.\n\nПожалуйста, пополните баланс в профиле."
@@ -4239,8 +4239,8 @@ async def _do_generate_real(message_or_callback: Message | CallbackQuery, state:
                     except Exception:
                         pass
                     
-                    # Списываем стоимость генерации (ВСЕГДА 25 РУБЛЕЙ ДЛЯ ВСЕХ)
-                    price = 25
+                    # Списываем персональную стоимость генерации пользователя
+                    price = await db.get_user_generation_price(user_id)
                     await db.subtract_user_balance(user_id, price)
                     
                     anim_task.cancel()
@@ -4441,9 +4441,9 @@ async def on_result_edit_text_real(message: Message, state: FSMContext, db: Data
         await state.clear()
         return
 
-    # Проверка баланса (ПРАВКИ ВСЕГДА 25 РУБЛЕЙ)
+    # Проверка баланса (правки по персональной цене пользователя)
     balance = await db.get_user_balance(user_id)
-    price = 25
+    price = await db.get_user_generation_price(user_id)
     
     if balance < price:
         await message.answer(f"❌ Недостаточно средств на балансе для правок.\n\nСтоимость правки = {price} руб.\nВаш баланс: {balance} руб.")
@@ -4668,8 +4668,9 @@ async def on_result_edit_text_real(message: Message, state: FSMContext, db: Data
             except Exception:
                 pass
             
-            # Списываем баланс (ВСЕГДА 25 РУБЛЕЙ)
-            await db.subtract_user_balance(user_id, 25)
+            # Списываем персональную цену за правку/перегенерацию
+            price = await db.get_user_generation_price(user_id)
+            await db.subtract_user_balance(user_id, price)
             
             await db.update_daily_usage(user_id)
 

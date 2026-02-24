@@ -2,6 +2,8 @@ import logging
 import os
 import time
 import asyncio
+import json
+import uuid
 from dataclasses import dataclass, field
 
 import httpx
@@ -32,6 +34,9 @@ STATE_WAIT_PHOTO = "wait_photo"
 STATE_WAIT_PROMPT = "wait_prompt"
 STATE_CONSTRUCTOR_STEP = "constructor_step"
 STATE_CONSTRUCTOR_CONFIRM = "constructor_confirm"
+STATE_RESULT_READY = "result_ready"
+STATE_WAIT_EDIT_TEXT = "wait_edit_text"
+STATE_WAIT_REPEAT_PHOTO = "wait_repeat_photo"
 STATE_TTL_SECONDS = 20 * 60
 
 
@@ -51,6 +56,10 @@ class VkUserState:
     step_photos: dict[str, list[bytes]] = field(default_factory=dict)
     model_choices: dict[int, tuple[int, str, int, str | None]] = field(default_factory=dict)
     last_incoming_msg_id: int | None = None
+    last_generation_prompt: str | None = None
+    last_generation_images: list[bytes] = field(default_factory=list)
+    last_generation_category: str | None = None
+    last_generation_flow: str | None = None
     updated_at: float = 0.0
 
 
@@ -407,11 +416,46 @@ def _kb_options(options: list[str], include_back: bool, include_skip: bool, incl
         keyboard.add(Text(get_string("skip", lang)), color=KeyboardButtonColor.SECONDARY)
         keyboard.row()
     if include_create:
-        keyboard.add(Text("✅ Создать"), color=KeyboardButtonColor.POSITIVE)
+        keyboard.add(Text(f"✅ {get_string('create_photo', lang)}"), color=KeyboardButtonColor.POSITIVE)
         keyboard.row()
     if include_back:
         keyboard.add(Text(get_string("back", lang)), color=KeyboardButtonColor.NEGATIVE)
     return keyboard.get_json()
+
+
+def _result_actions_keyboard(lang: str) -> str:
+    keyboard = Keyboard(one_time=False, inline=False)
+    keyboard.add(Text(get_string("btn_repeat", lang)), color=KeyboardButtonColor.PRIMARY)
+    keyboard.row()
+    keyboard.add(Text(get_string("btn_edit", lang)), color=KeyboardButtonColor.SECONDARY)
+    keyboard.row()
+    keyboard.add(Text(get_string("back_main", lang)), color=KeyboardButtonColor.NEGATIVE)
+    return keyboard.get_json()
+
+
+def _is_create_text(text: str, lang: str) -> bool:
+    return text in {
+        _norm("создать"),
+        _norm(f"✅ {get_string('create_photo', lang)}"),
+        _norm(get_string("create_photo", lang)),
+        _norm("generate"),
+    }
+
+
+def _is_repeat_text(text: str, lang: str) -> bool:
+    return text in {
+        _norm(get_string("btn_repeat", lang)),
+        _norm("повторить"),
+        _norm("repeat"),
+    }
+
+
+def _is_edit_text(text: str, lang: str) -> bool:
+    return text in {
+        _norm(get_string("btn_edit", lang)),
+        _norm("внести правки"),
+        _norm("make changes"),
+    }
 
 
 def _market_category_by_text(text: str, lang: str) -> str | None:
@@ -430,13 +474,21 @@ def _market_category_by_text(text: str, lang: str) -> str | None:
 
 
 def _should_skip_step(step_key: str, values: dict[str, str]) -> bool:
-    if step_key == "age" and values.get("has_person") == "no":
+    has_person = (values.get("has_person") or "").lower()
+    person_absent = has_person in {"no", "нет", "without_person", "person_no", "no_person"}
+    if step_key == "age" and person_absent:
         return True
-    if step_key == "gender" and values.get("has_person") == "no":
+    if step_key == "gender" and person_absent:
         return True
+    low_key = step_key.lower()
+    if person_absent and any(x in low_key for x in ("pose", "height", "size", "возраст", "поза", "рост", "телосложение")):
+        if not any(x in low_key for x in ("rand_height", "height_cm", "рост")):
+            return True
     if step_key == "rand_location_indoor" and values.get("rand_loc_group") != "indoor":
         return True
     if step_key == "rand_location_outdoor" and values.get("rand_loc_group") != "outdoor":
+        return True
+    if values.get("rand_loc_group") == "indoor" and "season" in low_key:
         return True
     return False
 
@@ -469,11 +521,11 @@ async def _load_model_photo_bytes(raw: str | None) -> bytes | None:
 async def _start_constructor_flow(message: Message, db: Database, user_id: int, lang: str, category_key: str) -> None:
     cat = await db.get_category_by_key(category_key)
     if not cat:
-        await _reply(message, "Категория не найдена.", keyboard=back_to_main_keyboard(lang))
+        await _reply(message, get_string("vk_category_not_found", lang), keyboard=back_to_main_keyboard(lang))
         return
     steps = await db.list_steps(int(cat[0]))
     if not steps:
-        await _reply(message, "Для категории не настроены шаги.", keyboard=back_to_main_keyboard(lang))
+        await _reply(message, get_string("vk_category_not_configured", lang), keyboard=back_to_main_keyboard(lang))
         return
 
     st = _get_state(user_id)
@@ -504,14 +556,14 @@ async def _show_constructor_step(message: Message, db: Database, user_id: int, l
 
         st.current_step_id = int(step_id)
         st.current_step_key = step_key
-        question = (await db.get_step_text(int(step_id), lang) or "").strip() or str(_q or "Введите значение")
+        question = (await db.get_step_text(int(step_id), lang) or "").strip() or str(_q or get_string("vk_enter_step_value", lang))
         optional = int(is_optional) == 1
 
         if input_type == "buttons":
             opts = await db.list_step_options_localized(int(step_id), lang)
             option_texts = [str(o[1]) for o in opts]
             numbered = "\n".join([f"{i}. {t}" for i, t in enumerate(option_texts, 1)])
-            text = f"{question}\n\n{numbered}\n\nОтветьте номером или текстом варианта."
+            text = f"{question}\n\n{numbered}\n\n{get_string('vk_reply_option_or_text', lang)}"
             await _reply(message, text, keyboard=_kb_options(option_texts, include_back=True, include_skip=optional, include_create=False, lang=lang))
             return
 
@@ -531,9 +583,9 @@ async def _show_constructor_step(message: Message, db: Database, user_id: int, l
                 labels.append(f"{num}. {model[1]}")
             st.model_choices = choices
             if not choices:
-                await _reply(message, "Нет доступных моделей для этой категории.", keyboard=_kb_options([], include_back=True, include_skip=False, include_create=False, lang=lang))
+                await _reply(message, get_string("vk_no_models", lang), keyboard=_kb_options([], include_back=True, include_skip=False, include_create=False, lang=lang))
                 return
-            await _reply(message, f"{question}\n\n" + "\n".join(labels) + "\n\nОтветьте номером модели.", keyboard=_kb_options(labels, include_back=True, include_skip=False, include_create=False, lang=lang))
+            await _reply(message, f"{question}\n\n" + "\n".join(labels) + f"\n\n{get_string('vk_reply_model_number', lang)}", keyboard=_kb_options(labels, include_back=True, include_skip=False, include_create=False, lang=lang))
             return
 
         if input_type == "photo":
@@ -548,7 +600,7 @@ async def _show_constructor_step(message: Message, db: Database, user_id: int, l
 
 async def _show_constructor_confirmation(message: Message, db: Database, user_id: int, lang: str) -> None:
     st = _get_state(user_id)
-    lines = ["Проверьте данные перед генерацией:\n"]
+    lines = ["📋 Проверьте выбранные параметры:\n"]
     for step in st.constructor_steps:
         _id, step_key, question, _input_type, _opt, _ord = step
         key = str(step_key)
@@ -556,13 +608,22 @@ async def _show_constructor_confirmation(message: Message, db: Database, user_id
             lines.append(f"- {question}: {st.step_labels[key]}")
         elif key in st.step_values:
             lines.append(f"- {question}: {st.step_values[key]}")
-    lines.append("\nНажмите «✅ Создать» или «⬅️ Назад».")
+    lines.append(f"\n{get_string('generation_confirm', lang)}")
     st.stage = STATE_CONSTRUCTOR_CONFIRM
     await _reply(message, "\n".join(lines), keyboard=_kb_options([], include_back=True, include_skip=False, include_create=True, lang=lang))
 
 
 async def _constructor_back(message: Message, db: Database, user_id: int, lang: str) -> None:
     st = _get_state(user_id)
+    if st.waiting_custom_for:
+        target_key = st.waiting_custom_for
+        st.waiting_custom_for = None
+        for idx, step in enumerate(st.constructor_steps):
+            if str(step[1]) == target_key:
+                st.current_step_index = idx
+                st.stage = STATE_CONSTRUCTOR_STEP
+                await _show_constructor_step(message, db, user_id, lang)
+                return
     if st.stage == STATE_CONSTRUCTOR_CONFIRM:
         st.stage = STATE_CONSTRUCTOR_STEP
         st.current_step_index = max(0, len(st.constructor_steps) - 1)
@@ -639,12 +700,12 @@ async def _collect_constructor_images(db: Database, st: VkUserState) -> list[byt
         for k in bg_keys:
             cand = st.step_photos.get(k) or []
             if cand:
-                bg = cand[:1]
+                bg = cand
                 break
         for k in product_keys:
             cand = st.step_photos.get(k) or []
             if cand:
-                product = cand[:1]
+                product = cand
                 break
         photos.extend(bg + product)
         return [p for p in photos if p]
@@ -661,29 +722,103 @@ async def _collect_constructor_images(db: Database, st: VkUserState) -> list[byt
     return [p for p in photos if p]
 
 
+def _render_generation_error(lang: str, err: Exception) -> str:
+    msg = str(err or "")
+    low = msg.lower()
+    if "safety" in low or "blocked" in low:
+        return "⚠️ Запрос отклонен нейросетью по соображениям безопасности или из-за содержимого фото."
+    if "503" in low or "service unavailable" in low or "overloaded" in low:
+        return "⚠️ Сейчас сервис генерации перегружен. Попробуйте повторить через 1-2 минуты."
+    if "timed out" in low or "timeout" in low:
+        return "⚠️ Генерация превысила лимит времени. Попробуйте еще раз с менее сложным промптом/фото."
+    if "network" in low or "connection reset" in low:
+        return "⚠️ Временная сетевая ошибка сервиса генерации. Попробуйте еще раз через 20-60 секунд."
+    return get_string("gen_error_contact_support", lang)
+
+
+async def _save_generation_history(
+    db: Database,
+    user_id: int,
+    category: str | None,
+    prompt: str,
+    result_path: str,
+    params: dict | None = None,
+) -> None:
+    try:
+        pid = f"VK{uuid.uuid4().hex[:10].upper()}"
+        rp = (result_path or "").replace("\\", "/")
+        rp_db = rp.split("/")[-1] if "/" in rp else rp
+        await db.add_generation_history(
+            pid=pid,
+            user_id=user_id,
+            category=category or "normal",
+            params=json.dumps(params or {}, ensure_ascii=False),
+            input_photos="[]",
+            result_photo_id="",
+            input_paths="[]",
+            result_path=rp_db,
+            prompt=(prompt or "")[:2000],
+        )
+    except Exception:
+        logger.exception("VK add_generation_history failed for user_id=%s", user_id)
+
+
+def _remember_last_generation(
+    st: VkUserState,
+    *,
+    flow: str,
+    category: str | None,
+    prompt: str,
+    images: list[bytes],
+) -> None:
+    st.last_generation_flow = flow
+    st.last_generation_category = category
+    st.last_generation_prompt = prompt
+    st.last_generation_images = list(images or [])
+    st.stage = STATE_RESULT_READY
+    st.updated_at = time.time()
+
+
+async def _send_generation_result(message: Message, db: Database, user_id: int, lang: str, result_path: str) -> None:
+    attachment = await _upload_result_photo_attachment(message, str(result_path))
+    if attachment:
+        await _reply_with_attachment(
+            message,
+            get_string("gen_success", lang),
+            attachment=attachment,
+            keyboard=_result_actions_keyboard(lang),
+        )
+    else:
+        base_url = (await db.get_app_setting("public_base_url", "http://g-box.space") or "http://g-box.space").strip().rstrip("/")
+        result_url = f"{base_url}/{result_path}".replace("//data", "/data")
+        await _reply(
+            message,
+            f"{get_string('gen_success', lang)}\n\n{result_url}",
+            keyboard=_result_actions_keyboard(lang),
+        )
+
+
 async def _run_constructor_generation(message: Message, db: Database, user_id: int, lang: str) -> None:
     st = _get_state(user_id)
     images = await _collect_constructor_images(db, st)
     if not images:
-        await _reply(message, "Не хватает фото для генерации.", keyboard=back_to_main_keyboard(lang))
+        await _reply(message, get_string("vk_missing_photos", lang), keyboard=back_to_main_keyboard(lang))
         return
 
     prompt = await _build_constructor_prompt(db, st)
     if not prompt:
-        await _reply(message, "Не удалось сформировать промпт.", keyboard=back_to_main_keyboard(lang))
+        await _reply(message, get_string("vk_prompt_build_error", lang), keyboard=back_to_main_keyboard(lang))
         return
 
     balance = await db.get_user_balance(user_id)
     price = await db.get_user_generation_price(user_id)
     if balance < price:
         await _send_topup(message, db, user_id)
-        _reset_state(user_id)
         return
 
     key_id, api_key = await _pick_api_key(db)
     if not api_key:
         await _reply(message, get_string("api_limit_reached", lang), keyboard=back_to_main_keyboard(lang))
-        _reset_state(user_id)
         return
 
     await _reply(message, get_string("gen_in_progress", lang))
@@ -706,7 +841,6 @@ async def _run_constructor_generation(message: Message, db: Database, user_id: i
         )
         if not result_path:
             await _reply(message, get_string("gen_no_image", lang), keyboard=back_to_main_keyboard(lang))
-            _reset_state(user_id)
             return
         await db.subtract_user_balance(user_id=user_id, amount=price, reason="generation")
         if key_id is not None:
@@ -714,19 +848,19 @@ async def _run_constructor_generation(message: Message, db: Database, user_id: i
                 await db.record_api_usage(key_id)
             except Exception:
                 pass
-        attachment = await _upload_result_photo_attachment(message, str(result_path))
-        if attachment:
-            await _reply_with_attachment(message, get_string("gen_success", lang), attachment=attachment, keyboard=back_to_main_keyboard(lang))
-        else:
-            # fallback: если загрузка в VK не удалась — отдаем ссылку
-            base_url = (await db.get_app_setting("public_base_url", "http://g-box.space") or "http://g-box.space").strip().rstrip("/")
-            result_url = f"{base_url}/{result_path}".replace("//data", "/data")
-            await _reply(message, f"{get_string('gen_success', lang)}\n\n{result_url}", keyboard=back_to_main_keyboard(lang))
-    except Exception:
+        await _save_generation_history(
+            db=db,
+            user_id=user_id,
+            category=st.category,
+            prompt=prompt,
+            result_path=str(result_path),
+            params={"flow": "constructor", "category": st.category, "aspect": "1:1"},
+        )
+        _remember_last_generation(st, flow="constructor", category=st.category, prompt=prompt, images=images)
+        await _send_generation_result(message, db, user_id, lang, str(result_path))
+    except Exception as e:
         logger.exception("VK constructor generation failed for user_id=%s", user_id)
-        await _reply(message, get_string("gen_error_contact_support", lang), keyboard=back_to_main_keyboard(lang))
-    finally:
-        _reset_state(user_id)
+        await _reply(message, _render_generation_error(lang, e), keyboard=back_to_main_keyboard(lang))
 
 
 async def _handle_constructor_message(message: Message, db: Database, user_id: int, lang: str) -> bool:
@@ -744,7 +878,7 @@ async def _handle_constructor_message(message: Message, db: Database, user_id: i
         return True
 
     if st.stage == STATE_CONSTRUCTOR_CONFIRM:
-        if text in {"создать", "✅ создать", "generate"}:
+        if _is_create_text(text, lang):
             await _run_constructor_generation(message, db, user_id, lang)
             return True
         await _show_constructor_confirmation(message, db, user_id, lang)
@@ -754,7 +888,7 @@ async def _handle_constructor_message(message: Message, db: Database, user_id: i
     if st.waiting_custom_for:
         step_key = st.waiting_custom_for
         if not text_raw:
-            await _reply(message, "Введите текст для этого шага.", keyboard=_kb_options([], include_back=True, include_skip=False, include_create=False, lang=lang))
+            await _reply(message, get_string("vk_enter_step_value", lang), keyboard=_kb_options([], include_back=True, include_skip=False, include_create=False, lang=lang))
             return True
         st.step_values[step_key] = text_raw
         st.step_labels[step_key] = text_raw
@@ -773,18 +907,18 @@ async def _handle_constructor_message(message: Message, db: Database, user_id: i
 
     if optional and text == skip_text:
         st.step_values[step_key] = ""
-        st.step_labels[step_key] = "Пропущено"
+        st.step_labels[step_key] = get_string("skip", lang)
         await _constructor_advance(message, db, user_id, lang)
         return True
 
     if input_type == "photo":
         images = await _download_photo_bytes_list(message)
         if not images:
-            await _reply(message, "Пришлите фото для этого шага.", keyboard=_kb_options([], include_back=True, include_skip=optional, include_create=False, lang=lang))
+            await _reply(message, get_string("vk_send_step_photo", lang), keyboard=_kb_options([], include_back=True, include_skip=optional, include_create=False, lang=lang))
             return True
-        st.step_photos[step_key] = images
+        st.step_photos[step_key] = [images[-1]]
         st.step_values[step_key] = "photo_uploaded"
-        st.step_labels[step_key] = "Фото загружено"
+        st.step_labels[step_key] = get_string("upload_photo", lang)
         await _constructor_advance(message, db, user_id, lang)
         return True
 
@@ -798,7 +932,7 @@ async def _handle_constructor_message(message: Message, db: Database, user_id: i
                     model = item
                     break
         if not model:
-            await _reply(message, "Выберите модель по номеру или названию.")
+            await _reply(message, get_string("vk_reply_model_number", lang))
             return True
         model_id, model_name, prompt_id, photo_ref = model
         st.step_values["model_id"] = str(model_id)
@@ -822,7 +956,7 @@ async def _handle_constructor_message(message: Message, db: Database, user_id: i
                     selected = o
                     break
         if not selected:
-            await _reply(message, "Выберите один из вариантов кнопкой, номером или текстом.")
+            await _reply(message, get_string("vk_reply_option_or_text", lang))
             return True
         _opt_id, opt_text, opt_value, _order, custom_prompt = selected
         custom_prompt = (custom_prompt or "").strip()
@@ -836,7 +970,7 @@ async def _handle_constructor_message(message: Message, db: Database, user_id: i
         return True
 
     if not text_raw:
-        await _reply(message, "Введите значение для этого шага.")
+        await _reply(message, get_string("vk_enter_step_value", lang))
         return True
     st.step_values[step_key] = text_raw
     st.step_labels[step_key] = text_raw
@@ -876,7 +1010,7 @@ async def _handle_generation_photo_step(message: Message, db: Database, user_id:
     if not images:
         await _reply(message, get_string("upload_photo", lang), keyboard=back_to_main_keyboard(lang))
         return True
-    st.image_bytes_list = images
+    st.image_bytes_list = images[:4]
     st.stage = STATE_WAIT_PROMPT
     st.updated_at = time.time()
     await _reply(message, get_string("enter_prompt", lang), keyboard=back_to_main_keyboard(lang))
@@ -904,13 +1038,11 @@ async def _handle_generation_prompt_step(message: Message, db: Database, user_id
     price = await db.get_user_generation_price(user_id)
     if balance < price:
         await _send_topup(message, db, user_id)
-        _reset_state(user_id)
         return True
 
     key_id, api_key = await _pick_api_key(db)
     if not api_key:
         await _reply(message, get_string("api_limit_reached", lang), keyboard=back_to_main_keyboard(lang))
-        _reset_state(user_id)
         return True
 
     await _reply(message, get_string("gen_in_progress", lang))
@@ -935,7 +1067,6 @@ async def _handle_generation_prompt_step(message: Message, db: Database, user_id
         )
         if not result_path:
             await _reply(message, get_string("gen_no_image", lang), keyboard=back_to_main_keyboard(lang))
-            _reset_state(user_id)
             return True
 
         await db.subtract_user_balance(user_id=user_id, amount=price, reason="generation")
@@ -945,29 +1076,184 @@ async def _handle_generation_prompt_step(message: Message, db: Database, user_id
             except Exception:
                 pass
 
-        attachment = await _upload_result_photo_attachment(message, str(result_path))
-        if attachment:
-            await _reply_with_attachment(
-                message,
-                get_string("gen_success", lang),
-                attachment=attachment,
-                keyboard=back_to_main_keyboard(lang),
-            )
-        else:
-            # fallback: если загрузка в VK не удалась — отдаем ссылку
-            base_url = (await db.get_app_setting("public_base_url", "http://g-box.space") or "http://g-box.space").strip().rstrip("/")
-            result_url = f"{base_url}/{result_path}".replace("//data", "/data")
-            await _reply(
-                message,
-                f"{get_string('gen_success', lang)}\n\n{result_url}",
-                keyboard=back_to_main_keyboard(lang),
-            )
-    except Exception:
+        await _save_generation_history(
+            db=db,
+            user_id=user_id,
+            category=st.category,
+            prompt=final_prompt,
+            result_path=str(result_path),
+            params={"flow": "normal", "category": st.category, "aspect": "1:1"},
+        )
+        _remember_last_generation(
+            st,
+            flow="normal",
+            category=st.category,
+            prompt=final_prompt,
+            images=st.image_bytes_list or [],
+        )
+        await _send_generation_result(message, db, user_id, lang, str(result_path))
+    except Exception as e:
         logger.exception("VK generation failed for user_id=%s", user_id)
-        await _reply(message, get_string("gen_error_contact_support", lang), keyboard=back_to_main_keyboard(lang))
-    finally:
-        _reset_state(user_id)
+        await _reply(message, _render_generation_error(lang, e), keyboard=back_to_main_keyboard(lang))
     return True
+
+
+async def _handle_result_actions(message: Message, db: Database, user_id: int, lang: str) -> bool:
+    st = _get_state(user_id)
+    if st.stage not in {STATE_RESULT_READY, STATE_WAIT_EDIT_TEXT, STATE_WAIT_REPEAT_PHOTO}:
+        return False
+
+    text_raw = (message.text or "").strip()
+    text = _norm(text_raw)
+    back = _norm(get_string("back", lang))
+    back_main = _norm(get_string("back_main", lang))
+
+    if text in {back, back_main}:
+        if st.stage == STATE_RESULT_READY:
+            _reset_state(user_id)
+            await _send_main_menu(message, db, user_id)
+            return True
+        st.stage = STATE_RESULT_READY
+        await _reply(message, get_string("gen_success", lang), keyboard=_result_actions_keyboard(lang))
+        return True
+
+    if st.stage == STATE_RESULT_READY:
+        if _is_repeat_text(text, lang):
+            st.stage = STATE_WAIT_REPEAT_PHOTO
+            await _reply(message, get_string("repeat_photo_prompt", lang), keyboard=back_to_main_keyboard(lang))
+            return True
+        if _is_edit_text(text, lang):
+            st.stage = STATE_WAIT_EDIT_TEXT
+            await _reply(message, get_string("enter_edit_description", lang), keyboard=back_to_main_keyboard(lang))
+            return True
+        return False
+
+    # edit flow
+    if st.stage == STATE_WAIT_EDIT_TEXT:
+        edit_text = text_raw.strip()
+        if not edit_text:
+            await _reply(message, get_string("enter_edit_description", lang), keyboard=back_to_main_keyboard(lang))
+            return True
+        if not st.last_generation_prompt or not st.last_generation_images:
+            _reset_state(user_id)
+            await _send_main_menu(message, db, user_id)
+            return True
+
+        price = await db.get_user_generation_price(user_id)
+        balance = await db.get_user_balance(user_id)
+        if balance < price:
+            await _send_topup(message, db, user_id)
+            return True
+
+        key_id, api_key = await _pick_api_key(db)
+        if not api_key:
+            await _reply(message, get_string("api_limit_reached", lang), keyboard=back_to_main_keyboard(lang))
+            return True
+
+        final_prompt = f"{st.last_generation_prompt}\n\nПравки: {edit_text}".strip()
+        await _reply(message, get_string("gen_in_progress", lang))
+        try:
+            result_path = await generate_image(
+                api_key=api_key,
+                prompt=final_prompt,
+                images_bytes=st.last_generation_images,
+                aspect_ratio="1x1",
+                key_id=key_id,
+                db_instance=db,
+            )
+            if not result_path:
+                await _reply(message, get_string("gen_no_image", lang), keyboard=back_to_main_keyboard(lang))
+                return True
+            await db.subtract_user_balance(user_id=user_id, amount=price, reason="generation")
+            if key_id is not None:
+                try:
+                    await db.record_api_usage(key_id)
+                except Exception:
+                    pass
+            await _save_generation_history(
+                db=db,
+                user_id=user_id,
+                category=st.last_generation_category,
+                prompt=final_prompt,
+                result_path=str(result_path),
+                params={"flow": st.last_generation_flow or "normal", "edit": True, "aspect": "1:1"},
+            )
+            _remember_last_generation(
+                st,
+                flow=st.last_generation_flow or "normal",
+                category=st.last_generation_category,
+                prompt=final_prompt,
+                images=st.last_generation_images,
+            )
+            await _send_generation_result(message, db, user_id, lang, str(result_path))
+            return True
+        except Exception as e:
+            logger.exception("VK edit generation failed for user_id=%s", user_id)
+            await _reply(message, _render_generation_error(lang, e), keyboard=back_to_main_keyboard(lang))
+            return True
+
+    # repeat flow
+    images = await _download_photo_bytes_list(message)
+    if not images:
+        await _reply(message, get_string("repeat_photo_prompt", lang), keyboard=back_to_main_keyboard(lang))
+        return True
+    if not st.last_generation_prompt:
+        _reset_state(user_id)
+        await _send_main_menu(message, db, user_id)
+        return True
+
+    price = await db.get_user_generation_price(user_id)
+    balance = await db.get_user_balance(user_id)
+    if balance < price:
+        await _send_topup(message, db, user_id)
+        return True
+
+    key_id, api_key = await _pick_api_key(db)
+    if not api_key:
+        await _reply(message, get_string("api_limit_reached", lang), keyboard=back_to_main_keyboard(lang))
+        return True
+
+    repeat_images = images[:4]
+    await _reply(message, get_string("gen_in_progress", lang))
+    try:
+        result_path = await generate_image(
+            api_key=api_key,
+            prompt=st.last_generation_prompt,
+            images_bytes=repeat_images,
+            aspect_ratio="1x1",
+            key_id=key_id,
+            db_instance=db,
+        )
+        if not result_path:
+            await _reply(message, get_string("gen_no_image", lang), keyboard=back_to_main_keyboard(lang))
+            return True
+        await db.subtract_user_balance(user_id=user_id, amount=price, reason="generation")
+        if key_id is not None:
+            try:
+                await db.record_api_usage(key_id)
+            except Exception:
+                pass
+        await _save_generation_history(
+            db=db,
+            user_id=user_id,
+            category=st.last_generation_category,
+            prompt=st.last_generation_prompt,
+            result_path=str(result_path),
+            params={"flow": st.last_generation_flow or "normal", "repeat": True, "aspect": "1:1"},
+        )
+        _remember_last_generation(
+            st,
+            flow=st.last_generation_flow or "normal",
+            category=st.last_generation_category,
+            prompt=st.last_generation_prompt,
+            images=repeat_images,
+        )
+        await _send_generation_result(message, db, user_id, lang, str(result_path))
+        return True
+    except Exception as e:
+        logger.exception("VK repeat generation failed for user_id=%s", user_id)
+        await _reply(message, _render_generation_error(lang, e), keyboard=back_to_main_keyboard(lang))
+        return True
 
 
 @router.message(IsPrivate())
@@ -1034,6 +1320,8 @@ async def handle_private_message(message: Message) -> None:
             return
 
         # В режиме конструктора ответы пользователя обрабатываем раньше обычного меню
+        if await _handle_result_actions(message, db, user_id, lang):
+            return
         if await _handle_constructor_message(message, db, user_id, lang):
             return
 
@@ -1121,6 +1409,7 @@ async def handle_private_message(message: Message) -> None:
     except Exception:
         logger.exception("VK handler error for user_id=%s", user_id)
         try:
-            await _reply(message, "Временная ошибка. Попробуйте еще раз через несколько секунд.")
+            safe_lang = locals().get("lang", "ru")
+            await _reply(message, get_string("vk_temp_error", safe_lang if safe_lang in {"ru", "en", "vi"} else "ru"))
         except Exception:
             pass

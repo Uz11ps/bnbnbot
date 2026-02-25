@@ -148,6 +148,23 @@ def _build_proxies(proxy_url: str | None) -> dict:
     return {"http": proxy_url, "https": proxy_url}
 
 
+def _normalize_image_model_name(raw_model_name: str | None) -> str:
+    raw = (raw_model_name or "").strip()
+    if not raw:
+        return "gemini-3-pro-image-preview"
+
+    alias_map = {
+        "gemini-2.5-flash-image-preview": "nano-banana-pro-preview",
+        "gemini-2.5-flash-image": "nano-banana-pro-preview",
+        "gemini-2.0-flash-preview-image-generation": "nano-banana-pro-preview",
+    }
+    mapped = alias_map.get(raw, raw)
+    if "2.5" in mapped.lower():
+        logger.warning("[Gemini] Model '%s' blocked, forced to nano-banana-pro-preview", raw)
+        return "nano-banana-pro-preview"
+    return mapped
+
+
 
 
 def _generate_sync(
@@ -162,7 +179,7 @@ def _generate_sync(
     proxy_url: str | None = None,
 ) -> Optional[bytes]:
     # По умолчанию используем NANO PRO, но allow fallback по переданному model_name.
-    model_used = (model_name or "gemini-3-pro-image-preview").strip()
+    model_used = _normalize_image_model_name(model_name)
     endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{model_used}:generateContent?key={api_key}"
     headers = {"Content-Type": "application/json"}
 
@@ -473,14 +490,7 @@ async def generate_image(
     ]
     model_candidates: list[str] = []
     if model_name:
-        raw = str(model_name).strip()
-        # Совместимость со старыми алиасами из настроек/кода.
-        alias_map = {
-            "gemini-2.5-flash-image-preview": "nano-banana-pro-preview",
-            "gemini-2.5-flash-image": "nano-banana-pro-preview",
-            "gemini-2.0-flash-preview-image-generation": "nano-banana-pro-preview",
-        }
-        model_candidates.append(alias_map.get(raw, raw))
+        model_candidates.append(_normalize_image_model_name(str(model_name)))
     for m in default_model_chain:
         if m not in model_candidates:
             model_candidates.append(m)

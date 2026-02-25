@@ -429,15 +429,15 @@ async def generate_image(
     default_model_chain = [
         "gemini-3-pro-image-preview",
         "nano-banana-pro-preview",
-        "gemini-2.5-flash-image",
     ]
     model_candidates: list[str] = []
     if model_name:
         raw = str(model_name).strip()
         # Совместимость со старыми алиасами из настроек/кода.
         alias_map = {
-            "gemini-2.5-flash-image-preview": "gemini-2.5-flash-image",
-            "gemini-2.0-flash-preview-image-generation": "gemini-2.5-flash-image",
+            "gemini-2.5-flash-image-preview": "nano-banana-pro-preview",
+            "gemini-2.5-flash-image": "nano-banana-pro-preview",
+            "gemini-2.0-flash-preview-image-generation": "nano-banana-pro-preview",
         }
         model_candidates.append(alias_map.get(raw, raw))
     for m in default_model_chain:

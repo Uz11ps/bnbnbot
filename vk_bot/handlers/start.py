@@ -15,6 +15,11 @@ from vkbottle.exception_factory.base_exceptions import VKAPIError
 
 from bot.db import Database
 from bot.gemini import generate_image
+from bot.key_dispatcher import (
+    order_keys_after_last_used,
+    release_key_lock,
+    try_acquire_key_lock,
+)
 from bot.strings import get_string
 from vk_bot.context import get_db
 from vk_bot.keyboards import (
@@ -816,7 +821,7 @@ async def _run_constructor_generation(message: Message, db: Database, user_id: i
         await _send_topup(message, db, user_id)
         return
 
-    key_id, api_key = await _pick_api_key(db)
+    key_id, api_key, key_lock = await _pick_api_key(db)
     if not api_key:
         await _reply(message, get_string("api_limit_reached", lang), keyboard=back_to_main_keyboard(lang))
         return
@@ -861,6 +866,8 @@ async def _run_constructor_generation(message: Message, db: Database, user_id: i
     except Exception as e:
         logger.exception("VK constructor generation failed for user_id=%s", user_id)
         await _reply(message, _render_generation_error(lang, e), keyboard=back_to_main_keyboard(lang))
+    finally:
+        release_key_lock(key_lock)
 
 
 async def _handle_constructor_message(message: Message, db: Database, user_id: int, lang: str) -> bool:
@@ -978,13 +985,31 @@ async def _handle_constructor_message(message: Message, db: Database, user_id: i
     return True
 
 
-async def _pick_api_key(db: Database) -> tuple[int | None, str | None]:
+async def _pick_api_key(db: Database) -> tuple[int | None, str | None, asyncio.Lock | None]:
     rows = await db.list_api_keys()
-    for row in rows:
-        # (id, token, is_active, priority, ...)
-        if int(row[2]) == 1:
-            return int(row[0]), str(row[1])
-    return None, None
+    active_rows = [row for row in rows if int(row[2]) == 1]
+    if not active_rows:
+        return None, None, None
+
+    last_used_key_id = None
+    try:
+        last_used_raw = await db.get_app_setting("last_used_api_key_id")
+        last_used_key_id = int(last_used_raw) if last_used_raw else None
+    except Exception:
+        last_used_key_id = None
+    active_rows = order_keys_after_last_used(active_rows, last_used_key_id)
+
+    for row in active_rows:
+        key_id = int(row[0])
+        lock = await try_acquire_key_lock(key_id)
+        if lock is None:
+            continue
+        try:
+            await db.set_app_setting("last_used_api_key_id", str(key_id))
+        except Exception:
+            pass
+        return key_id, str(row[1]), lock
+    return None, None, None
 
 
 async def _start_generation_mode(
@@ -1040,7 +1065,7 @@ async def _handle_generation_prompt_step(message: Message, db: Database, user_id
         await _send_topup(message, db, user_id)
         return True
 
-    key_id, api_key = await _pick_api_key(db)
+    key_id, api_key, key_lock = await _pick_api_key(db)
     if not api_key:
         await _reply(message, get_string("api_limit_reached", lang), keyboard=back_to_main_keyboard(lang))
         return True
@@ -1095,6 +1120,8 @@ async def _handle_generation_prompt_step(message: Message, db: Database, user_id
     except Exception as e:
         logger.exception("VK generation failed for user_id=%s", user_id)
         await _reply(message, _render_generation_error(lang, e), keyboard=back_to_main_keyboard(lang))
+    finally:
+        release_key_lock(key_lock)
     return True
 
 
@@ -1145,7 +1172,7 @@ async def _handle_result_actions(message: Message, db: Database, user_id: int, l
             await _send_topup(message, db, user_id)
             return True
 
-        key_id, api_key = await _pick_api_key(db)
+        key_id, api_key, key_lock = await _pick_api_key(db)
         if not api_key:
             await _reply(message, get_string("api_limit_reached", lang), keyboard=back_to_main_keyboard(lang))
             return True
@@ -1191,6 +1218,8 @@ async def _handle_result_actions(message: Message, db: Database, user_id: int, l
             logger.exception("VK edit generation failed for user_id=%s", user_id)
             await _reply(message, _render_generation_error(lang, e), keyboard=back_to_main_keyboard(lang))
             return True
+        finally:
+            release_key_lock(key_lock)
 
     # repeat flow
     images = await _download_photo_bytes_list(message)
@@ -1208,7 +1237,7 @@ async def _handle_result_actions(message: Message, db: Database, user_id: int, l
         await _send_topup(message, db, user_id)
         return True
 
-    key_id, api_key = await _pick_api_key(db)
+    key_id, api_key, key_lock = await _pick_api_key(db)
     if not api_key:
         await _reply(message, get_string("api_limit_reached", lang), keyboard=back_to_main_keyboard(lang))
         return True
@@ -1254,6 +1283,8 @@ async def _handle_result_actions(message: Message, db: Database, user_id: int, l
         logger.exception("VK repeat generation failed for user_id=%s", user_id)
         await _reply(message, _render_generation_error(lang, e), keyboard=back_to_main_keyboard(lang))
         return True
+    finally:
+        release_key_lock(key_lock)
 
 
 @router.message(IsPrivate())

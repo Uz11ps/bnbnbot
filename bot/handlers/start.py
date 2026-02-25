@@ -52,6 +52,11 @@ from bot.keyboards import (
     yes_no_keyboard,
 )
 from bot.db import Database
+from bot.key_dispatcher import (
+    order_keys_after_last_used,
+    release_key_lock,
+    try_acquire_key_lock,
+)
 from bot.strings import get_string
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -4138,16 +4143,13 @@ async def _do_generate_real(message_or_callback: Message | CallbackQuery, state:
                 await ans_obj.answer(err_text)
             return
             
-        import random
-        random.shuffle(active_keys)
-        preferred_key_id = None
+        last_used_key_id = None
         try:
-            preferred_raw = await db.get_app_setting("last_success_api_key_id")
-            preferred_key_id = int(preferred_raw) if preferred_raw else None
+            last_used_raw = await db.get_app_setting("last_used_api_key_id")
+            last_used_key_id = int(last_used_raw) if last_used_raw else None
         except Exception:
-            preferred_key_id = None
-        if preferred_key_id is not None:
-            active_keys.sort(key=lambda k: 0 if int(k[0]) == preferred_key_id else 1)
+            last_used_key_id = None
+        active_keys = order_keys_after_last_used(active_keys, last_used_key_id)
         
         last_error_msg = ""
         keys_tried = 0
@@ -4176,7 +4178,14 @@ async def _do_generate_real(message_or_callback: Message | CallbackQuery, state:
                 continue
             
             keys_tried += 1
+            key_lock = await try_acquire_key_lock(kid)
+            if key_lock is None:
+                continue
             try:
+                try:
+                    await db.set_app_setting("last_used_api_key_id", str(kid))
+                except Exception:
+                    pass
                 import io
                 
                 async def download_one(fid):
@@ -4344,6 +4353,8 @@ async def _do_generate_real(message_or_callback: Message | CallbackQuery, state:
                 # Для временных timeout/network ошибок даем шанс следующему ключу.
                 if "timeout" in str(e).lower() or "connection reset by peer" in str(e).lower():
                     continue
+            finally:
+                release_key_lock(key_lock)
         
         anim_task.cancel()
         try: await process_msg.delete()
@@ -4563,16 +4574,13 @@ async def on_result_edit_text_real(message: Message, state: FSMContext, db: Data
         api_keys = await db.list_api_keys()
         
         active_keys = [k for k in api_keys if k[2]]
-        import random
-        random.shuffle(active_keys)
-        preferred_key_id = None
+        last_used_key_id = None
         try:
-            preferred_raw = await db.get_app_setting("last_success_api_key_id")
-            preferred_key_id = int(preferred_raw) if preferred_raw else None
+            last_used_raw = await db.get_app_setting("last_used_api_key_id")
+            last_used_key_id = int(last_used_raw) if last_used_raw else None
         except Exception:
-            preferred_key_id = None
-        if preferred_key_id is not None:
-            active_keys.sort(key=lambda k: 0 if int(k[0]) == preferred_key_id else 1)
+            last_used_key_id = None
+        active_keys = order_keys_after_last_used(active_keys, last_used_key_id)
         
         result_path = None
         kid_used = None
@@ -4606,7 +4614,14 @@ async def on_result_edit_text_real(message: Message, state: FSMContext, db: Data
                 continue
             
             keys_tried += 1
+            key_lock = await try_acquire_key_lock(kid)
+            if key_lock is None:
+                continue
             try:
+                try:
+                    await db.set_app_setting("last_used_api_key_id", str(kid))
+                except Exception:
+                    pass
                 try:
                     key_timeout_s = int(os.getenv("GENERATION_KEY_TIMEOUT_SECONDS", "70"))
                 except Exception:
@@ -4650,6 +4665,8 @@ async def on_result_edit_text_real(message: Message, state: FSMContext, db: Data
                     except Exception as de:
                         logger.warning(f"[Edit] Не удалось деактивировать ключ {kid} после 429/quota: {de}")
                 continue
+            finally:
+                release_key_lock(key_lock)
 
         # Чистим временные фото
         for p in downloaded_paths:

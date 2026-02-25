@@ -21,6 +21,46 @@ MAX_IMAGE_DIM = 1920
 JPEG_QUALITY = 92
 
 
+def _prepare_image_for_upload(img_bytes: bytes) -> tuple[bytes, str]:
+    """Нормализует изображение и возвращает (bytes, mimeType) для Gemini."""
+    try:
+        from PIL import Image
+
+        img = Image.open(io.BytesIO(img_bytes))
+        fmt = (img.format or "").upper()
+        w, h = img.size
+
+        # Если картинка слишком большая, сжимаем и приводим к JPEG.
+        if w > MAX_IMAGE_DIM or h > MAX_IMAGE_DIM:
+            scale = min(MAX_IMAGE_DIM / w, MAX_IMAGE_DIM / h, 1.0)
+            nw, nh = int(w * scale), int(h * scale)
+            img = img.convert("RGB").resize((nw, nh), Image.Resampling.LANCZOS)
+            buf = io.BytesIO()
+            img.save(buf, "JPEG", quality=JPEG_QUALITY, optimize=True)
+            out = buf.getvalue()
+            logger.info("[Gemini] Image resized: %d -> %d bytes", len(img_bytes), len(out))
+            return out, "image/jpeg"
+
+        # Без ресайза отправляем с корректным mime.
+        if fmt in ("JPEG", "JPG"):
+            return img_bytes, "image/jpeg"
+        if fmt == "PNG":
+            return img_bytes, "image/png"
+        if fmt == "WEBP":
+            return img_bytes, "image/webp"
+
+        # Неизвестный формат: конвертируем в JPEG.
+        img = img.convert("RGB")
+        buf = io.BytesIO()
+        img.save(buf, "JPEG", quality=JPEG_QUALITY, optimize=True)
+        out = buf.getvalue()
+        logger.info("[Gemini] Image converted to JPEG: %d -> %d bytes", len(img_bytes), len(out))
+        return out, "image/jpeg"
+    except Exception as e:
+        logger.warning("[Gemini] Image prepare failed, fallback to JPEG bytes: %s", e)
+        return img_bytes, "image/jpeg"
+
+
 def _compress_image(img_bytes: bytes) -> bytes:
     """Сжимает изображение для ускорения передачи через прокси."""
     try:
@@ -141,7 +181,7 @@ def _generate_sync(
     # Сжимаем изображения для ускорения передачи через прокси
     for i, img_bytes in enumerate(img_list, 1):
         if img_bytes:
-            compressed = _compress_image(img_bytes)
+            prepared_bytes, prepared_mime = _prepare_image_for_upload(img_bytes)
             # Если фото одно — трактуем его как товар/объект (не как сцену)
             if len(img_list) == 1:
                 label = "[CLOTHING_ITEM_TO_WEAR_IMAGE]:"
@@ -155,17 +195,18 @@ def _generate_sync(
             parts.append({"text": label})
             parts.append({
                 "inlineData": {
-                    "mimeType": "image/jpeg",
-                    "data": base64.b64encode(compressed).decode("utf-8"),
+                    "mimeType": prepared_mime,
+                    "data": base64.b64encode(prepared_bytes).decode("utf-8"),
                 }
             })
             
     if ref_image_bytes:
+        ref_prepared_bytes, ref_prepared_mime = _prepare_image_for_upload(ref_image_bytes)
         parts.append({"text": "STYLE_REFERENCE:"})
         parts.append({
             "inlineData": {
-                "mimeType": "image/jpeg",
-                "data": base64.b64encode(ref_image_bytes).decode("utf-8"),
+                "mimeType": ref_prepared_mime,
+                "data": base64.b64encode(ref_prepared_bytes).decode("utf-8"),
             }
         })
 

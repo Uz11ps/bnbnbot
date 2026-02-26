@@ -56,6 +56,66 @@
     </div>
 </div>
 
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card shadow-sm border-info border-1">
+            <div class="card-header bg-info bg-opacity-10">
+                <h5 class="mb-0"><i class="bi bi-info-circle text-info"></i> Расшифровка кодов ошибок генерации</h5>
+            </div>
+            <div class="card-body p-2">
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover mb-0 align-middle">
+                        <thead>
+                            <tr>
+                                <th>Код</th>
+                                <th>Что означает</th>
+                                <th>Что делать</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><code>all_keys_busy</code></td>
+                                <td>Все активные ключи заняты запросами прямо сейчас.</td>
+                                <td>Добавить ключи/уменьшить параллельную нагрузку, повтор через 10-20 сек.</td>
+                            </tr>
+                            <tr>
+                                <td><code>generation_timeout</code></td>
+                                <td>Генерация не уложилась в таймаут ожидания.</td>
+                                <td>Проверить нагрузку, прокси, время ответа API и сложность промпта.</td>
+                            </tr>
+                            <tr>
+                                <td><code>empty_result</code></td>
+                                <td>API вернул ответ без изображения.</td>
+                                <td>Смягчить промпт/заменить фото, проверить ограничения safety.</td>
+                            </tr>
+                            <tr>
+                                <td><code>input_photo_download_failed</code></td>
+                                <td>Бот не смог скачать входные фото пользователя.</td>
+                                <td>Попросить отправить фото заново, проверить доступность Telegram/VK файлов.</td>
+                            </tr>
+                            <tr>
+                                <td><code>429</code>, <code>quota</code></td>
+                                <td>Лимиты ключа исчерпаны (rate limit / quota).</td>
+                                <td>Включить резервные ключи, проверить биллинг и лимиты проекта.</td>
+                            </tr>
+                            <tr>
+                                <td><code>key_invalid</code>, <code>key_suspended</code>, <code>permission_denied</code></td>
+                                <td>Проблема самого ключа или прав проекта.</td>
+                                <td>Заменить ключ, проверить доступ к API и проект Google Cloud.</td>
+                            </tr>
+                            <tr>
+                                <td><code>critical_exception:...</code>, <code>unclassified_exception:...</code></td>
+                                <td>Необработанное исключение в коде бота.</td>
+                                <td>Сразу смотреть логи контейнера `bot` в момент ошибки по времени.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 {% if recent_errors %}
 <div class="row mt-4">
     <div class="col-12">

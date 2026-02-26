@@ -25,6 +25,22 @@ async def try_acquire_key_lock(key_id: int) -> asyncio.Lock | None:
     return lock
 
 
+async def acquire_key_lock_with_wait(
+    key_id: int,
+    *,
+    wait_seconds: float = 8.0,
+    poll_interval_seconds: float = 0.2,
+) -> asyncio.Lock | None:
+    deadline = asyncio.get_running_loop().time() + max(0.0, float(wait_seconds))
+    while True:
+        lock = await try_acquire_key_lock(int(key_id))
+        if lock is not None:
+            return lock
+        if asyncio.get_running_loop().time() >= deadline:
+            return None
+        await asyncio.sleep(max(0.05, float(poll_interval_seconds)))
+
+
 def release_key_lock(lock: asyncio.Lock | None) -> None:
     if lock and lock.locked():
         lock.release()

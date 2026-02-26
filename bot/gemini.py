@@ -264,8 +264,17 @@ def _generate_sync(
     }
 
     proxy_url_used = proxy_url if _valid_proxy(proxy_url or "") else None
-    # Работаем и без прокси (германский сервер). Если прокси задан, используем его.
-    timeout_cfg = httpx.Timeout(connect=25.0, read=180.0, write=60.0, pool=25.0)
+    # Таймауты должны быть согласованы с внешним wait_for, иначе получаем ложные timeout с нашей стороны.
+    connect_timeout_s = float(os.getenv("GEMINI_CONNECT_TIMEOUT_SECONDS", "20"))
+    read_timeout_s = float(os.getenv("GEMINI_READ_TIMEOUT_SECONDS", "80"))
+    write_timeout_s = float(os.getenv("GEMINI_WRITE_TIMEOUT_SECONDS", "40"))
+    pool_timeout_s = float(os.getenv("GEMINI_POOL_TIMEOUT_SECONDS", "20"))
+    timeout_cfg = httpx.Timeout(
+        connect=max(5.0, min(connect_timeout_s, 60.0)),
+        read=max(20.0, min(read_timeout_s, 240.0)),
+        write=max(10.0, min(write_timeout_s, 120.0)),
+        pool=max(5.0, min(pool_timeout_s, 60.0)),
+    )
 
     logger.info(
         "[Gemini] generateContent start: prompt_len=%d, images_count=%d, ref_img=%s, proxy=%s, model=%s",
@@ -284,7 +293,11 @@ def _generate_sync(
     last_text = None
     last_exception = None
     is_network_error = False
-    max_attempts = 3
+    try:
+        max_attempts = int(os.getenv("GEMINI_REQUEST_MAX_ATTEMPTS", "2"))
+    except Exception:
+        max_attempts = 2
+    max_attempts = max(1, min(max_attempts, 4))
     # На одном маршруте делаем несколько попыток для временных 503/сетевых ошибок.
     for attempt in range(1, max_attempts + 1):
         try:

@@ -16,9 +16,9 @@ from vkbottle.exception_factory.base_exceptions import VKAPIError
 from bot.db import Database
 from bot.gemini import generate_image
 from bot.key_dispatcher import (
+    acquire_key_lock_with_wait,
     order_keys_after_last_used,
     release_key_lock,
-    try_acquire_key_lock,
 )
 from bot.strings import get_string
 from vk_bot.context import get_db
@@ -829,10 +829,10 @@ async def _run_constructor_generation(message: Message, db: Database, user_id: i
     await _reply(message, get_string("gen_in_progress", lang))
     try:
         try:
-            total_timeout_s = int(os.getenv("GENERATION_TOTAL_TIMEOUT_SECONDS", "30"))
+            total_timeout_s = int(os.getenv("GENERATION_TOTAL_TIMEOUT_SECONDS", "240"))
         except Exception:
-            total_timeout_s = 30
-        total_timeout_s = max(15, min(total_timeout_s, 60))
+            total_timeout_s = 240
+        total_timeout_s = max(90, min(total_timeout_s, 600))
         result_path = await asyncio.wait_for(
             generate_image(
                 api_key=api_key,
@@ -1001,7 +1001,7 @@ async def _pick_api_key(db: Database) -> tuple[int | None, str | None, asyncio.L
 
     for row in active_rows:
         key_id = int(row[0])
-        lock = await try_acquire_key_lock(key_id)
+        lock = await acquire_key_lock_with_wait(key_id, wait_seconds=6.0)
         if lock is None:
             continue
         try:
@@ -1075,10 +1075,10 @@ async def _handle_generation_prompt_step(message: Message, db: Database, user_id
         category_prompt = await _get_category_prefix_prompt(db, st.category)
         final_prompt = f"{category_prompt}\n\n{prompt}".strip() if category_prompt else prompt
         try:
-            total_timeout_s = int(os.getenv("GENERATION_TOTAL_TIMEOUT_SECONDS", "30"))
+            total_timeout_s = int(os.getenv("GENERATION_TOTAL_TIMEOUT_SECONDS", "240"))
         except Exception:
-            total_timeout_s = 30
-        total_timeout_s = max(15, min(total_timeout_s, 60))
+            total_timeout_s = 240
+        total_timeout_s = max(90, min(total_timeout_s, 600))
         result_path = await asyncio.wait_for(
             generate_image(
                 api_key=api_key,

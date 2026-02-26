@@ -53,9 +53,9 @@ from bot.keyboards import (
 )
 from bot.db import Database
 from bot.key_dispatcher import (
+    acquire_key_lock_with_wait,
     order_keys_after_last_used,
     release_key_lock,
-    try_acquire_key_lock,
 )
 from bot.strings import get_string
 from aiogram.fsm.context import FSMContext
@@ -4152,6 +4152,7 @@ async def _do_generate_real(message_or_callback: Message | CallbackQuery, state:
         active_keys = order_keys_after_last_used(active_keys, last_used_key_id)
         
         last_error_msg = ""
+        key_busy_skips = 0
         keys_tried = 0
         max_keys_to_try = min(5, len(active_keys))
         for key_tuple in active_keys:
@@ -4177,10 +4178,11 @@ async def _do_generate_real(message_or_callback: Message | CallbackQuery, state:
                         logger.warning(f"Не удалось деактивировать ключ {kid} по лимиту: {de}")
                 continue
             
-            keys_tried += 1
-            key_lock = await try_acquire_key_lock(kid)
+            key_lock = await acquire_key_lock_with_wait(kid, wait_seconds=6.0)
             if key_lock is None:
+                key_busy_skips += 1
                 continue
+            keys_tried += 1
             try:
                 try:
                     await db.set_app_setting("last_used_api_key_id", str(kid))
@@ -4224,10 +4226,10 @@ async def _do_generate_real(message_or_callback: Message | CallbackQuery, state:
                 
                 # Передаем байты напрямую в generate_image без жесткого таймаута.
                 try:
-                    key_timeout_s = int(os.getenv("GENERATION_KEY_TIMEOUT_SECONDS", "70"))
+                    key_timeout_s = int(os.getenv("GENERATION_KEY_TIMEOUT_SECONDS", "240"))
                 except Exception:
-                    key_timeout_s = 70
-                key_timeout_s = max(20, min(key_timeout_s, 300))
+                    key_timeout_s = 240
+                key_timeout_s = max(90, min(key_timeout_s, 600))
                 result_path = await asyncio.wait_for(
                     generate_image(
                         api_key=token,
@@ -4356,6 +4358,11 @@ async def _do_generate_real(message_or_callback: Message | CallbackQuery, state:
             finally:
                 release_key_lock(key_lock)
         
+        if not last_error_msg and keys_tried == 0 and key_busy_skips > 0:
+            last_error_msg = "all_keys_busy"
+        elif not last_error_msg and keys_tried == 0:
+            last_error_msg = "no_keys_available"
+        
         anim_task.cancel()
         try: await process_msg.delete()
         except: pass
@@ -4408,6 +4415,8 @@ async def _do_generate_real(message_or_callback: Message | CallbackQuery, state:
                 err_text = "⚠️ Временная сетевая ошибка сервиса генерации. Попробуйте еще раз через 20-60 секунд."
             else:
                 err_text = "⚠️ Временная сетевая ошибка сервиса генерации. Попробуйте еще раз через 10-30 секунд."
+        elif "all_keys_busy" in msg_l:
+            err_text = "⚠️ Сейчас все ключи заняты активными запросами. Повторите через 10-20 секунд."
         else:
             err_text = get_string("api_error_user", lang)
             
@@ -4584,6 +4593,8 @@ async def on_result_edit_text_real(message: Message, state: FSMContext, db: Data
         
         result_path = None
         kid_used = None
+        key_busy_skips = 0
+        last_error_msg = ""
         
         from bot.gemini import generate_image
         raw_aspect = data.get("aspect") or "1:1"
@@ -4613,20 +4624,21 @@ async def on_result_edit_text_real(message: Message, state: FSMContext, db: Data
                         logger.warning(f"[Edit] Не удалось деактивировать ключ {kid} по лимиту: {de}")
                 continue
             
-            keys_tried += 1
-            key_lock = await try_acquire_key_lock(kid)
+            key_lock = await acquire_key_lock_with_wait(kid, wait_seconds=6.0)
             if key_lock is None:
+                key_busy_skips += 1
                 continue
+            keys_tried += 1
             try:
                 try:
                     await db.set_app_setting("last_used_api_key_id", str(kid))
                 except Exception:
                     pass
                 try:
-                    key_timeout_s = int(os.getenv("GENERATION_KEY_TIMEOUT_SECONDS", "70"))
+                    key_timeout_s = int(os.getenv("GENERATION_KEY_TIMEOUT_SECONDS", "240"))
                 except Exception:
-                    key_timeout_s = 70
-                key_timeout_s = max(20, min(key_timeout_s, 300))
+                    key_timeout_s = 240
+                key_timeout_s = max(90, min(key_timeout_s, 600))
                 result_path = await asyncio.wait_for(
                     generate_image(
                         api_key=token,
@@ -4644,9 +4656,11 @@ async def on_result_edit_text_real(message: Message, state: FSMContext, db: Data
                 break
             except asyncio.TimeoutError as e:
                 logger.error(f"Edit timeout key {kid}: {e}")
+                last_error_msg = "generation_timeout"
                 continue
             except Exception as e:
                 logger.error(f"Edit error key {kid}: {e}")
+                last_error_msg = str(e)
                 from bot.gemini import is_fatal_key_error
                 err_type = str(getattr(e, "error_type", "") or "").lower()
                 status_code = getattr(e, "status_code", None)
@@ -4667,6 +4681,9 @@ async def on_result_edit_text_real(message: Message, state: FSMContext, db: Data
                 continue
             finally:
                 release_key_lock(key_lock)
+
+        if not result_path and not last_error_msg and keys_tried == 0 and key_busy_skips > 0:
+            last_error_msg = "all_keys_busy"
 
         # Чистим временные фото
         for p in downloaded_paths:
@@ -4754,7 +4771,12 @@ async def on_result_edit_text_real(message: Message, state: FSMContext, db: Data
             # Не очищаем стейт полностью, чтобы можно было еще раз править или повторить
             await state.set_state(CreateForm.result_ready)
         else:
-            await message.answer(get_string("gen_error", lang))
+            if "all_keys_busy" in (last_error_msg or "").lower():
+                await message.answer("⚠️ Сейчас все ключи заняты активными запросами. Попробуйте через 10-20 секунд.")
+            elif "timeout" in (last_error_msg or "").lower():
+                await message.answer("⚠️ Генерация заняла слишком много времени. Попробуйте еще раз через 20-60 секунд.")
+            else:
+                await message.answer(get_string("gen_error", lang))
 
     except Exception as e:
         logger.error(f"Critical error in on_result_edit_text: {e}")

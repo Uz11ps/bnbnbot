@@ -7,47 +7,74 @@
 
     <div class="card p-3 mb-4 bg-light border-dashed">
         <h6 class="mb-3">🧩 Промпты категорий (используются в боте)</h6>
-        <form action="/prompts/category_prompts" method="post" class="row g-3">
-            <div class="col-12">
-                <label class="form-label">Белый фон</label>
-                <textarea name="whitebg_prompt" class="form-control" rows="3" placeholder="Промпт для белого фона">{{ cat_prompts.whitebg_prompt }}</textarea>
-            </div>
-            <div class="col-12">
-                <label class="form-label">Рандом</label>
-                <textarea name="random_prompt" class="form-control" rows="3" placeholder="Промпт для рандома">{{ cat_prompts.random_prompt }}</textarea>
-            </div>
-            <div class="col-12">
-                <label class="form-label">Рандом прочее</label>
-                <textarea name="random_other_prompt" class="form-control" rows="3">{{ cat_prompts.random_other_prompt }}</textarea>
-            </div>
-            <div class="col-12">
-                <label class="form-label">Витринное фото</label>
-                <textarea name="storefront_prompt" class="form-control" rows="3">{{ cat_prompts.storefront_prompt }}</textarea>
-            </div>
-            <div class="col-12">
-                <label class="form-label">Инфографика (одежда)</label>
-                <textarea name="infographic_clothing_prompt" class="form-control" rows="3">{{ cat_prompts.infographic_clothing_prompt }}</textarea>
-            </div>
-            <div class="col-12">
-                <label class="form-label">Инфографика (прочее)</label>
-                <textarea name="infographic_other_prompt" class="form-control" rows="3">{{ cat_prompts.infographic_other_prompt }}</textarea>
-            </div>
-            <div class="col-12">
-                <label class="form-label">Свой вариант (одежда)</label>
-                <textarea name="own_prompt" class="form-control" rows="3">{{ cat_prompts.own_prompt }}</textarea>
-            </div>
-            <div class="col-12">
-                <label class="form-label">Свой вариант (фон)</label>
-                <textarea name="own_variant_prompt" class="form-control" rows="3">{{ cat_prompts.own_variant_prompt }}</textarea>
-            </div>
-            <div class="col-12">
-                <label class="form-label">Готовые пресеты (общий промпт)</label>
-                <textarea name="presets_prompt" class="form-control" rows="3" placeholder="Этот промпт будет добавляться ко всем генерациям в разделе готовых пресетов">{{ cat_prompts.presets_prompt }}</textarea>
-            </div>
-            <div class="col-12">
-                <button type="submit" class="btn btn-primary">Сохранить промпты</button>
-            </div>
+        <div class="small text-muted mb-3">Нажмите "Обновить промпт" под нужным разделом — он сразу записывается в app_settings и применяется при следующей генерации.</div>
+
+        <form action="/prompts/category_prompt/update" method="post" class="row g-2 mb-3">
+            <input type="hidden" name="key" value="whitebg_prompt">
+            <div class="col-12"><label class="form-label">Белый фон</label></div>
+            <div class="col-12"><textarea name="value" class="form-control" rows="3" placeholder="Промпт для белого фона">{{ cat_prompts.whitebg_prompt }}</textarea></div>
+            <div class="col-12"><button type="submit" class="btn btn-outline-primary btn-sm">Обновить промпт</button></div>
         </form>
+
+        <form action="/prompts/category_prompt/update" method="post" class="row g-2 mb-3">
+            <input type="hidden" name="key" value="random_prompt">
+            <div class="col-12"><label class="form-label">Рандом</label></div>
+            <div class="col-12"><textarea name="value" class="form-control" rows="3" placeholder="Промпт для рандома">{{ cat_prompts.random_prompt }}</textarea></div>
+            <div class="col-12"><button type="submit" class="btn btn-outline-primary btn-sm">Обновить промпт</button></div>
+        </form>
+
+        <form action="/prompts/category_prompt/update" method="post" class="row g-2 mb-3">
+            <input type="hidden" name="key" value="random_other_prompt">
+            <div class="col-12"><label class="form-label">Рандом прочее</label></div>
+            <div class="col-12"><textarea name="value" class="form-control" rows="3">{{ cat_prompts.random_other_prompt }}</textarea></div>
+            <div class="col-12"><button type="submit" class="btn btn-outline-primary btn-sm">Обновить промпт</button></div>
+        </form>
+
+        <form action="/prompts/category_prompt/update" method="post" class="row g-2 mb-3">
+            <input type="hidden" name="key" value="storefront_prompt">
+            <div class="col-12"><label class="form-label">Витринное фото</label></div>
+            <div class="col-12"><textarea name="value" class="form-control" rows="3">{{ cat_prompts.storefront_prompt }}</textarea></div>
+            <div class="col-12"><button type="submit" class="btn btn-outline-primary btn-sm">Обновить промпт</button></div>
+        </form>
+
+        <form action="/prompts/category_prompt/update" method="post" class="row g-2 mb-3">
+            <input type="hidden" name="key" value="infographic_clothing_prompt">
+            <div class="col-12"><label class="form-label">Инфографика (одежда)</label></div>
+            <div class="col-12"><textarea name="value" class="form-control" rows="3">{{ cat_prompts.infographic_clothing_prompt }}</textarea></div>
+            <div class="col-12"><button type="submit" class="btn btn-outline-primary btn-sm">Обновить промпт</button></div>
+        </form>
+
+        <form action="/prompts/category_prompt/update" method="post" class="row g-2 mb-3">
+            <input type="hidden" name="key" value="infographic_other_prompt">
+            <div class="col-12"><label class="form-label">Инфографика (прочее)</label></div>
+            <div class="col-12"><textarea name="value" class="form-control" rows="3">{{ cat_prompts.infographic_other_prompt }}</textarea></div>
+            <div class="col-12"><button type="submit" class="btn btn-outline-primary btn-sm">Обновить промпт</button></div>
+        </form>
+
+        <form action="/prompts/category_prompt/update" method="post" class="row g-2 mb-3">
+            <input type="hidden" name="key" value="own_prompt">
+            <div class="col-12"><label class="form-label">Свой вариант (одежда)</label></div>
+            <div class="col-12"><textarea name="value" class="form-control" rows="3">{{ cat_prompts.own_prompt }}</textarea></div>
+            <div class="col-12"><button type="submit" class="btn btn-outline-primary btn-sm">Обновить промпт</button></div>
+        </form>
+
+        <form action="/prompts/category_prompt/update" method="post" class="row g-2 mb-3">
+            <input type="hidden" name="key" value="own_variant_prompt">
+            <div class="col-12"><label class="form-label">Свой вариант (фон)</label></div>
+            <div class="col-12"><textarea name="value" class="form-control" rows="3">{{ cat_prompts.own_variant_prompt }}</textarea></div>
+            <div class="col-12"><button type="submit" class="btn btn-outline-primary btn-sm">Обновить промпт</button></div>
+        </form>
+
+        <form action="/prompts/category_prompt/update" method="post" class="row g-2 mb-3">
+            <input type="hidden" name="key" value="presets_prompt">
+            <div class="col-12"><label class="form-label">Готовые пресеты (общий промпт)</label></div>
+            <div class="col-12"><textarea name="value" class="form-control" rows="3" placeholder="Этот промпт будет добавляться ко всем генерациям в разделе готовых пресетов">{{ cat_prompts.presets_prompt }}</textarea></div>
+            <div class="col-12"><button type="submit" class="btn btn-outline-primary btn-sm">Обновить промпт</button></div>
+        </form>
+
+        <div class="small text-muted mt-2">
+            Массовое сохранение оставлено только на API-уровне для совместимости. Для точного применения используйте кнопки "Обновить промпт" в каждом разделе.
+        </div>
     </div>
 
     <div class="alert alert-info">

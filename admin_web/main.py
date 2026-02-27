@@ -3250,6 +3250,44 @@ async def update_category_prompts(
     await db.commit()
     return RedirectResponse(url="/prompts", status_code=303)
 
+
+@app.post("/prompts/category_prompt/update")
+async def update_single_category_prompt(
+    key: str = Form(...),
+    value: str = Form(""),
+    db: aiosqlite.Connection = Depends(get_db),
+    user: str = Depends(get_current_username),
+):
+    allowed_keys = {
+        "whitebg_prompt",
+        "random_prompt",
+        "random_other_prompt",
+        "storefront_prompt",
+        "infographic_clothing_prompt",
+        "infographic_other_prompt",
+        "own_prompt",
+        "own_variant_prompt",
+        "presets_prompt",
+    }
+    safe_key = (key or "").strip()
+    if safe_key not in allowed_keys:
+        return RedirectResponse(url="/prompts", status_code=303)
+
+    safe_value = (value or "").strip()
+    await db.execute(
+        "INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        (safe_key, safe_value),
+    )
+    # Для совместимости со старыми ветками сборки own-промпта держим три ключа синхронизированными.
+    if safe_key == "own_prompt":
+        for own_k in ("own_prompt1", "own_prompt2", "own_prompt3"):
+            await db.execute(
+                "INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (own_k, safe_value),
+            )
+    await db.commit()
+    return RedirectResponse(url="/prompts", status_code=303)
+
 @app.post("/prompts/edit_model")
 async def edit_model_prompt(
     model_id: int = Form(...), 

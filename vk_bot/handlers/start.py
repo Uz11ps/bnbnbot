@@ -463,6 +463,20 @@ def _is_edit_text(text: str, lang: str) -> bool:
     }
 
 
+def _normalize_aspect_for_gemini(raw_aspect: str | None) -> str:
+    val = (raw_aspect or "").strip().replace(" ", "")
+    if not val:
+        return "1x1"
+    if val.lower() in {"auto", "square", "1", "1x1", "1:1"}:
+        return "1x1"
+    if ":" in val:
+        val = val.replace(":", "x")
+    parts = val.lower().split("x")
+    if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit() and int(parts[0]) > 0 and int(parts[1]) > 0:
+        return f"{int(parts[0])}x{int(parts[1])}"
+    return "1x1"
+
+
 def _market_category_by_text(text: str, lang: str) -> str | None:
     mapping = {
         _norm(get_string("cat_presets", lang)): "presets",
@@ -673,7 +687,8 @@ async def _build_constructor_prompt(db: Database, st: VkUserState) -> str:
     if st.category == "presets":
         values["is_preset"] = True
     values["category"] = st.category
-    values["aspect"] = "1:1"
+    if not values.get("aspect"):
+        values["aspect"] = "1:1"
 
     # Используем тот же builder, что в Telegram, чтобы форма из конструктора работала одинаково
     from bot.handlers.start import _build_final_prompt as tg_build_final_prompt
@@ -828,6 +843,7 @@ async def _run_constructor_generation(message: Message, db: Database, user_id: i
 
     await _reply(message, get_string("gen_in_progress", lang))
     try:
+        aspect = _normalize_aspect_for_gemini(st.step_values.get("aspect") or "1:1")
         try:
             total_timeout_s = int(os.getenv("GENERATION_TOTAL_TIMEOUT_SECONDS", "240"))
         except Exception:
@@ -838,7 +854,7 @@ async def _run_constructor_generation(message: Message, db: Database, user_id: i
                 api_key=api_key,
                 prompt=prompt,
                 images_bytes=images,
-                aspect_ratio="1x1",
+                aspect_ratio=aspect,
                 key_id=key_id,
                 db_instance=db,
             ),
@@ -859,7 +875,7 @@ async def _run_constructor_generation(message: Message, db: Database, user_id: i
             category=st.category,
             prompt=prompt,
             result_path=str(result_path),
-            params={"flow": "constructor", "category": st.category, "aspect": "1:1"},
+            params={"flow": "constructor", "category": st.category, "aspect": aspect.replace("x", ":")},
         )
         _remember_last_generation(st, flow="constructor", category=st.category, prompt=prompt, images=images)
         await _send_generation_result(message, db, user_id, lang, str(result_path))
@@ -1074,6 +1090,7 @@ async def _handle_generation_prompt_step(message: Message, db: Database, user_id
     try:
         category_prompt = await _get_category_prefix_prompt(db, st.category)
         final_prompt = f"{category_prompt}\n\n{prompt}".strip() if category_prompt else prompt
+        aspect = _normalize_aspect_for_gemini(st.step_values.get("aspect") if st.step_values else "1:1")
         try:
             total_timeout_s = int(os.getenv("GENERATION_TOTAL_TIMEOUT_SECONDS", "240"))
         except Exception:
@@ -1084,7 +1101,7 @@ async def _handle_generation_prompt_step(message: Message, db: Database, user_id
                 api_key=api_key,
                 prompt=final_prompt,
                 images_bytes=st.image_bytes_list,
-                aspect_ratio="1x1",
+                aspect_ratio=aspect,
                 key_id=key_id,
                 db_instance=db,
             ),
@@ -1107,7 +1124,7 @@ async def _handle_generation_prompt_step(message: Message, db: Database, user_id
             category=st.category,
             prompt=final_prompt,
             result_path=str(result_path),
-            params={"flow": "normal", "category": st.category, "aspect": "1:1"},
+            params={"flow": "normal", "category": st.category, "aspect": aspect.replace("x", ":")},
         )
         _remember_last_generation(
             st,
@@ -1180,11 +1197,12 @@ async def _handle_result_actions(message: Message, db: Database, user_id: int, l
         final_prompt = f"{st.last_generation_prompt}\n\nПравки: {edit_text}".strip()
         await _reply(message, get_string("gen_in_progress", lang))
         try:
+            aspect = _normalize_aspect_for_gemini(st.step_values.get("aspect") if st.step_values else "1:1")
             result_path = await generate_image(
                 api_key=api_key,
                 prompt=final_prompt,
                 images_bytes=st.last_generation_images,
-                aspect_ratio="1x1",
+                aspect_ratio=aspect,
                 key_id=key_id,
                 db_instance=db,
             )
@@ -1203,7 +1221,7 @@ async def _handle_result_actions(message: Message, db: Database, user_id: int, l
                 category=st.last_generation_category,
                 prompt=final_prompt,
                 result_path=str(result_path),
-                params={"flow": st.last_generation_flow or "normal", "edit": True, "aspect": "1:1"},
+                params={"flow": st.last_generation_flow or "normal", "edit": True, "aspect": aspect.replace("x", ":")},
             )
             _remember_last_generation(
                 st,
@@ -1245,11 +1263,12 @@ async def _handle_result_actions(message: Message, db: Database, user_id: int, l
     repeat_images = images[:4]
     await _reply(message, get_string("gen_in_progress", lang))
     try:
+        aspect = _normalize_aspect_for_gemini(st.step_values.get("aspect") if st.step_values else "1:1")
         result_path = await generate_image(
             api_key=api_key,
             prompt=st.last_generation_prompt,
             images_bytes=repeat_images,
-            aspect_ratio="1x1",
+            aspect_ratio=aspect,
             key_id=key_id,
             db_instance=db,
         )
@@ -1268,7 +1287,7 @@ async def _handle_result_actions(message: Message, db: Database, user_id: int, l
             category=st.last_generation_category,
             prompt=st.last_generation_prompt,
             result_path=str(result_path),
-            params={"flow": st.last_generation_flow or "normal", "repeat": True, "aspect": "1:1"},
+            params={"flow": st.last_generation_flow or "normal", "repeat": True, "aspect": aspect.replace("x", ":")},
         )
         _remember_last_generation(
             st,

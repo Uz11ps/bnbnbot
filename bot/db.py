@@ -1070,12 +1070,13 @@ class Database:
         async with aiosqlite.connect(self._db_path) as db:
             await db.execute(
                 """
-                INSERT INTO users (id, username, first_name, last_name, referrer_id, trial_used, balance)
-                VALUES (?, ?, ?, ?, ?, 1, 50)
+                INSERT INTO users (id, username, first_name, last_name, referrer_id, trial_used, balance, generation_price)
+                VALUES (?, ?, ?, ?, ?, 1, 50, 25)
                 ON CONFLICT(id) DO UPDATE SET
                     username=excluded.username,
                     first_name=excluded.first_name,
-                    last_name=excluded.last_name
+                    last_name=excluded.last_name,
+                    generation_price=25
                 """,
                 (user_id, username, first_name, last_name, referrer_id),
             )

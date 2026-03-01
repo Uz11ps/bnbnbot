@@ -2997,6 +2997,26 @@ async def balance_history_page(
     async with db.execute(monthly_stats_query) as cur:
         monthly_stats = await cur.fetchall()
 
+    # Ручная корректировка выручки (текущий месяц), чтобы можно было компенсировать
+    # внешние платежи/правки, которые не прошли через balance_history.
+    async with db.execute("SELECT value FROM app_settings WHERE key='revenue_manual_correction'") as cur:
+        row = await cur.fetchone()
+        try:
+            revenue_manual_correction = int(str(row[0]).strip()) if row and row[0] is not None else 0
+        except Exception:
+            revenue_manual_correction = 0
+
+    async with db.execute("SELECT value FROM app_settings WHERE key='revenue_manual_correction_note'") as cur:
+        row = await cur.fetchone()
+        revenue_manual_correction_note = str(row[0]) if row and row[0] is not None else ""
+
+    report_total_in = int(report[0] or 0) + revenue_manual_correction
+    report = (
+        report_total_in,
+        int(report[1] or 0),
+        int(report[2] or 0),
+    )
+
     return templates.TemplateResponse("balance_history.html", {
         "request": request, 
         "history": history,
@@ -3004,8 +3024,39 @@ async def balance_history_page(
         "chart_values": chart_values,
         "report": report,
         "prev_report": prev_report,
-        "monthly_stats": monthly_stats
+        "monthly_stats": monthly_stats,
+        "revenue_manual_correction": revenue_manual_correction,
+        "revenue_manual_correction_note": revenue_manual_correction_note,
     })
+
+
+@app.post("/balance_history/revenue_correction")
+async def set_revenue_correction(
+    amount: str = Form("0"),
+    note: str = Form(""),
+    db: aiosqlite.Connection = Depends(get_db),
+    user: str = Depends(get_current_username),
+):
+    raw = (amount or "0").strip()
+    try:
+        correction = int(raw)
+    except Exception:
+        correction = 0
+    correction = max(-10_000_000, min(correction, 10_000_000))
+    safe_note = (note or "").strip()[:500]
+
+    await db.execute(
+        "INSERT INTO app_settings (key, value) VALUES ('revenue_manual_correction', ?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        (str(correction),),
+    )
+    await db.execute(
+        "INSERT INTO app_settings (key, value) VALUES ('revenue_manual_correction_note', ?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        (safe_note,),
+    )
+    await db.commit()
+    return RedirectResponse(url="/balance_history", status_code=303)
 
 @app.post("/mailing/send")
 async def send_mailing(background_tasks: BackgroundTasks, text: str = Form(...), user: str = Depends(get_current_username)):

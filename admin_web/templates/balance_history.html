@@ -9,6 +9,28 @@
         </div>
     </div>
 
+    <div class="card shadow mb-4">
+        <div class="card-header py-3">
+            <h6 class="m-0 font-weight-bold text-primary">Ручная корректировка выручки</h6>
+        </div>
+        <div class="card-body">
+            <form action="/balance_history/revenue_correction" method="post" class="row g-3">
+                <div class="col-md-4">
+                    <label class="form-label">Сумма корректировки (₽)</label>
+                    <input type="number" class="form-control" name="amount" value="{{ revenue_manual_correction or 0 }}">
+                    <div class="form-text">Можно указать плюс или минус. Влияет на выручку текущего месяца.</div>
+                </div>
+                <div class="col-md-8">
+                    <label class="form-label">Комментарий</label>
+                    <input type="text" class="form-control" name="note" maxlength="500" value="{{ revenue_manual_correction_note or '' }}" placeholder="Например: корректировка по внешней оплате">
+                </div>
+                <div class="col-12">
+                    <button type="submit" class="btn btn-primary">Сохранить корректировку</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <!-- Monthly Summary -->
     <div class="row mb-4">
         <div class="col-md-3">

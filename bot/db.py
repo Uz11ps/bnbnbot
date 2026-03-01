@@ -1,6 +1,7 @@
 import aiosqlite
 from typing import Optional
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -1531,7 +1532,12 @@ class Database:
     # API Key usage tracking
     async def check_api_key_limits(self, key_id: int) -> tuple[bool, str]:
         from datetime import datetime
-        MAX_TOTAL_USAGE = 235  # Жесткий общий лимит на ключ
+        # Общий лимит делаем настраиваемым через env, чтобы не "хоронить" ключ навсегда
+        # при достижении старого технического порога.
+        try:
+            MAX_TOTAL_USAGE = int(os.getenv("MAX_TOTAL_KEY_USAGE", "1000000"))
+        except Exception:
+            MAX_TOTAL_USAGE = 1000000
         MAX_DAILY_USAGE = 235  # Лимит в день (согласно запросу)
         MAX_MINUTE_USAGE = 20  # Лимит в минуту (согласно запросу)
         
@@ -1574,6 +1580,30 @@ class Database:
                         return False, f"Minute limit {MAX_MINUTE_USAGE} reached (key deactivated)"
             
             return True, ""
+
+    async def reactivate_api_keys_for_new_day(self) -> None:
+        """Раз в сутки реактивирует ключи, отключенные в течение дня по лимитам/ошибкам."""
+        from datetime import datetime
+
+        today = datetime.utcnow().date().isoformat()
+        marker_key = "api_keys_last_daily_reactivate_date"
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT value FROM app_settings WHERE key=?", (marker_key,)) as cur:
+                row = await cur.fetchone()
+                last_day = str(row[0]) if row and row[0] is not None else ""
+
+            if last_day == today:
+                return
+
+            await db.execute("UPDATE api_keys SET is_active=1, daily_usage=0, last_usage_reset=CURRENT_TIMESTAMP")
+            await db.execute(
+                "UPDATE own_variant_api_keys SET is_active=1, daily_usage=0, last_usage_reset=CURRENT_TIMESTAMP"
+            )
+            await db.execute(
+                "INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (marker_key, today),
+            )
+            await db.commit()
 
     async def record_api_usage(self, key_id: int) -> None:
         async with aiosqlite.connect(self._db_path) as db:

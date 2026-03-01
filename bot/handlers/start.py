@@ -4122,6 +4122,10 @@ async def _do_generate_real(message_or_callback: Message | CallbackQuery, state:
         anim_task = asyncio.create_task(animate_gen(process_msg, lang))
     
         # Объединяем основные и специальные ключи для режима "Свой вариант"
+        try:
+            await db.reactivate_api_keys_for_new_day()
+        except Exception:
+            pass
         api_keys = await db.list_api_keys()
         if category == "own_variant" or data.get("own_mode") or category == "own":
             own_keys = await db.list_own_variant_api_keys()
@@ -4609,6 +4613,10 @@ async def on_result_edit_text_real(message: Message, state: FSMContext, db: Data
 
         # Выбор API ключей
         # Всегда используем основные API ключи (Pro версия)
+        try:
+            await db.reactivate_api_keys_for_new_day()
+        except Exception:
+            pass
         api_keys = await db.list_api_keys()
         
         active_keys = [k for k in api_keys if k[2]]

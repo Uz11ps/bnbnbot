@@ -2178,7 +2178,10 @@ async def download_file(rel_path: str):
     if rel.startswith("data/"):
         rel = rel[5:]
 
-    if not rel.startswith("history/"):
+    # Поддерживаем как новые пути history/*, так и старые result_*.jpg в корне /data.
+    is_history = rel.startswith("history/")
+    is_legacy_result = rel.startswith("result_")
+    if not (is_history or is_legacy_result):
         raise HTTPException(status_code=404, detail="Not found")
 
     ext = os.path.splitext(rel)[1].lower()

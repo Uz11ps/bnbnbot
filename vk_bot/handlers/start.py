@@ -800,7 +800,12 @@ def _remember_last_generation(
 
 
 async def _send_generation_result(message: Message, db: Database, user_id: int, lang: str, result_path: str) -> None:
-    attachment = await _upload_result_photo_attachment(message, str(result_path))
+    attachment = None
+    for attempt in range(1, 4):
+        attachment = await _upload_result_photo_attachment(message, str(result_path))
+        if attachment:
+            break
+        await asyncio.sleep(0.7 * attempt)
     if attachment:
         await _reply_with_attachment(
             message,
@@ -809,12 +814,10 @@ async def _send_generation_result(message: Message, db: Database, user_id: int, 
             keyboard=_result_actions_keyboard(lang),
         )
     else:
-        base_url = (await db.get_app_setting("public_base_url", "http://g-box.space") or "http://g-box.space").strip().rstrip("/")
-        result_url = f"{base_url}/{result_path}".replace("//data", "/data")
         await _reply(
             message,
-            f"{get_string('gen_success', lang)}\n\n{result_url}",
-            keyboard=_result_actions_keyboard(lang),
+            "⚠️ Не удалось прикрепить фото в чат VK. Нажмите 'Повторить' или отправьте фото заново.",
+            keyboard=back_to_main_keyboard(lang),
         )
 
 
@@ -1002,6 +1005,10 @@ async def _handle_constructor_message(message: Message, db: Database, user_id: i
 
 
 async def _pick_api_key(db: Database) -> tuple[int | None, str | None, asyncio.Lock | None]:
+    try:
+        await db.reactivate_api_keys_for_new_day()
+    except Exception:
+        pass
     rows = await db.list_api_keys()
     active_rows = [row for row in rows if int(row[2]) == 1]
     if not active_rows:

@@ -2,8 +2,13 @@ import aiosqlite
 from typing import Optional
 import logging
 import os
+import asyncio
 
 logger = logging.getLogger(__name__)
+
+DB_BUSY_TIMEOUT_SECONDS = 15.0
+DB_LOCK_RETRY_ATTEMPTS = 4
+DB_LOCK_RETRY_DELAY_SECONDS = 0.25
 
 
 CREATE_USERS_TABLE_SQL = """
@@ -353,8 +358,35 @@ class Database:
     def __init__(self, db_path: str = "bot.db") -> None:
         self._db_path = db_path
 
+    async def _prepare_connection(self, db: aiosqlite.Connection) -> None:
+        await db.execute(f"PRAGMA busy_timeout = {int(DB_BUSY_TIMEOUT_SECONDS * 1000)}")
+        await db.execute("PRAGMA synchronous=NORMAL")
+
+    async def _run_write(self, write_fn, *, op_name: str = "sqlite_write"):
+        last_exc = None
+        for attempt in range(1, DB_LOCK_RETRY_ATTEMPTS + 1):
+            try:
+                async with aiosqlite.connect(self._db_path, timeout=DB_BUSY_TIMEOUT_SECONDS) as db:
+                    await self._prepare_connection(db)
+                    result = await write_fn(db)
+                    await db.commit()
+                    return result
+            except aiosqlite.OperationalError as e:
+                msg = str(e).lower()
+                if "database is locked" not in msg:
+                    raise
+                last_exc = e
+                if attempt >= DB_LOCK_RETRY_ATTEMPTS:
+                    break
+                await asyncio.sleep(DB_LOCK_RETRY_DELAY_SECONDS * attempt)
+        logger.error("SQLite write failed after retries: %s", op_name)
+        if last_exc:
+            raise last_exc
+        raise RuntimeError(f"{op_name} failed")
+
     async def init(self) -> None:
-        async with aiosqlite.connect(self._db_path) as db:
+        async with aiosqlite.connect(self._db_path, timeout=DB_BUSY_TIMEOUT_SECONDS) as db:
+            await self._prepare_connection(db)
             await db.execute("PRAGMA journal_mode=WAL;")
             await db.execute(CREATE_USERS_TABLE_SQL)
             await db.execute(CREATE_SUBSCRIPTION_PLANS_TABLE_SQL)
@@ -493,10 +525,10 @@ class Database:
             if "generation_price" not in cols:
                 await db.execute("ALTER TABLE users ADD COLUMN generation_price INTEGER NOT NULL DEFAULT 25")
 
-            # Фиксируем цену генерации для всех пользователей = 25 (по требованиям проекта).
-            # Это убирает старые значения 20/15 и синхронизирует Telegram/VK/Web.
+            # Для старых записей выставляем дефолт только если цена не задана.
+            # Кастомные цены (например, для оптовиков) не перезаписываем.
             try:
-                await db.execute("UPDATE users SET generation_price = 25 WHERE generation_price IS NULL OR generation_price != 25")
+                await db.execute("UPDATE users SET generation_price = 25 WHERE generation_price IS NULL")
             except Exception:
                 pass
             
@@ -761,6 +793,8 @@ class Database:
         settings = [
             ("required_channel_id", ""), # Например: -100123456789
             ("required_channel_url", "https://t.me/bnbslow"),
+            ("required_vk_group_id", ""),
+            ("required_vk_group_url", ""),
             ("agreement_text", "Пожалуйста, ознакомьтесь и примите условия пользовательского соглашения перед использованием бота."),
         ]
         async with aiosqlite.connect(self._db_path) as db:
@@ -1068,20 +1102,39 @@ class Database:
         last_name: Optional[str],
         referrer_id: Optional[int] = None,
     ) -> None:
-        async with aiosqlite.connect(self._db_path) as db:
+        async def _write(db: aiosqlite.Connection):
+            async with db.execute("SELECT 1 FROM users WHERE id=?", (user_id,)) as cur:
+                exists = await cur.fetchone()
+            if exists:
+                # Обновляем только профильные поля; баланс и цена остаются как выставлены админом.
+                await db.execute(
+                    """
+                    UPDATE users
+                    SET username=?, first_name=?, last_name=?
+                    WHERE id=?
+                    """,
+                    (username, first_name, last_name, user_id),
+                )
+                return
+            # Одноразовый welcome-бонус 50 ₽ на user_id, даже если чат удалили/вернули.
+            bonus_key = f"welcome_bonus_given:{int(user_id)}"
+            async with db.execute("SELECT value FROM app_settings WHERE key=?", (bonus_key,)) as cur:
+                row = await cur.fetchone()
+            bonus_given = bool(row and str(row[0]) == "1")
+            initial_balance = 0 if bonus_given else 50
             await db.execute(
                 """
                 INSERT INTO users (id, username, first_name, last_name, referrer_id, trial_used, balance, generation_price)
-                VALUES (?, ?, ?, ?, ?, 1, 50, 25)
-                ON CONFLICT(id) DO UPDATE SET
-                    username=excluded.username,
-                    first_name=excluded.first_name,
-                    last_name=excluded.last_name,
-                    generation_price=25
+                VALUES (?, ?, ?, ?, ?, 1, ?, 25)
                 """,
-                (user_id, username, first_name, last_name, referrer_id),
+                (user_id, username, first_name, last_name, referrer_id, initial_balance),
             )
-            await db.commit()
+            if not bonus_given:
+                await db.execute(
+                    "INSERT INTO app_settings (key, value) VALUES (?, '1') ON CONFLICT(key) DO UPDATE SET value='1'",
+                    (bonus_key,),
+                )
+        await self._run_write(_write, op_name="upsert_user")
 
     async def set_terms_acceptance(self, user_id: int, accepted: bool) -> None:
         async with aiosqlite.connect(self._db_path) as db:
@@ -1132,7 +1185,7 @@ class Database:
                 return int(row[0]) if row and row[0] is not None else 25
 
     async def increment_user_balance(self, user_id: int, amount: int, reason: str = "recharge", admin_id: str = None) -> None:
-        async with aiosqlite.connect(self._db_path) as db:
+        async def _write(db: aiosqlite.Connection):
             await db.execute("UPDATE users SET balance = balance + ? WHERE id=?", (amount, user_id))
             async with db.execute("SELECT balance FROM users WHERE id=?", (user_id,)) as cur:
                 row = await cur.fetchone()
@@ -1141,10 +1194,10 @@ class Database:
                 "INSERT INTO balance_history (user_id, amount, new_balance, reason, admin_id) VALUES (?, ?, ?, ?, ?)",
                 (user_id, amount, new_balance, reason, admin_id)
             )
-            await db.commit()
+        await self._run_write(_write, op_name="increment_user_balance")
 
     async def subtract_user_balance(self, user_id: int, amount: int, reason: str = "generation") -> None:
-        async with aiosqlite.connect(self._db_path) as db:
+        async def _write(db: aiosqlite.Connection):
             await db.execute("UPDATE users SET balance = MAX(0, balance - ?) WHERE id=?", (amount, user_id))
             async with db.execute("SELECT balance FROM users WHERE id=?", (user_id,)) as cur:
                 row = await cur.fetchone()
@@ -1153,15 +1206,15 @@ class Database:
                 "INSERT INTO balance_history (user_id, amount, new_balance, reason, admin_id) VALUES (?, ?, ?, ?, ?)",
                 (user_id, -amount, new_balance, reason, None)
             )
-            await db.commit()
+        await self._run_write(_write, op_name="subtract_user_balance")
 
     async def add_generation_history(self, pid: str, user_id: int, category: str, params: str, input_photos: str, result_photo_id: str, input_paths: str = None, result_path: str = None, prompt: str = None) -> None:
-        async with aiosqlite.connect(self._db_path) as db:
+        async def _write(db: aiosqlite.Connection):
             await db.execute(
                 "INSERT INTO generation_history (pid, user_id, category, params, input_photos, result_photo_id, input_paths, result_path, prompt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (pid, user_id, category, params, input_photos, result_photo_id, input_paths, result_path, prompt)
             )
-            await db.commit()
+        await self._run_write(_write, op_name="add_generation_history")
 
     async def get_generation_by_pid(self, pid: str) -> tuple | None:
         async with aiosqlite.connect(self._db_path) as db:
@@ -1587,14 +1640,12 @@ class Database:
 
         today = datetime.utcnow().date().isoformat()
         marker_key = "api_keys_last_daily_reactivate_date"
-        async with aiosqlite.connect(self._db_path) as db:
+        async def _write(db: aiosqlite.Connection):
             async with db.execute("SELECT value FROM app_settings WHERE key=?", (marker_key,)) as cur:
                 row = await cur.fetchone()
                 last_day = str(row[0]) if row and row[0] is not None else ""
-
             if last_day == today:
                 return
-
             await db.execute("UPDATE api_keys SET is_active=1, daily_usage=0, last_usage_reset=CURRENT_TIMESTAMP")
             await db.execute(
                 "UPDATE own_variant_api_keys SET is_active=1, daily_usage=0, last_usage_reset=CURRENT_TIMESTAMP"
@@ -1603,22 +1654,22 @@ class Database:
                 "INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                 (marker_key, today),
             )
-            await db.commit()
+        await self._run_write(_write, op_name="reactivate_api_keys_for_new_day")
 
     async def record_api_usage(self, key_id: int) -> None:
-        async with aiosqlite.connect(self._db_path) as db:
+        async def _write(db: aiosqlite.Connection):
             await db.execute("INSERT INTO api_usage_log (key_id) VALUES (?)", (key_id,))
             await db.execute("UPDATE api_keys SET daily_usage = daily_usage + 1, total_usage = total_usage + 1 WHERE id=?", (key_id,))
-            await db.commit()
+        await self._run_write(_write, op_name="record_api_usage")
 
     async def record_api_error(self, key_id: int | None, api_key_preview: str, error_type: str, error_message: str, status_code: int | None = None, is_proxy_error: bool = False) -> None:
         """Записывает ошибку API ключа в базу данных"""
-        async with aiosqlite.connect(self._db_path) as db:
+        async def _write(db: aiosqlite.Connection):
             await db.execute(
                 "INSERT INTO api_key_errors (key_id, api_key_preview, error_type, error_message, status_code, is_proxy_error) VALUES (?, ?, ?, ?, ?, ?)",
                 (key_id, api_key_preview[:20], error_type, error_message[:500], status_code, 1 if is_proxy_error else 0)
             )
-            await db.commit()
+        await self._run_write(_write, op_name="record_api_error")
 
     async def get_recent_api_errors(self, limit: int = 10) -> list[tuple]:
         """Получает последние ошибки API ключей"""
@@ -1647,12 +1698,12 @@ class Database:
                 return str(row[0]) if row else default
 
     async def set_app_setting(self, key: str, value: str) -> None:
-        async with aiosqlite.connect(self._db_path) as db:
+        async def _write(db: aiosqlite.Connection):
             await db.execute(
                 "INSERT INTO app_settings (key, value) VALUES (?, ?)\n                 ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                 (str(key), str(value)),
             )
-            await db.commit()
+        await self._run_write(_write, op_name="set_app_setting")
 
     async def get_all_app_settings(self) -> dict[str, str]:
         async with aiosqlite.connect(self._db_path) as db:

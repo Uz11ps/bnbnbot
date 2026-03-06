@@ -31,8 +31,6 @@ def settings_keyboard(lang: str = "ru") -> str:
     keyboard = Keyboard(one_time=False, inline=False)
     keyboard.add(Text(get_string("select_lang", lang)), color=KeyboardButtonColor.PRIMARY)
     keyboard.row()
-    keyboard.add(Text(get_string("menu_proxy", lang)), color=KeyboardButtonColor.SECONDARY)
-    keyboard.row()
     keyboard.add(Text(get_string("agreement", lang)), color=KeyboardButtonColor.SECONDARY)
     keyboard.row()
     keyboard.add(Text(get_string("back_main", lang)), color=KeyboardButtonColor.NEGATIVE)
@@ -41,9 +39,6 @@ def settings_keyboard(lang: str = "ru") -> str:
 
 def marketplace_keyboard(enabled: dict[str, bool], lang: str = "ru") -> str:
     keyboard = Keyboard(one_time=False, inline=False)
-    # Пресеты всегда показываем первыми
-    keyboard.add(Text(get_string("cat_presets", lang)), color=KeyboardButtonColor.PRIMARY)
-    keyboard.row()
 
     if enabled.get("random", True):
         keyboard.add(Text(get_string("cat_random", lang)), color=KeyboardButtonColor.PRIMARY)

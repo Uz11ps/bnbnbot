@@ -61,9 +61,6 @@ def language_keyboard(lang="ru") -> InlineKeyboardMarkup:
 
 def marketplace_menu_keyboard(enabled: dict[str, bool], lang="ru") -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
-    
-    # Готовые пресеты — теперь ВСЕГДА показываем этот раздел первым
-    rows.append([InlineKeyboardButton(text=get_string("cat_presets", lang), callback_data="create_cat:presets")])
 
     # Разделы Рандом
     if enabled.get("random", True):

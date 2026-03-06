@@ -35,7 +35,7 @@
                                 {% set inps = item.input_paths | from_json %}
                                 {% for p in inps %}
                                     <div class="position-relative">
-                                        <img src="/{{ p }}" class="rounded shadow-sm border history-img clickable" style="width: 50px; height: 50px; object-fit: cover; cursor: pointer;" alt="Input" onclick="showModal('/{{ p }}')">
+                                        <img src="/download/{{ p }}" class="rounded shadow-sm border history-img clickable" style="width: 50px; height: 50px; object-fit: cover; cursor: pointer;" alt="Input" onclick="showModal('/download/{{ p }}')">
                                     </div>
                                 {% endfor %}
                             {% elif item.input_photos and (item.input_photos | from_json) %}
@@ -54,7 +54,7 @@
                     </td>
                     <td class="text-center">
                         {% if item.result_path %}
-                            <img src="/{{ item.result_path }}" class="rounded shadow-sm border border-success border-2 history-img clickable" style="width: 80px; height: 80px; object-fit: cover; cursor: pointer;" alt="Result" onclick="showModal('/{{ item.result_path }}')">
+                            <img src="/download/{{ item.result_path }}" class="rounded shadow-sm border border-success border-2 history-img clickable" style="width: 80px; height: 80px; object-fit: cover; cursor: pointer;" alt="Result" onclick="showModal('/download/{{ item.result_path }}')">
                         {% elif item.result_photo_id %}
                             <img src="/tg_img/{{ item.result_photo_id }}" class="rounded shadow-sm border border-success border-2 history-img clickable" style="width: 80px; height: 80px; object-fit: cover; cursor: pointer;" alt="Result" onclick="showModal('/{{ item.result_photo_id }}')">
                         {% else %}

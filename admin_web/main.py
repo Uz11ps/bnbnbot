@@ -151,9 +151,10 @@ async def run_migrations(db: aiosqlite.Connection):
                 await db.commit()
             except Exception as e:
                 print(f"Migration error (users.generation_price): {e}")
-        # Фиксируем цену генерации для всех пользователей = 25 (убираем старые 20/15).
+        # Выставляем дефолт только если цена отсутствует.
+        # Кастомные цены (оптовики) не перезаписываем.
         try:
-            await db.execute("UPDATE users SET generation_price = 25 WHERE generation_price IS NULL OR generation_price != 25")
+            await db.execute("UPDATE users SET generation_price = 25 WHERE generation_price IS NULL")
             await db.commit()
         except Exception:
             pass
@@ -2880,8 +2881,8 @@ async def edit_balance(
     
     change = amount - old_balance
     
-    # Цена генерации фиксирована для всех пользователей = 25.
-    await db.execute("UPDATE users SET balance = ?, generation_price = 25 WHERE id = ?", (amount, user_id))
+    safe_price = max(1, int(price))
+    await db.execute("UPDATE users SET balance = ?, generation_price = ? WHERE id = ?", (amount, safe_price, user_id))
     
     # Записываем историю изменения
     await db.execute(
@@ -3417,7 +3418,11 @@ async def delete_model_photo(model_id: int, db: aiosqlite.Connection = Depends(g
 @app.get("/settings", response_class=HTMLResponse)
 async def settings_page(request: Request, db: aiosqlite.Connection = Depends(get_db), user: str = Depends(get_current_username)):
     try:
-        async with db.execute("SELECT key, value FROM app_settings WHERE key IN ('agreement_text', 'howto_text', 'required_channel_id', 'required_channel_url', 'support_contact')") as cur:
+        async with db.execute(
+            "SELECT key, value FROM app_settings "
+            "WHERE key IN ('agreement_text', 'howto_text', 'required_channel_id', 'required_channel_url', "
+            "'required_vk_group_id', 'required_vk_group_url', 'support_contact', 'support_contact_vk')"
+        ) as cur:
             rows = await cur.fetchall()
             settings_dict = {r[0]: r[1] for r in rows}
     except Exception: settings_dict = {}
@@ -3427,7 +3432,10 @@ async def settings_page(request: Request, db: aiosqlite.Connection = Depends(get
         "howto": settings_dict.get('howto_text', ""),
         "channel_id": settings_dict.get('required_channel_id', ""),
         "channel_url": settings_dict.get('required_channel_url', "https://t.me/bnbslow"),
-        "support_contact": settings_dict.get('support_contact', "https://t.me/bnbslow")
+        "vk_group_id": settings_dict.get('required_vk_group_id', ""),
+        "vk_group_url": settings_dict.get('required_vk_group_url', ""),
+        "support_contact": settings_dict.get('support_contact', "https://t.me/bnbslow"),
+        "support_contact_vk": settings_dict.get('support_contact_vk', ""),
     })
 
 @app.post("/settings/update")
@@ -3436,7 +3444,10 @@ async def update_app_settings(
     howto: str = Form(""), 
     channel_id: str = Form(None),
     channel_url: str = Form(None),
+    vk_group_id: str = Form(None),
+    vk_group_url: str = Form(None),
     support_contact: str = Form(None),
+    support_contact_vk: str = Form(None),
     db: aiosqlite.Connection = Depends(get_db), 
     user: str = Depends(get_current_username)
 ):
@@ -3454,7 +3465,10 @@ async def update_app_settings(
     await db.execute("INSERT INTO app_settings (key, value) VALUES ('howto_text', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (howto,))
     await db.execute("INSERT INTO app_settings (key, value) VALUES ('required_channel_id', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (channel_id or "",))
     await db.execute("INSERT INTO app_settings (key, value) VALUES ('required_channel_url', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (channel_url or "https://t.me/bnbslow",))
+    await db.execute("INSERT INTO app_settings (key, value) VALUES ('required_vk_group_id', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", ((vk_group_id or "").strip(),))
+    await db.execute("INSERT INTO app_settings (key, value) VALUES ('required_vk_group_url', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", ((vk_group_url or "").strip(),))
     await db.execute("INSERT INTO app_settings (key, value) VALUES ('support_contact', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (support_contact or "https://t.me/bnbslow",))
+    await db.execute("INSERT INTO app_settings (key, value) VALUES ('support_contact_vk', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", ((support_contact_vk or "").strip(),))
     await db.commit()
     return RedirectResponse(url="/settings", status_code=303)
 

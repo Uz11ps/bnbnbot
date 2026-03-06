@@ -60,11 +60,14 @@ class VkUserState:
     step_labels: dict[str, str] = field(default_factory=dict)
     step_photos: dict[str, list[bytes]] = field(default_factory=dict)
     model_choices: dict[int, tuple[int, str, int, str | None]] = field(default_factory=dict)
+    model_browser_items: list[tuple[int, str, int, str | None]] = field(default_factory=list)
+    model_browser_index: int = 0
     last_incoming_msg_id: int | None = None
     last_generation_prompt: str | None = None
     last_generation_images: list[bytes] = field(default_factory=list)
     last_generation_category: str | None = None
     last_generation_flow: str | None = None
+    last_generation_aspect: str | None = None
     updated_at: float = 0.0
 
 
@@ -86,6 +89,17 @@ def _is_start(text: str) -> bool:
 
 def _is_help(text: str) -> bool:
     return text in {"/help", "help", "помощь"}
+
+
+def _is_reset_text(text: str) -> bool:
+    return text in {
+        _norm("🔄 Сброс"),
+        _norm("сброс"),
+        _norm("/reset"),
+        _norm("reset"),
+        _norm("отмена"),
+        _norm("cancel"),
+    }
 
 
 async def _ensure_user(db: Database, user_id: int) -> None:
@@ -200,6 +214,43 @@ async def _upload_result_photo_attachment(message: Message, file_path: str) -> s
         return None
 
 
+async def _upload_photo_bytes_attachment(message: Message, photo_bytes: bytes) -> str | None:
+    """Загружает сырые байты фото в VK messages photos и возвращает attachment."""
+    try:
+        if not photo_bytes:
+            return None
+        server = await message.ctx_api.photos.get_messages_upload_server(peer_id=message.peer_id)
+        upload_url = getattr(server, "upload_url", None) or (server.get("upload_url") if isinstance(server, dict) else None)
+        if not upload_url:
+            return None
+        timeout = httpx.Timeout(connect=20.0, read=60.0, write=60.0, pool=20.0)
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            resp = await client.post(upload_url, files={"photo": ("model.jpg", photo_bytes, "image/jpeg")})
+        if resp.status_code != 200:
+            return None
+        up = resp.json()
+        photo = up.get("photo")
+        server_id = up.get("server")
+        h = up.get("hash")
+        if not (photo and server_id and h):
+            return None
+        saved = await message.ctx_api.photos.save_messages_photo(photo=photo, server=server_id, hash=h)
+        if not saved:
+            return None
+        item = saved[0]
+        owner_id = getattr(item, "owner_id", None) or (item.get("owner_id") if isinstance(item, dict) else None)
+        pid = getattr(item, "id", None) or (item.get("id") if isinstance(item, dict) else None)
+        access_key = getattr(item, "access_key", None) or (item.get("access_key") if isinstance(item, dict) else None)
+        if owner_id is None or pid is None:
+            return None
+        if access_key:
+            return f"photo{owner_id}_{pid}_{access_key}"
+        return f"photo{owner_id}_{pid}"
+    except Exception:
+        logger.exception("VK upload photo bytes failed")
+        return None
+
+
 async def _reply_with_attachment(message: Message, text: str, attachment: str, keyboard: str | None = None) -> bool:
     """
     Отправка с attachment + защитой от ошибок клавиатуры (VK 912/911).
@@ -309,7 +360,9 @@ async def _send_agreement(message: Message, db: Database, user_id: int) -> None:
 
 async def _send_support(message: Message, db: Database, user_id: int) -> None:
     lang = await _get_lang(db, user_id)
-    contact = (await db.get_app_setting("support_contact", "") or "").strip()
+    contact = (await db.get_app_setting("support_contact_vk", "") or "").strip()
+    if not contact:
+        contact = (await db.get_app_setting("support_contact", "") or "").strip()
     if not contact:
         contact = "@bnbslow"
     await _reply(message, f"{get_string('menu_support', lang)}\n\n{contact}", keyboard=back_to_main_keyboard(lang))
@@ -335,7 +388,11 @@ async def _send_topup(message: Message, db: Database, user_id: int) -> None:
     balance = await db.get_user_balance(user_id)
     price = await db.get_user_generation_price(user_id)
     text = get_string("top_up_info", lang).format(id=user_id, balance=balance, price=price)
-    contact = (await db.get_app_setting("support_contact", "") or "").strip() or "@bnbslow"
+    contact = (await db.get_app_setting("support_contact_vk", "") or "").strip()
+    if not contact:
+        contact = (await db.get_app_setting("support_contact", "") or "").strip()
+    if not contact:
+        contact = "@bnbslow"
     await _reply(message, f"{text}\n{contact}", keyboard=back_to_main_keyboard(lang))
 
 
@@ -423,8 +480,41 @@ def _kb_options(options: list[str], include_back: bool, include_skip: bool, incl
     if include_create:
         keyboard.add(Text(f"✅ {get_string('create_photo', lang)}"), color=KeyboardButtonColor.POSITIVE)
         keyboard.row()
-    if include_back:
+    back_values = {
+        _norm(get_string("back", lang)),
+        _norm(get_string("back_main", lang)),
+        _norm("назад"),
+        _norm("back"),
+    }
+    has_back_like_option = any(_norm(opt) in back_values for opt in options)
+    if include_back and not has_back_like_option:
         keyboard.add(Text(get_string("back", lang)), color=KeyboardButtonColor.NEGATIVE)
+    return keyboard.get_json()
+
+
+def _generation_reset_keyboard(lang: str) -> str:
+    keyboard = Keyboard(one_time=False, inline=False)
+    keyboard.add(Text("🔄 Сброс"), color=KeyboardButtonColor.NEGATIVE)
+    return keyboard.get_json()
+
+
+def _vk_subscription_check_keyboard(lang: str) -> str:
+    keyboard = Keyboard(one_time=False, inline=False)
+    keyboard.add(Text("✅ Проверить подписку"), color=KeyboardButtonColor.PRIMARY)
+    keyboard.row()
+    keyboard.add(Text(get_string("back_main", lang)), color=KeyboardButtonColor.NEGATIVE)
+    return keyboard.get_json()
+
+
+def _storefront_model_keyboard(lang: str) -> str:
+    keyboard = Keyboard(one_time=False, inline=False)
+    keyboard.add(Text("⬅️ Предыдущая"), color=KeyboardButtonColor.SECONDARY)
+    keyboard.add(Text("✅ Выбрать"), color=KeyboardButtonColor.POSITIVE)
+    keyboard.add(Text("➡️ Следующая"), color=KeyboardButtonColor.SECONDARY)
+    keyboard.row()
+    keyboard.add(Text("🔍 Поиск по номеру"), color=KeyboardButtonColor.PRIMARY)
+    keyboard.row()
+    keyboard.add(Text(get_string("back", lang)), color=KeyboardButtonColor.NEGATIVE)
     return keyboard.get_json()
 
 
@@ -590,19 +680,27 @@ async def _show_constructor_step(message: Message, db: Database, user_id: int, l
             cloth = st.step_values.get("gender")
             if cloth == "unisex":
                 cloth = "all"
-            count = await db.count_models("presets", cloth)
+            model_category = "storefront" if st.category == "storefront" else "presets"
+            count = await db.count_models(model_category, cloth)
+            items: list[tuple[int, str, int, str | None]] = []
             choices: dict[int, tuple[int, str, int, str | None]] = {}
             labels: list[str] = []
-            for idx in range(min(count, 20)):
-                model = await db.get_model_by_index("presets", cloth, idx)
+            for idx in range(min(count, 200)):
+                model = await db.get_model_by_index(model_category, cloth, idx)
                 if not model:
                     continue
                 num = idx + 1
+                items.append(model)
                 choices[num] = model
                 labels.append(f"{num}. {model[1]}")
             st.model_choices = choices
+            st.model_browser_items = items
+            st.model_browser_index = 0
             if not choices:
                 await _reply(message, get_string("vk_no_models", lang), keyboard=_kb_options([], include_back=True, include_skip=False, include_create=False, lang=lang))
+                return
+            if st.category == "storefront":
+                await _show_storefront_model_card(message, user_id, lang, question)
                 return
             await _reply(message, f"{question}\n\n" + "\n".join(labels) + f"\n\n{get_string('vk_reply_model_number', lang)}", keyboard=_kb_options(labels, include_back=True, include_skip=False, include_create=False, lang=lang))
             return
@@ -630,6 +728,30 @@ async def _show_constructor_confirmation(message: Message, db: Database, user_id
     lines.append(f"\n{get_string('generation_confirm', lang)}")
     st.stage = STATE_CONSTRUCTOR_CONFIRM
     await _reply(message, "\n".join(lines), keyboard=_kb_options([], include_back=True, include_skip=False, include_create=True, lang=lang))
+
+
+async def _show_storefront_model_card(message: Message, user_id: int, lang: str, question: str) -> None:
+    st = _get_state(user_id)
+    if not st.model_browser_items:
+        await _reply(message, get_string("vk_no_models", lang), keyboard=back_to_main_keyboard(lang))
+        return
+    st.model_browser_index = max(0, min(st.model_browser_index, len(st.model_browser_items) - 1))
+    idx = st.model_browser_index
+    model_id, model_name, _prompt_id, photo_ref = st.model_browser_items[idx]
+    text = (
+        f"{question}\n\n"
+        f"Модель: {model_name}\n"
+        f"Номер: {idx + 1}/{len(st.model_browser_items)}\n\n"
+        "Кнопки: Следующая / Предыдущая / Выбрать / Поиск по номеру"
+    )
+    attachment = None
+    photo_bytes = await _load_model_photo_bytes(photo_ref)
+    if photo_bytes:
+        attachment = await _upload_photo_bytes_attachment(message, photo_bytes)
+    if attachment:
+        await _reply_with_attachment(message, text, attachment=attachment, keyboard=_storefront_model_keyboard(lang))
+    else:
+        await _reply(message, text, keyboard=_storefront_model_keyboard(lang))
 
 
 async def _constructor_back(message: Message, db: Database, user_id: int, lang: str) -> None:
@@ -767,7 +889,12 @@ async def _save_generation_history(
     try:
         pid = f"VK{uuid.uuid4().hex[:10].upper()}"
         rp = (result_path or "").replace("\\", "/")
-        rp_db = rp.split("/")[-1] if "/" in rp else rp
+        if "/data/" in rp:
+            rp_db = rp[rp.index("/data/") + 1 :]
+        elif rp.startswith("data/"):
+            rp_db = rp
+        else:
+            rp_db = rp.lstrip("/")
         await db.add_generation_history(
             pid=pid,
             user_id=user_id,
@@ -780,7 +907,7 @@ async def _save_generation_history(
             prompt=(prompt or "")[:2000],
         )
     except Exception:
-        logger.exception("VK add_generation_history failed for user_id=%s", user_id)
+        logger.exception("VK add_generation_history failed user_id=%s pid=%s result_path=%s", user_id, pid, result_path)
 
 
 def _remember_last_generation(
@@ -790,11 +917,13 @@ def _remember_last_generation(
     category: str | None,
     prompt: str,
     images: list[bytes],
+    aspect: str | None = None,
 ) -> None:
     st.last_generation_flow = flow
     st.last_generation_category = category
     st.last_generation_prompt = prompt
     st.last_generation_images = list(images or [])
+    st.last_generation_aspect = (aspect or "").strip() or None
     st.stage = STATE_RESULT_READY
     st.updated_at = time.time()
 
@@ -844,7 +973,7 @@ async def _run_constructor_generation(message: Message, db: Database, user_id: i
         await _reply(message, get_string("api_limit_reached", lang), keyboard=back_to_main_keyboard(lang))
         return
 
-    await _reply(message, get_string("gen_in_progress", lang))
+    await _reply(message, get_string("gen_in_progress", lang), keyboard=_generation_reset_keyboard(lang))
     try:
         aspect = _normalize_aspect_for_gemini(st.step_values.get("aspect") or "1:1")
         try:
@@ -880,7 +1009,7 @@ async def _run_constructor_generation(message: Message, db: Database, user_id: i
             result_path=str(result_path),
             params={"flow": "constructor", "category": st.category, "aspect": aspect.replace("x", ":")},
         )
-        _remember_last_generation(st, flow="constructor", category=st.category, prompt=prompt, images=images)
+        _remember_last_generation(st, flow="constructor", category=st.category, prompt=prompt, images=images, aspect=aspect)
         await _send_generation_result(message, db, user_id, lang, str(result_path))
     except Exception as e:
         logger.exception("VK constructor generation failed for user_id=%s", user_id)
@@ -900,7 +1029,11 @@ async def _handle_constructor_message(message: Message, db: Database, user_id: i
     skip_text = _norm(get_string("skip", lang))
 
     if text in {back_text, _norm(get_string("back_main", lang))}:
-        await _constructor_back(message, db, user_id, lang)
+        if text == back_text:
+            await _constructor_back(message, db, user_id, lang)
+        else:
+            _reset_state(user_id)
+            await _send_main_menu(message, db, user_id)
         return True
 
     if st.stage == STATE_CONSTRUCTOR_CONFIRM:
@@ -949,6 +1082,38 @@ async def _handle_constructor_message(message: Message, db: Database, user_id: i
         return True
 
     if input_type == "model_select":
+        if st.category == "storefront" and st.model_browser_items:
+            if text == _norm("➡️ Следующая"):
+                st.model_browser_index = (st.model_browser_index + 1) % len(st.model_browser_items)
+                await _show_storefront_model_card(message, user_id, lang, str(step[2]))
+                return True
+            if text == _norm("⬅️ Предыдущая"):
+                st.model_browser_index = (st.model_browser_index - 1) % len(st.model_browser_items)
+                await _show_storefront_model_card(message, user_id, lang, str(step[2]))
+                return True
+            if text == _norm("🔍 Поиск по номеру"):
+                await _reply(message, "Введите номер модели (например: 12):", keyboard=_storefront_model_keyboard(lang))
+                return True
+            model = None
+            if text_raw.isdigit():
+                idx = int(text_raw) - 1
+                if 0 <= idx < len(st.model_browser_items):
+                    st.model_browser_index = idx
+                    await _show_storefront_model_card(message, user_id, lang, str(step[2]))
+                    return True
+            if text == _norm("✅ Выбрать"):
+                model = st.model_browser_items[st.model_browser_index]
+            if not model:
+                await _reply(message, "Выберите модель кнопками или введите номер.", keyboard=_storefront_model_keyboard(lang))
+                return True
+            model_id, model_name, prompt_id, photo_ref = model
+            st.step_values["model_id"] = str(model_id)
+            st.step_values["prompt_id"] = str(prompt_id)
+            st.step_values["model_select_photo"] = photo_ref or ""
+            st.step_values[step_key] = str(model_id)
+            st.step_labels[step_key] = model_name
+            await _constructor_advance(message, db, user_id, lang)
+            return True
         model = None
         if text_raw.isdigit():
             model = st.model_choices.get(int(text_raw))
@@ -1093,7 +1258,7 @@ async def _handle_generation_prompt_step(message: Message, db: Database, user_id
         await _reply(message, get_string("api_limit_reached", lang), keyboard=back_to_main_keyboard(lang))
         return True
 
-    await _reply(message, get_string("gen_in_progress", lang))
+    await _reply(message, get_string("gen_in_progress", lang), keyboard=_generation_reset_keyboard(lang))
     try:
         category_prompt = await _get_category_prefix_prompt(db, st.category)
         final_prompt = f"{category_prompt}\n\n{prompt}".strip() if category_prompt else prompt
@@ -1139,6 +1304,7 @@ async def _handle_generation_prompt_step(message: Message, db: Database, user_id
             category=st.category,
             prompt=final_prompt,
             images=st.image_bytes_list or [],
+            aspect=aspect,
         )
         await _send_generation_result(message, db, user_id, lang, str(result_path))
     except Exception as e:
@@ -1202,9 +1368,9 @@ async def _handle_result_actions(message: Message, db: Database, user_id: int, l
             return True
 
         final_prompt = f"{st.last_generation_prompt}\n\nПравки: {edit_text}".strip()
-        await _reply(message, get_string("gen_in_progress", lang))
+        await _reply(message, get_string("gen_in_progress", lang), keyboard=_generation_reset_keyboard(lang))
         try:
-            aspect = _normalize_aspect_for_gemini(st.step_values.get("aspect") if st.step_values else "1:1")
+            aspect = _normalize_aspect_for_gemini(st.last_generation_aspect or (st.step_values.get("aspect") if st.step_values else "1:1"))
             result_path = await generate_image(
                 api_key=api_key,
                 prompt=final_prompt,
@@ -1236,6 +1402,7 @@ async def _handle_result_actions(message: Message, db: Database, user_id: int, l
                 category=st.last_generation_category,
                 prompt=final_prompt,
                 images=st.last_generation_images,
+                aspect=aspect,
             )
             await _send_generation_result(message, db, user_id, lang, str(result_path))
             return True
@@ -1268,9 +1435,9 @@ async def _handle_result_actions(message: Message, db: Database, user_id: int, l
         return True
 
     repeat_images = images[:4]
-    await _reply(message, get_string("gen_in_progress", lang))
+    await _reply(message, get_string("gen_in_progress", lang), keyboard=_generation_reset_keyboard(lang))
     try:
-        aspect = _normalize_aspect_for_gemini(st.step_values.get("aspect") if st.step_values else "1:1")
+        aspect = _normalize_aspect_for_gemini(st.last_generation_aspect or (st.step_values.get("aspect") if st.step_values else "1:1"))
         result_path = await generate_image(
             api_key=api_key,
             prompt=st.last_generation_prompt,
@@ -1302,6 +1469,7 @@ async def _handle_result_actions(message: Message, db: Database, user_id: int, l
             category=st.last_generation_category,
             prompt=st.last_generation_prompt,
             images=repeat_images,
+            aspect=aspect,
         )
         await _send_generation_result(message, db, user_id, lang, str(result_path))
         return True
@@ -1311,6 +1479,47 @@ async def _handle_result_actions(message: Message, db: Database, user_id: int, l
         return True
     finally:
         release_key_lock(key_lock)
+
+
+async def _is_vk_group_member(message: Message, group_id: int, user_id: int) -> bool:
+    try:
+        res = await message.ctx_api.groups.is_member(group_id=group_id, user_id=user_id)
+    except Exception:
+        res = await message.ctx_api.request(
+            "groups.isMember",
+            {"group_id": int(group_id), "user_id": int(user_id)},
+        )
+    if isinstance(res, dict):
+        return int(res.get("member", 0)) == 1
+    member_val = getattr(res, "member", res)
+    try:
+        return int(member_val) == 1
+    except Exception:
+        return False
+
+
+async def _ensure_vk_subscription_access(message: Message, db: Database, user_id: int, lang: str) -> bool:
+    group_raw = (await db.get_app_setting("required_vk_group_id", "")) or ""
+    group_raw = str(group_raw).strip()
+    if not group_raw:
+        return True
+    try:
+        group_id = abs(int(group_raw))
+    except Exception:
+        return True
+    is_member = await _is_vk_group_member(message, group_id=group_id, user_id=user_id)
+    if is_member:
+        return True
+
+    group_url = (await db.get_app_setting("required_vk_group_url", "")) or ""
+    group_url = str(group_url).strip() or f"https://vk.com/public{group_id}"
+    text = (
+        "Для использования бота нужно подписаться на сообщество.\n"
+        f"Подпишитесь: {group_url}\n\n"
+        "После подписки нажмите «Проверить подписку»."
+    )
+    await _reply(message, text, keyboard=_vk_subscription_check_keyboard(lang))
+    return False
 
 
 @router.message(IsPrivate())
@@ -1336,6 +1545,12 @@ async def handle_private_message(message: Message) -> None:
             return
 
         text = _norm(message.text)
+
+        # Ручной аварийный сброс сценария в любом состоянии.
+        if _is_reset_text(text):
+            _reset_state(user_id)
+            await _send_main_menu(message, db, user_id)
+            return
 
         # До принятия соглашения пропускаем только старт/принятие/просмотр соглашения
         accepted = await db.get_user_accepted_terms(user_id)
@@ -1364,6 +1579,9 @@ async def handle_private_message(message: Message) -> None:
                     message,
                     f"Напишите текстом:\n- {get_string('accept_terms', lang)}\n- {get_string('agreement', lang)}",
                 )
+            return
+
+        if not await _ensure_vk_subscription_access(message, db, user_id, lang):
             return
 
         # Базовые команды
@@ -1418,11 +1636,6 @@ async def handle_private_message(message: Message) -> None:
             _reset_state(user_id)
             await _send_agreement(message, db, user_id)
             return
-        if text == _norm(get_string("menu_proxy", lang)):
-            _reset_state(user_id)
-            await _send_proxy(message, db, user_id)
-            return
-
         # Смена языка
         if text == _norm(get_string("select_lang", lang)):
             _reset_state(user_id)
@@ -1445,7 +1658,7 @@ async def handle_private_message(message: Message) -> None:
             return
 
         # Назад в меню
-        if text == _norm(get_string("back_main", lang)) or text == _norm(get_string("back", lang)):
+        if text == _norm(get_string("back_main", lang)):
             _reset_state(user_id)
             await _send_main_menu(message, db, user_id)
             return

@@ -45,6 +45,18 @@
         </div>
 
         <div class="mb-4">
+            <label class="form-label fw-bold">👥 ID VK сообщества (для обязательной подписки в VK-боте)</label>
+            <input type="text" name="vk_group_id" class="form-control" value="{{ vk_group_id }}" placeholder="123456789">
+            <div class="form-text">Оставьте пустым, чтобы отключить проверку подписки в VK.</div>
+        </div>
+
+        <div class="mb-4">
+            <label class="form-label fw-bold">🔗 Ссылка на VK сообщество</label>
+            <input type="text" name="vk_group_url" class="form-control" value="{{ vk_group_url }}" placeholder="https://vk.com/public123456789">
+            <div class="form-text">Ссылка, которую VK-бот отправит неподписанному пользователю.</div>
+        </div>
+
+        <div class="mb-4">
             <label class="form-label fw-bold">📖 Инструкция (Как пользоваться)</label>
             <textarea name="howto" class="form-control" rows="10">{{ howto }}</textarea>
             <div class="form-text">Отображается при нажатии кнопки "Инструкция" в боте и на сайте.</div>
@@ -54,6 +66,12 @@
             <label class="form-label fw-bold">💬 Контакт для поддержки и пополнения</label>
             <input type="text" name="support_contact" class="form-control" value="{{ support_contact }}" placeholder="https://t.me/bnbslow или @username или email@example.com">
             <div class="form-text">Ссылка на Telegram, email — для техподдержки и пополнения баланса на сайте.</div>
+        </div>
+
+        <div class="mb-4">
+            <label class="form-label fw-bold">💬 Контакт для VK (пополнение)</label>
+            <input type="text" name="support_contact_vk" class="form-control" value="{{ support_contact_vk }}" placeholder="https://vk.com/id123456 или https://vk.com/username">
+            <div class="form-text">Используется в VK-боте в сообщении пополнения. Если пусто — берется общий контакт поддержки.</div>
         </div>
 
         <button type="submit" class="btn btn-primary">Сохранить изменения</button>

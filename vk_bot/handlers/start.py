@@ -23,6 +23,7 @@ from bot.key_dispatcher import (
 from bot.strings import get_string
 from vk_bot.context import get_db
 from vk_bot.keyboards import (
+    aspect_ratio_keyboard,
     back_to_main_keyboard,
     language_keyboard,
     main_menu_keyboard,
@@ -37,6 +38,7 @@ logger = logging.getLogger(__name__)
 STATE_IDLE = "idle"
 STATE_WAIT_PHOTO = "wait_photo"
 STATE_WAIT_PROMPT = "wait_prompt"
+STATE_WAIT_ASPECT = "wait_aspect"
 STATE_CONSTRUCTOR_STEP = "constructor_step"
 STATE_CONSTRUCTOR_CONFIRM = "constructor_confirm"
 STATE_RESULT_READY = "result_ready"
@@ -1247,6 +1249,41 @@ async def _handle_generation_prompt_step(message: Message, db: Database, user_id
         await _reply(message, get_string("upload_photo", lang), keyboard=back_to_main_keyboard(lang))
         return True
 
+    # Сохраняем промпт и переходим к выбору формата (как в TG)
+    st.step_values = st.step_values or {}
+    st.step_values["prompt"] = prompt
+    st.stage = STATE_WAIT_ASPECT
+    st.updated_at = time.time()
+    await _reply(
+        message,
+        get_string("select_format", lang),
+        keyboard=aspect_ratio_keyboard(lang),
+    )
+    return True
+
+
+async def _handle_generation_aspect_step(message: Message, db: Database, user_id: int, lang: str) -> bool:
+    st = _get_state(user_id)
+    if st.stage != STATE_WAIT_ASPECT:
+        return False
+
+    text_raw = (message.text or "").strip()
+    if text_raw == _norm(get_string("back_main", lang)):
+        st.stage = STATE_WAIT_PROMPT
+        st.updated_at = time.time()
+        await _reply(message, get_string("enter_prompt", lang), keyboard=back_to_main_keyboard(lang))
+        return True
+
+    # Допустимые форматы (поддержка 1:1, 9:16, 16:9, 4:5, 3:4, 4:3, 3:2, 2:3)
+    aspect_map = {"1:1": "1:1", "9:16": "9:16", "16:9": "16:9", "4:5": "4:5", "3:4": "3:4", "4:3": "4:3", "3:2": "3:2", "2:3": "2:3"}
+    aspect = aspect_map.get(text_raw.replace("x", ":").replace(" ", ""))
+    if not aspect:
+        aspect = "1:1"
+
+    st.step_values = st.step_values or {}
+    st.step_values["aspect"] = aspect
+    prompt = st.step_values.get("prompt", "")
+
     balance = await db.get_user_balance(user_id)
     price = await db.get_user_generation_price(user_id)
     if balance < price:
@@ -1255,14 +1292,14 @@ async def _handle_generation_prompt_step(message: Message, db: Database, user_id
 
     key_id, api_key, key_lock = await _pick_api_key(db)
     if not api_key:
-        await _reply(message, get_string("api_limit_reached", lang), keyboard=back_to_main_keyboard(lang))
+        await _reply(message, get_string("api_limit_reached", lang), keyboard=aspect_ratio_keyboard(lang))
         return True
 
     await _reply(message, get_string("gen_in_progress", lang), keyboard=_generation_reset_keyboard(lang))
     try:
         category_prompt = await _get_category_prefix_prompt(db, st.category)
         final_prompt = f"{category_prompt}\n\n{prompt}".strip() if category_prompt else prompt
-        aspect = _normalize_aspect_for_gemini(st.step_values.get("aspect") if st.step_values else "1:1")
+        aspect = _normalize_aspect_for_gemini(aspect)
         try:
             total_timeout_s = int(os.getenv("GENERATION_TOTAL_TIMEOUT_SECONDS", "240"))
         except Exception:
@@ -1665,6 +1702,8 @@ async def handle_private_message(message: Message) -> None:
 
         # Шаги генерации
         if await _handle_generation_photo_step(message, db, user_id, lang):
+            return
+        if await _handle_generation_aspect_step(message, db, user_id, lang):
             return
         if await _handle_generation_prompt_step(message, db, user_id, lang):
             return

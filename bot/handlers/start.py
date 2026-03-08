@@ -472,6 +472,7 @@ async def _show_confirmation(message_or_callback: Message | CallbackQuery, state
 
     if data.get("normal_gen_mode"):
         parts.append(f"📝 **Промпт**: {data.get('prompt', '—')}\n")
+        parts.append(f"🖼 **Формат фото**: {data.get('aspect', '1:1')}\n")
 
     parts.append(f"\n{get_string('generation_confirm', lang)}")
     
@@ -1092,9 +1093,9 @@ async def on_create_photo(callback: CallbackQuery, db: Database, state: FSMConte
         await _safe_answer(callback, get_string("limit_rem_zero", lang), show_alert=True)
         return
     
-    # Обычная генерация: фото (до 4) -> промпт -> генерация
+    # Обычная генерация: фото (до 4) -> промпт -> формат -> генерация
     # НЕ ОЧИЩАЕМ ВЕСЬ state, чтобы не сбить параллельные загрузки, а обновляем ключи
-    await state.update_data(category="normal", normal_gen_mode=True, aspect="auto", photos=[], last_photos_msg_id=None)
+    await state.update_data(category="normal", normal_gen_mode=True, photos=[], last_photos_msg_id=None)
     
     text = "📸 Пришлите до 4 фото (можно по одному или серией)."
     await _replace_with_text(callback, text, reply_markup=back_main_keyboard(lang))
@@ -2037,9 +2038,7 @@ async def on_prompt_input(message: Message, state: FSMContext, db: Database) -> 
     
     await state.update_data(prompt=prompt)
     data = await state.get_data()
-    if data.get("normal_gen_mode"):
-        await _do_generate(message, state, db)
-        return
+    # Для всех режимов (включая обычную генерацию) — выбор формата перед генерацией
     await message.answer(get_string("select_format", lang), reply_markup=aspect_ratio_keyboard(lang))
     await state.set_state(CreateForm.waiting_aspect)
 
@@ -2064,9 +2063,12 @@ async def on_aspect_selected(callback: CallbackQuery, state: FSMContext, db: Dat
     # Приводим к единому формату
     aspect = aspect.replace('x', ':')
     await state.update_data(aspect=aspect)
-    
-    # Возвращаемся в основной флоу для показа подтверждения
-    await _show_next_step(callback, state, db)
+    data = await state.get_data()
+    # Обычная генерация не имеет шагов в БД — сразу показываем подтверждение
+    if data.get("normal_gen_mode"):
+        await _show_confirmation(callback, state, db)
+    else:
+        await _show_next_step(callback, state, db)
     await _safe_answer(callback)
 
 
@@ -3598,6 +3600,15 @@ Fill frame, no borders."""
         else:
             logger.info("[PROMPT] own_variant: using %s prompt, length=%d", "admin" if own_variant_from_admin else "fallback-db", len(base))
         prompt_filled = apply_replacements(base)
+        # Жесткий постфикс: при конфликте между фото приоритет всегда у товара со 2-го фото.
+        prompt_filled = (
+            prompt_filled
+            + "\n\nABSOLUTE CONFLICT RESOLUTION RULES (MUST FOLLOW):\n"
+              "- [CLOTHING_ITEM_TO_WEAR_IMAGE] (photo 2) is the ONLY source of garment properties.\n"
+              "- If there is ANY conflict between photo 1 and photo 2 (length, silhouette, color, sleeve, print, material), ALWAYS choose photo 2.\n"
+              "- NEVER copy garment details from photo 1.\n"
+              "- Remove old garment from photo 1 completely and replace with garment from photo 2."
+        )
 
     elif data.get("random_other_mode"):
         # Для рандома часто промпт строится динамически, но если есть базовый — применяем
@@ -4158,6 +4169,9 @@ async def _do_generate_real(message_or_callback: Message | CallbackQuery, state:
         last_error_msg = ""
         key_busy_skips = 0
         keys_tried = 0
+        last_key_id = None
+        last_key_preview = ""
+        last_model_used = ""
         max_keys_to_try = len(active_keys)
         try:
             key_lock_wait_s = float(os.getenv("GENERATION_KEY_LOCK_WAIT_SECONDS", "12"))
@@ -4240,6 +4254,7 @@ async def _do_generate_real(message_or_callback: Message | CallbackQuery, state:
                 except Exception:
                     key_timeout_s = 240
                 key_timeout_s = max(90, min(key_timeout_s, 600))
+                gen_meta: dict = {}
                 result_path = await asyncio.wait_for(
                     generate_image(
                         api_key=token,
@@ -4249,9 +4264,13 @@ async def _do_generate_real(message_or_callback: Message | CallbackQuery, state:
                         quality=quality,
                         key_id=kid,
                         db_instance=db,
+                        generation_meta=gen_meta,
                     ),
                     timeout=key_timeout_s,
                 )
+                last_key_id = kid
+                last_key_preview = f"{str(token)[:10]}..."
+                last_model_used = str(gen_meta.get("model_used") or "")
                 
                 if result_path:
                     await db.record_api_usage(kid)
@@ -4314,11 +4333,17 @@ async def _do_generate_real(message_or_callback: Message | CallbackQuery, state:
                     except Exception as e:
                         logger.error(f"Error downloading images for history: {e}")
 
+                    history_payload = dict(data or {})
+                    history_payload["_generation_meta"] = {
+                        "key_id": kid,
+                        "api_key_preview": last_key_preview,
+                        "model_used": last_model_used or "gemini-3-pro-image-preview",
+                    }
                     await db.add_generation_history(
                         pid=pid,
                         user_id=user_id,
                         category=category,
-                        params=json.dumps(data),
+                        params=json.dumps(history_payload),
                         input_photos=json.dumps(input_photos),
                         result_photo_id=db_result_path,
                         input_paths=json.dumps(local_input_paths),
@@ -4337,6 +4362,8 @@ async def _do_generate_real(message_or_callback: Message | CallbackQuery, state:
             except asyncio.TimeoutError as e:
                 logger.error(f"Таймаут генерации на ключе {kid}: {e}", exc_info=True)
                 last_error_msg = "generation_timeout"
+                last_key_id = kid
+                last_key_preview = f"{str(token)[:10]}..."
                 from bot.gemini import is_proxy_error
                 await db.record_api_error(kid, token[:10], "TimeoutError", "Generation timed out", is_proxy_error=True)
                 # На таймауте переключаемся на следующий ключ.
@@ -4345,6 +4372,8 @@ async def _do_generate_real(message_or_callback: Message | CallbackQuery, state:
                 logger.error(f"Ошибка генерации на ключе {kid}: {e}", exc_info=True)
                 err_raw = str(e or "").strip()
                 last_error_msg = err_raw or f"unclassified_exception:{type(e).__name__}"
+                last_key_id = kid
+                last_key_preview = f"{str(token)[:10]}..."
                 from bot.gemini import is_proxy_error, is_fatal_key_error
                 await db.record_api_error(kid, token[:10], type(e).__name__, str(e), is_proxy_error=is_proxy_error(e))
                 err_type = str(getattr(e, "error_type", "") or "").lower()
@@ -4403,7 +4432,9 @@ async def _do_generate_real(message_or_callback: Message | CallbackQuery, state:
                     "⚠️ Ошибка генерации\n"
                     f"User: {user_id}\n"
                     f"Category: {category}\n"
-                    f"Error: {short_err}"
+                    f"Error: {short_err}\n"
+                    f"Key: {last_key_id or 'n/a'} ({last_key_preview or 'n/a'})\n"
+                    f"Model: {last_model_used or 'n/a'}"
                 )
                 for aid in admin_ids:
                     try:
@@ -4450,7 +4481,9 @@ async def _do_generate_real(message_or_callback: Message | CallbackQuery, state:
                 "⚠️ Ошибка генерации\n"
                 f"User: {user_id}\n"
                 f"Category: {category}\n"
-                f"Error: {crit_err}"
+                f"Error: {crit_err}\n"
+                f"Key: {last_key_id or 'n/a'} ({last_key_preview or 'n/a'})\n"
+                f"Model: {last_model_used or 'n/a'}"
             )
             for aid in admin_ids:
                 try:
@@ -4632,6 +4665,8 @@ async def on_result_edit_text_real(message: Message, state: FSMContext, db: Data
         kid_used = None
         key_busy_skips = 0
         last_error_msg = ""
+        key_preview_used = ""
+        model_used = ""
         
         from bot.gemini import generate_image
         raw_aspect = data.get("aspect") or "1:1"
@@ -4681,6 +4716,7 @@ async def on_result_edit_text_real(message: Message, state: FSMContext, db: Data
                 except Exception:
                     key_timeout_s = 240
                 key_timeout_s = max(90, min(key_timeout_s, 600))
+                gen_meta: dict = {}
                 result_path = await asyncio.wait_for(
                     generate_image(
                         api_key=token,
@@ -4690,11 +4726,14 @@ async def on_result_edit_text_real(message: Message, state: FSMContext, db: Data
                         quality=quality,
                         key_id=kid,
                         db_instance=db,
+                        generation_meta=gen_meta,
                     ),
                     timeout=key_timeout_s,
                 )
                 if result_path:
                     kid_used = kid
+                    key_preview_used = f"{str(token)[:10]}..."
+                    model_used = str(gen_meta.get("model_used") or "")
                 else:
                     last_error_msg = "empty_result"
                 break
@@ -4807,7 +4846,14 @@ async def on_result_edit_text_real(message: Message, state: FSMContext, db: Data
                 pid=pid,
                 user_id=user_id,
                 category=category,
-                params=json.dumps(data),
+                params=json.dumps({
+                    **(data or {}),
+                    "_generation_meta": {
+                        "key_id": kid_used,
+                        "api_key_preview": key_preview_used,
+                        "model_used": model_used or "gemini-3-pro-image-preview",
+                    },
+                }),
                 input_photos=json.dumps(input_photos),
                 result_photo_id=db_result_path,
                 input_paths=json.dumps(local_input_paths),

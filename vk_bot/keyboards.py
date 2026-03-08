@@ -87,3 +87,18 @@ def back_to_main_keyboard(lang: str = "ru") -> str:
     keyboard = Keyboard(one_time=True, inline=False)
     keyboard.add(Text(get_string("back_main", lang)), color=KeyboardButtonColor.NEGATIVE)
     return keyboard.get_json()
+
+
+def aspect_ratio_keyboard(lang: str = "ru") -> str:
+    """Клавиатура выбора формата фото для обычной генерации (VK)"""
+    keyboard = Keyboard(one_time=True, inline=False)
+    keyboard.add(Text("1:1"), color=KeyboardButtonColor.SECONDARY)
+    keyboard.add(Text("9:16"), color=KeyboardButtonColor.SECONDARY)
+    keyboard.add(Text("16:9"), color=KeyboardButtonColor.SECONDARY)
+    keyboard.row()
+    keyboard.add(Text("4:5"), color=KeyboardButtonColor.SECONDARY)
+    keyboard.add(Text("3:4"), color=KeyboardButtonColor.SECONDARY)
+    keyboard.add(Text("4:3"), color=KeyboardButtonColor.SECONDARY)
+    keyboard.row()
+    keyboard.add(Text(get_string("back_main", lang)), color=KeyboardButtonColor.NEGATIVE)
+    return keyboard.get_json()

@@ -471,6 +471,7 @@ async def generate_image(
     key_id: int | None = None,
     db_instance = None,
     images_bytes: list[bytes] = None,
+    generation_meta: dict | None = None,
 ) -> Optional[str]:
     """
     Генерирует изображение через Gemini API.
@@ -600,6 +601,10 @@ async def generate_image(
             break
 
     if result_bytes is None and last_err is not None:
+        if generation_meta is not None:
+            generation_meta["model_used"] = selected_model
+            generation_meta["proxy_used"] = selected_proxy
+            generation_meta["key_id"] = key_id
         raise last_err
 
     # Если генерация с прокси заняла слишком долго — только логируем (без авто-деактивации).
@@ -621,6 +626,10 @@ async def generate_image(
         out_path = os.path.join(data_dir, f"result_{uuid.uuid4()}.jpg")
         with open(out_path, "wb") as f:
             f.write(result_bytes)
+        if generation_meta is not None:
+            generation_meta["model_used"] = selected_model
+            generation_meta["proxy_used"] = selected_proxy
+            generation_meta["key_id"] = key_id
         return f"data/{os.path.basename(out_path)}"
         
     return None

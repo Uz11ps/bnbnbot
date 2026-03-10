@@ -607,8 +607,32 @@ def _should_skip_step(step_key: str, values: dict[str, str]) -> bool:
 async def _load_model_photo_bytes(raw: str | None) -> bytes | None:
     if not raw:
         return None
-    # Telegram file_id в VK недоступен напрямую
-    if raw.startswith("AgAC"):
+    # Если в БД лежит Telegram file_id, пробуем скачать файл через Bot API
+    # и затем показать его как VK attachment.
+    if raw.startswith("AgAC") or raw.startswith("AQAD"):
+        token = (os.getenv("BOT_TOKEN", "") or os.getenv("OLD_BOT_TOKEN", "")).strip()
+        if not token:
+            return None
+        try:
+            timeout = httpx.Timeout(connect=20.0, read=60.0, write=20.0, pool=20.0)
+            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+                meta = await client.get(
+                    f"https://api.telegram.org/bot{token}/getFile",
+                    params={"file_id": raw},
+                )
+                if meta.status_code != 200:
+                    return None
+                payload = meta.json()
+                if not payload.get("ok"):
+                    return None
+                file_path = ((payload.get("result") or {}).get("file_path") or "").strip()
+                if not file_path:
+                    return None
+                f = await client.get(f"https://api.telegram.org/file/bot{token}/{file_path}")
+                if f.status_code == 200 and f.content:
+                    return f.content
+        except Exception:
+            return None
         return None
     try:
         if raw.startswith("http://") or raw.startswith("https://"):
@@ -771,6 +795,11 @@ async def _constructor_back(message: Message, db: Database, user_id: int, lang: 
         st.stage = STATE_CONSTRUCTOR_STEP
         st.current_step_index = max(0, len(st.constructor_steps) - 1)
         await _show_constructor_step(message, db, user_id, lang)
+        return
+    # Если это самый первый шаг конструктора — "Назад" должен вернуть в раздел маркетплейсов.
+    if st.current_step_index <= 0:
+        _reset_state(user_id)
+        await _send_marketplace_menu(message, db, user_id)
         return
     st.current_step_index = max(0, st.current_step_index - 1)
     st.stage = STATE_CONSTRUCTOR_STEP

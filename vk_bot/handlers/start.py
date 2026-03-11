@@ -642,8 +642,6 @@ async def _load_model_photo_bytes(raw: str | None) -> bytes | None:
                 if r.status_code == 200 and r.content:
                     return r.content
             return None
-        import os
-
         p = raw if os.path.isabs(raw) else os.path.join("/app", raw.lstrip("/"))
         if os.path.exists(p):
             with open(p, "rb") as f:
